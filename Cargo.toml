@@ -16,3 +16,4 @@ libcudf-sys = { path = "libcudf-sys" }
 cxx = "1.0"
 arrow = { version = "57", features = ["ffi"] }
 arrow-schema = "57"
+thiserror = "2.0"

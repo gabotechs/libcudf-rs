@@ -28,6 +28,21 @@ use arrow::record_batch::RecordBatch;
 
 pub use libcudf_sys::ffi;
 
+/// Error type for libcudf-rs operations
+#[derive(Debug, thiserror::Error)]
+pub enum LibCuDFError {
+    /// Error from cuDF C++ library
+    #[error("cuDF error: {0}")]
+    CuDFError(#[from] cxx::Exception),
+
+    /// Arrow error during conversion or other operations
+    #[error(transparent)]
+    ArrowError(#[from] arrow::error::ArrowError),
+}
+
+/// Result type alias for libcudf-rs operations
+pub type Result<T> = std::result::Result<T, LibCuDFError>;
+
 /// A GPU-accelerated table (similar to a DataFrame)
 ///
 /// This is a safe wrapper around cuDF's table type.
@@ -65,6 +80,7 @@ impl Table {
     /// - The file does not exist or cannot be read
     /// - The Parquet format is invalid
     /// - There is insufficient GPU memory
+    /// - The path contains invalid UTF-8
     ///
     /// # Examples
     ///
@@ -72,13 +88,15 @@ impl Table {
     /// use libcudf_rs::Table;
     ///
     /// let table = Table::from_parquet("data.parquet")?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
-    pub fn from_parquet<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_parquet<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path_str = path
             .as_ref()
             .to_str()
-            .ok_or("Invalid path encoding")?;
+            .ok_or_else(|| arrow::error::ArrowError::InvalidArgumentError(
+                "Path contains invalid UTF-8".to_string()
+            ))?;
 
         let inner = ffi::read_parquet(path_str)?;
         Ok(Self { inner })
@@ -95,6 +113,7 @@ impl Table {
     /// Returns an error if:
     /// - The file cannot be created or written
     /// - There is insufficient GPU memory
+    /// - The path contains invalid UTF-8
     ///
     /// # Examples
     ///
@@ -103,13 +122,15 @@ impl Table {
     ///
     /// let table = Table::new();
     /// table.to_parquet("output.parquet")?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
-    pub fn to_parquet<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn to_parquet<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let path_str = path
             .as_ref()
             .to_str()
-            .ok_or("Invalid path encoding")?;
+            .ok_or_else(|| arrow::error::ArrowError::InvalidArgumentError(
+                "Path contains invalid UTF-8".to_string()
+            ))?;
 
         ffi::write_parquet(&self.inner, path_str)?;
         Ok(())
@@ -139,9 +160,9 @@ impl Table {
     /// # let batch: RecordBatch = todo!();
     /// // Convert Arrow RecordBatch to cuDF table for GPU acceleration
     /// let table = Table::from_arrow(batch)?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
-    pub fn from_arrow(batch: RecordBatch) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_arrow(batch: RecordBatch) -> Result<Self> {
         // Convert RecordBatch to StructArray
         let struct_array = StructArray::from(batch.clone());
         let array_data: ArrayData = struct_array.into_data();
@@ -180,9 +201,9 @@ impl Table {
     ///
     /// // Convert back to Arrow for further processing
     /// let batch = table.to_arrow()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
-    pub fn to_arrow(&self) -> Result<RecordBatch, Box<dyn std::error::Error>> {
+    pub fn to_arrow(&self) -> Result<RecordBatch> {
         // Create uninitialized Arrow C structures
         let mut ffi_schema = FFI_ArrowSchema::empty();
         let mut ffi_array = FFI_ArrowArray::empty();
@@ -268,9 +289,9 @@ impl Table {
     /// // Select columns 0, 2, and 4
     /// let selected = table.select(&[0, 2, 4])?;
     /// assert_eq!(selected.num_columns(), 3);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
-    pub fn select(&self, indices: &[usize]) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn select(&self, indices: &[usize]) -> Result<Self> {
         let inner = ffi::select_columns(&self.inner, indices)?;
         Ok(Self { inner })
     }
@@ -293,9 +314,9 @@ impl Table {
     /// let table = Table::from_parquet("data.parquet")?;
     /// let column = table.get_column(0)?;
     /// println!("Column has {} elements", column.size());
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
-    pub fn get_column(&self, index: usize) -> Result<Column, Box<dyn std::error::Error>> {
+    pub fn get_column(&self, index: usize) -> Result<Column> {
         let inner = ffi::get_column(&self.inner, index)?;
         Ok(Column { inner })
     }
@@ -324,9 +345,9 @@ impl Table {
     /// let mask = table.get_column(0)?; // Assume this is a boolean column
     /// let filtered = table.filter(&mask)?;
     /// println!("Filtered to {} rows", filtered.num_rows());
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
-    pub fn filter(&self, mask: &Column) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn filter(&self, mask: &Column) -> Result<Self> {
         let inner = ffi::filter(&self.inner, &mask.inner)?;
         Ok(Self { inner })
     }
@@ -346,6 +367,10 @@ impl Column {
     ///
     /// * `data` - Slice of boolean values
     ///
+    /// # Errors
+    ///
+    /// Returns an error if there is insufficient GPU memory
+    ///
     /// # Examples
     ///
     /// ```
@@ -353,9 +378,9 @@ impl Column {
     ///
     /// let mask = Column::from_bools(&[true, false, true, true, false])?;
     /// assert_eq!(mask.size(), 5);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
-    pub fn from_bools(data: &[bool]) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_bools(data: &[bool]) -> Result<Self> {
         let inner = ffi::create_boolean_column(data)?;
         Ok(Self { inner })
     }
@@ -370,7 +395,7 @@ impl Column {
     /// let table = Table::from_parquet("data.parquet")?;
     /// let column = table.get_column(0)?;
     /// println!("Column size: {}", column.size());
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
     pub fn size(&self) -> usize {
         self.inner.size()
