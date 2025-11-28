@@ -150,6 +150,135 @@ impl Table {
     pub fn is_empty(&self) -> bool {
         self.num_rows() == 0
     }
+
+    /// Select specific columns from the table by their indices
+    ///
+    /// Returns a new table containing only the specified columns.
+    ///
+    /// # Arguments
+    ///
+    /// * `indices` - Slice of column indices to select
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any index is out of bounds
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use libcudf_rs::Table;
+    ///
+    /// let table = Table::from_parquet("data.parquet")?;
+    /// // Select columns 0, 2, and 4
+    /// let selected = table.select(&[0, 2, 4])?;
+    /// assert_eq!(selected.num_columns(), 3);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn select(&self, indices: &[usize]) -> Result<Self, Box<dyn std::error::Error>> {
+        let inner = ffi::select_columns(&self.inner, indices)?;
+        Ok(Self { inner })
+    }
+
+    /// Get a specific column from the table by index
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The column index (0-based)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the index is out of bounds
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use libcudf_rs::Table;
+    ///
+    /// let table = Table::from_parquet("data.parquet")?;
+    /// let column = table.get_column(0)?;
+    /// println!("Column has {} elements", column.size());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn get_column(&self, index: usize) -> Result<Column, Box<dyn std::error::Error>> {
+        let inner = ffi::get_column(&self.inner, index)?;
+        Ok(Column { inner })
+    }
+
+    /// Filter rows based on a boolean mask column
+    ///
+    /// Returns a new table containing only the rows where the mask is true.
+    ///
+    /// # Arguments
+    ///
+    /// * `mask` - A boolean column where true means keep the row
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The mask has a different number of rows than the table
+    /// - The mask is not a boolean column
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use libcudf_rs::Table;
+    ///
+    /// let table = Table::from_parquet("data.parquet")?;
+    /// // Get a boolean column (e.g., from a comparison operation)
+    /// let mask = table.get_column(0)?; // Assume this is a boolean column
+    /// let filtered = table.filter(&mask)?;
+    /// println!("Filtered to {} rows", filtered.num_rows());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn filter(&self, mask: &Column) -> Result<Self, Box<dyn std::error::Error>> {
+        let inner = ffi::filter(&self.inner, &mask.inner)?;
+        Ok(Self { inner })
+    }
+}
+
+/// A GPU-accelerated column
+///
+/// This is a safe wrapper around cuDF's column type.
+pub struct Column {
+    inner: UniquePtr<ffi::Column>,
+}
+
+impl Column {
+    /// Create a new boolean column from a slice of bool values
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - Slice of boolean values
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libcudf_rs::Column;
+    ///
+    /// let mask = Column::from_bools(&[true, false, true, true, false])?;
+    /// assert_eq!(mask.size(), 5);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn from_bools(data: &[bool]) -> Result<Self, Box<dyn std::error::Error>> {
+        let inner = ffi::create_boolean_column(data)?;
+        Ok(Self { inner })
+    }
+
+    /// Get the number of elements in the column
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use libcudf_rs::Table;
+    ///
+    /// let table = Table::from_parquet("data.parquet")?;
+    /// let column = table.get_column(0)?;
+    /// println!("Column size: {}", column.size());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn size(&self) -> usize {
+        self.inner.size()
+    }
 }
 
 impl Default for Table {

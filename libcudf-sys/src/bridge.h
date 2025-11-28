@@ -51,6 +51,14 @@ std::unique_ptr<Table> create_empty_table();
 std::unique_ptr<Table> read_parquet(rust::Str filename);
 void write_parquet(const Table& table, rust::Str filename);
 
+// Table operations
+std::unique_ptr<Table> select_columns(const Table& table, rust::Slice<const size_t> indices);
+std::unique_ptr<Column> get_column(const Table& table, size_t index);
+std::unique_ptr<Table> filter(const Table& table, const Column& boolean_mask);
+
+// Column creation
+std::unique_ptr<Column> create_boolean_column(rust::Slice<const bool> data);
+
 // Utility functions
 rust::String get_cudf_version();
 

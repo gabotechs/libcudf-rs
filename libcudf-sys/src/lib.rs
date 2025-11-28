@@ -33,6 +33,14 @@ pub mod ffi {
         fn read_parquet(filename: &str) -> Result<UniquePtr<Table>>;
         fn write_parquet(table: &Table, filename: &str) -> Result<()>;
 
+        // Table operations
+        fn select_columns(table: &Table, indices: &[usize]) -> Result<UniquePtr<Table>>;
+        fn get_column(table: &Table, index: usize) -> Result<UniquePtr<Column>>;
+        fn filter(table: &Table, boolean_mask: &Column) -> Result<UniquePtr<Table>>;
+
+        // Column creation
+        fn create_boolean_column(data: &[bool]) -> Result<UniquePtr<Column>>;
+
         // Utility functions
         fn get_cudf_version() -> String;
     }
