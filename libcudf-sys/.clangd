@@ -1,0 +1,34 @@
+# Clangd configuration for libcudf-sys C++ bridge
+# This config is scoped to the libcudf-sys directory only
+
+CompileFlags:
+  CompilationDatabase: .
+  Add:
+    - -ferror-limit=0
+  Remove:
+    # Remove problematic flags that clangd doesn't handle well
+    - -forward-unknown-to-host-compiler
+    - --generate-code*
+
+Diagnostics:
+  UnusedIncludes: None
+  # Suppress some noisy warnings from CUDA/cuDF headers
+  Suppress:
+    - "-Wdeprecated-declarations"
+  ClangTidy:
+    Remove:
+      - modernize-use-trailing-return-type
+      - readability-identifier-length
+      - misc-no-recursion
+    CheckOptions:
+      readability-identifier-naming.VariableCase: lower_case
+      readability-identifier-naming.FunctionCase: lower_case
+      readability-identifier-naming.NamespaceCase: lower_case
+
+InlayHints:
+  Enabled: Yes
+  ParameterNames: Yes
+  DeducedTypes: Yes
+
+Hover:
+  ShowAKA: Yes
