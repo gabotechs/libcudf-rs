@@ -27,29 +27,13 @@ pub mod ffi {
         fn size(self: &Column) -> usize;
 
         // Factory functions
-        /// Create an empty table
         fn create_empty_table() -> UniquePtr<Table>;
 
-        /// Read a CSV file into a table
-        ///
-        /// # Arguments
-        /// * `filename` - Path to the CSV file
-        ///
-        /// # Errors
-        /// Returns an error if the file cannot be read or parsed
-        fn read_csv(filename: &str) -> Result<UniquePtr<Table>>;
+        // Parquet I/O
+        fn read_parquet(filename: &str) -> Result<UniquePtr<Table>>;
+        fn write_parquet(table: &Table, filename: &str) -> Result<()>;
 
-        /// Write a table to a CSV file
-        ///
-        /// # Arguments
-        /// * `table` - The table to write
-        /// * `filename` - Path to the output CSV file
-        ///
-        /// # Errors
-        /// Returns an error if the file cannot be written
-        fn write_csv(table: &Table, filename: &str) -> Result<()>;
-
-        /// Get cuDF version information
+        // Utility functions
         fn get_cudf_version() -> String;
     }
 }

@@ -44,16 +44,14 @@ struct Column {
     size_t size() const;
 };
 
-// Factory functions for creating cuDF objects
+// Table factory functions
 std::unique_ptr<Table> create_empty_table();
 
-// Example: Read CSV file
-std::unique_ptr<Table> read_csv(rust::Str filename);
+// Parquet I/O
+std::unique_ptr<Table> read_parquet(rust::Str filename);
+void write_parquet(const Table& table, rust::Str filename);
 
-// Example: Write CSV file
-void write_csv(const Table& table, rust::Str filename);
-
-// Get cuDF version information
+// Utility functions
 rust::String get_cudf_version();
 
 } // namespace libcudf_bridge

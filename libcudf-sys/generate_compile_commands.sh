@@ -20,12 +20,12 @@ cat > compile_commands.json <<EOF
 [
   {
     "directory": "$(pwd)",
-    "command": "c++ -std=c++17 -I src $CXX_INCLUDE $CXX_CRATE -I $CUDF_ROOT/cpp/include -I $CUDF_ROOT/cpp/build/include -I $CUDF_ROOT/cpp/build/_deps/rmm-src/cpp/include -I $CUDF_ROOT/cpp/build/_deps/cccl-src/libcudacxx/include -I $CUDF_ROOT/cpp/build/_deps/cccl-src/thrust -I $CUDF_ROOT/cpp/build/_deps/cccl-src/cub -I $CUDA_ROOT/include -DLIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE -Wno-unused-parameter -Wno-deprecated-declarations -c src/bridge.cpp",
+    "command": "c++ -std=c++20 -I src $CXX_INCLUDE $CXX_CRATE -I $CUDF_ROOT/cpp/include -I $CUDF_ROOT/cpp/build/include -I $CUDF_ROOT/cpp/build/_deps/rmm-src/cpp/include -I $CUDF_ROOT/cpp/build/_deps/cccl-src/libcudacxx/include -I $CUDF_ROOT/cpp/build/_deps/cccl-src/thrust -I $CUDF_ROOT/cpp/build/_deps/cccl-src/cub -I $CUDA_ROOT/include -DLIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE -Wno-unused-parameter -Wno-deprecated-declarations -c src/bridge.cpp",
     "file": "src/bridge.cpp"
   },
   {
     "directory": "$(pwd)",
-    "command": "c++ -std=c++17 -I src $CXX_INCLUDE $CXX_CRATE -I $CUDF_ROOT/cpp/include -I $CUDF_ROOT/cpp/build/include -I $CUDF_ROOT/cpp/build/_deps/rmm-src/cpp/include -I $CUDF_ROOT/cpp/build/_deps/cccl-src/libcudacxx/include -I $CUDF_ROOT/cpp/build/_deps/cccl-src/thrust -I $CUDF_ROOT/cpp/build/_deps/cccl-src/cub -I $CUDA_ROOT/include -DLIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE -Wno-unused-parameter -Wno-deprecated-declarations -c src/bridge.h",
+    "command": "c++ -std=c++20 -I src $CXX_INCLUDE $CXX_CRATE -I $CUDF_ROOT/cpp/include -I $CUDF_ROOT/cpp/build/include -I $CUDF_ROOT/cpp/build/_deps/rmm-src/cpp/include -I $CUDF_ROOT/cpp/build/_deps/cccl-src/libcudacxx/include -I $CUDF_ROOT/cpp/build/_deps/cccl-src/thrust -I $CUDF_ROOT/cpp/build/_deps/cccl-src/cub -I $CUDA_ROOT/include -DLIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE -Wno-unused-parameter -Wno-deprecated-declarations -c src/bridge.h",
     "file": "src/bridge.h"
   }
 ]

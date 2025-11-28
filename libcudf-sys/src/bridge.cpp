@@ -3,8 +3,7 @@
 
 #include <cudf/table/table.hpp>
 #include <cudf/column/column.hpp>
-#include <cudf/io/csv.hpp>
-#include <cudf/utilities/error.hpp>
+#include <cudf/io/parquet.hpp>
 #include <cudf/version_config.hpp>
 
 #include <stdexcept>
@@ -51,69 +50,25 @@ std::unique_ptr<Table> create_empty_table() {
     return table;
 }
 
-std::unique_ptr<Table> read_csv(rust::Str filename) {
-    try {
-        std::string filename_str(filename.data(), filename.size());
+// Parquet I/O
+std::unique_ptr<Table> read_parquet(rust::Str filename) {
+    std::string filename_str(filename.data(), filename.size());
+    auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info{filename_str});
+    auto result = cudf::io::read_parquet(options.build());
 
-        // Configure CSV reader options
-        auto options = cudf::io::csv_reader_options::builder(cudf::io::source_info{filename_str});
-
-        // Read the CSV file
-        auto result = cudf::io::read_csv(options.build());
-
-        // Wrap in our Table type
-        auto table = std::make_unique<Table>();
-        table->inner = std::move(result.tbl);
-
-        return table;
-    } catch (const cudf::logic_error& e) {
-        std::ostringstream oss;
-        oss << "cuDF logic error: " << e.what();
-        throw std::runtime_error(oss.str());
-    } catch (const cudf::cuda_error& e) {
-        std::ostringstream oss;
-        oss << "CUDA error: " << e.what();
-        throw std::runtime_error(oss.str());
-    } catch (const std::exception& e) {
-        std::ostringstream oss;
-        oss << "Error reading CSV: " << e.what();
-        throw std::runtime_error(oss.str());
-    }
+    auto table = std::make_unique<Table>();
+    table->inner = std::move(result.tbl);
+    return table;
 }
 
-void write_csv(const Table& table, rust::Str filename) {
-    try {
-        if (!table.inner) {
-            throw std::runtime_error("Cannot write null table");
-        }
-
-        std::string filename_str(filename.data(), filename.size());
-
-        // Create a table view for writing
-        auto view = table.inner->view();
-
-        // Configure CSV writer options
-        auto options = cudf::io::csv_writer_options::builder(
-            cudf::io::sink_info{filename_str},
-            view
-        );
-
-        // Write the CSV file
-        cudf::io::write_csv(options.build());
-
-    } catch (const cudf::logic_error& e) {
-        std::ostringstream oss;
-        oss << "cuDF logic error: " << e.what();
-        throw std::runtime_error(oss.str());
-    } catch (const cudf::cuda_error& e) {
-        std::ostringstream oss;
-        oss << "CUDA error: " << e.what();
-        throw std::runtime_error(oss.str());
-    } catch (const std::exception& e) {
-        std::ostringstream oss;
-        oss << "Error writing CSV: " << e.what();
-        throw std::runtime_error(oss.str());
-    }
+void write_parquet(const Table& table, rust::Str filename) {
+    std::string filename_str(filename.data(), filename.size());
+    auto view = table.inner->view();
+    auto options = cudf::io::parquet_writer_options::builder(
+        cudf::io::sink_info{filename_str},
+        view
+    );
+    cudf::io::write_parquet(options.build());
 }
 
 rust::String get_cudf_version() {

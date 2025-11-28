@@ -8,13 +8,13 @@
 //! ```no_run
 //! use libcudf_rs::Table;
 //!
-//! // Read a CSV file
-//! let table = Table::from_csv("data.csv").expect("Failed to read CSV");
+//! // Read a Parquet file
+//! let table = Table::from_parquet("data.parquet").expect("Failed to read Parquet");
 //! println!("Loaded table with {} rows and {} columns",
 //!          table.num_rows(), table.num_columns());
 //!
-//! // Write to CSV
-//! table.to_csv("output.csv").expect("Failed to write CSV");
+//! // Write to Parquet
+//! table.to_parquet("output.parquet").expect("Failed to write Parquet");
 //! ```
 
 use cxx::UniquePtr;
@@ -47,17 +47,17 @@ impl Table {
         }
     }
 
-    /// Read a table from a CSV file
+    /// Read a table from a Parquet file
     ///
     /// # Arguments
     ///
-    /// * `path` - Path to the CSV file
+    /// * `path` - Path to the Parquet file
     ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - The file does not exist or cannot be read
-    /// - The CSV format is invalid
+    /// - The Parquet format is invalid
     /// - There is insufficient GPU memory
     ///
     /// # Examples
@@ -65,24 +65,24 @@ impl Table {
     /// ```no_run
     /// use libcudf_rs::Table;
     ///
-    /// let table = Table::from_csv("data.csv")?;
+    /// let table = Table::from_parquet("data.parquet")?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn from_csv<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_parquet<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
         let path_str = path
             .as_ref()
             .to_str()
             .ok_or("Invalid path encoding")?;
 
-        let inner = ffi::read_csv(path_str)?;
+        let inner = ffi::read_parquet(path_str)?;
         Ok(Self { inner })
     }
 
-    /// Write the table to a CSV file
+    /// Write the table to a Parquet file
     ///
     /// # Arguments
     ///
-    /// * `path` - Path where the CSV file will be written
+    /// * `path` - Path where the Parquet file will be written
     ///
     /// # Errors
     ///
@@ -96,16 +96,16 @@ impl Table {
     /// use libcudf_rs::Table;
     ///
     /// let table = Table::new();
-    /// table.to_csv("output.csv")?;
+    /// table.to_parquet("output.parquet")?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn to_csv<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn to_parquet<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
         let path_str = path
             .as_ref()
             .to_str()
             .ok_or("Invalid path encoding")?;
 
-        ffi::write_csv(&self.inner, path_str)?;
+        ffi::write_parquet(&self.inner, path_str)?;
         Ok(())
     }
 
