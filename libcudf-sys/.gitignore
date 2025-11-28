@@ -1,4 +1,3 @@
-/target
-/.idea
+# Clangd LSP files
 compile_commands.json
 .cache/
