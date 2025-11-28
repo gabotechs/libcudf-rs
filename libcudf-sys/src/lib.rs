@@ -72,5 +72,6 @@ mod tests {
     fn test_get_version() {
         let version = ffi::get_cudf_version();
         assert!(!version.is_empty());
+        println!("cuDF version: {}", version);
     }
 }

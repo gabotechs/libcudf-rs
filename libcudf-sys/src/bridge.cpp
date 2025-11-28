@@ -5,6 +5,7 @@
 #include <cudf/column/column.hpp>
 #include <cudf/io/csv.hpp>
 #include <cudf/utilities/error.hpp>
+#include <cudf/version_config.hpp>
 
 #include <stdexcept>
 #include <sstream>
@@ -116,9 +117,11 @@ void write_csv(const Table& table, rust::Str filename) {
 }
 
 rust::String get_cudf_version() {
-    // cuDF doesn't have a direct version API, but we can return a placeholder
-    // In practice, you might want to define this at build time
-    return rust::String("cuDF version (via libcudf-rs)");
+    std::ostringstream version;
+    version << CUDF_VERSION_MAJOR << "."
+            << CUDF_VERSION_MINOR << "."
+            << CUDF_VERSION_PATCH;
+    return rust::String(version.str());
 }
 
 } // namespace libcudf_bridge
