@@ -41,6 +41,10 @@ pub mod ffi {
         // Column creation
         fn create_boolean_column(data: &[bool]) -> Result<UniquePtr<Column>>;
 
+        // Arrow interop
+        unsafe fn from_arrow(schema_ptr: *mut u8, array_ptr: *mut u8) -> Result<UniquePtr<Table>>;
+        unsafe fn to_arrow(table: &Table, schema_ptr: *mut u8, array_ptr: *mut u8) -> Result<()>;
+
         // Utility functions
         fn get_cudf_version() -> String;
     }

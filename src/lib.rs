@@ -19,6 +19,12 @@
 
 use cxx::UniquePtr;
 use std::path::Path;
+use std::sync::Arc;
+
+use arrow::array::{Array, ArrayData, StructArray};
+use arrow::datatypes::Schema;
+use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
+use arrow::record_batch::RecordBatch;
 
 pub use libcudf_sys::ffi;
 
@@ -107,6 +113,96 @@ impl Table {
 
         ffi::write_parquet(&self.inner, path_str)?;
         Ok(())
+    }
+
+    /// Create a table from an Arrow RecordBatch
+    ///
+    /// This enables seamless integration with arrow-rs, allowing you to use
+    /// Arrow's rich ecosystem and then accelerate operations with cuDF on GPU.
+    ///
+    /// # Arguments
+    ///
+    /// * `batch` - An Arrow RecordBatch
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The Arrow data cannot be converted to cuDF format
+    /// - There is insufficient GPU memory
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use arrow::record_batch::RecordBatch;
+    /// use libcudf_rs::Table;
+    ///
+    /// # let batch: RecordBatch = todo!();
+    /// // Convert Arrow RecordBatch to cuDF table for GPU acceleration
+    /// let table = Table::from_arrow(batch)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn from_arrow(batch: RecordBatch) -> Result<Self, Box<dyn std::error::Error>> {
+        // Convert RecordBatch to StructArray
+        let struct_array = StructArray::from(batch.clone());
+        let array_data: ArrayData = struct_array.into_data();
+
+        // Export to Arrow C ABI
+        let ffi_array = FFI_ArrowArray::new(&array_data);
+        let ffi_schema = FFI_ArrowSchema::try_from(batch.schema().as_ref())?;
+
+        // Get raw pointers - must keep ffi_schema and ffi_array alive during the FFI call
+        let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *mut u8;
+        let array_ptr = &ffi_array as *const FFI_ArrowArray as *mut u8;
+
+        // Pass to cuDF via FFI (unsafe because we're passing raw pointers)
+        let inner = unsafe { ffi::from_arrow(schema_ptr, array_ptr)? };
+        Ok(Self { inner })
+    }
+
+    /// Convert the table to an Arrow RecordBatch
+    ///
+    /// This allows you to use cuDF for GPU-accelerated operations and then
+    /// return the results to arrow-rs for further processing or output.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The cuDF data cannot be converted to Arrow format
+    /// - There is insufficient memory
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use libcudf_rs::Table;
+    ///
+    /// let table = Table::from_parquet("data.parquet")?;
+    /// // Perform GPU operations...
+    ///
+    /// // Convert back to Arrow for further processing
+    /// let batch = table.to_arrow()?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn to_arrow(&self) -> Result<RecordBatch, Box<dyn std::error::Error>> {
+        // Create uninitialized Arrow C structures
+        let mut ffi_schema = FFI_ArrowSchema::empty();
+        let mut ffi_array = FFI_ArrowArray::empty();
+
+        // Get raw pointers
+        let schema_ptr = &mut ffi_schema as *mut FFI_ArrowSchema as *mut u8;
+        let array_ptr = &mut ffi_array as *mut FFI_ArrowArray as *mut u8;
+
+        // Get data from cuDF via FFI (unsafe because we're passing raw pointers)
+        unsafe { ffi::to_arrow(&self.inner, schema_ptr, array_ptr)? };
+
+        // Import schema and array from Arrow C ABI (unsafe because we're trusting the FFI data)
+        let schema = Arc::new(Schema::try_from(&ffi_schema)?);
+        let array_data = unsafe { from_ffi(ffi_array, &ffi_schema)? };
+        let struct_array = StructArray::from(array_data);
+
+        // Convert StructArray to RecordBatch
+        let batch = RecordBatch::try_new(schema, struct_array.columns().to_vec())?;
+
+        Ok(batch)
     }
 
     /// Get the number of rows in the table

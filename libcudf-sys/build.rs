@@ -122,6 +122,8 @@ fn main() {
     let libcudacxx_include = cccl_base.join("libcudacxx/include");
     let thrust_include = cccl_base.join("thrust");
     let cub_include = cccl_base.join("cub");
+    let nanoarrow_include = cmake_build_dir.join("_deps/nanoarrow-src/src");
+    let nanoarrow_build_include = cmake_build_dir.join("_deps/nanoarrow-build/src");
 
     let cuda_root = env::var("CUDA_ROOT")
         .or_else(|_| env::var("CUDA_HOME"))
@@ -139,6 +141,8 @@ fn main() {
         .include(&libcudacxx_include)
         .include(&thrust_include)
         .include(&cub_include)
+        .include(&nanoarrow_include)
+        .include(&nanoarrow_build_include)
         .include(&cuda_include)
         .define("LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE", None)
         .flag_if_supported("-Wno-unused-parameter")

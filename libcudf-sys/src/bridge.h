@@ -5,6 +5,10 @@
 #include <string>
 #include "rust/cxx.h"
 
+// Forward declarations of Arrow C ABI types
+struct ArrowSchema;
+struct ArrowArray;
+
 // Forward declarations of cuDF types
 namespace cudf {
     class table;
@@ -58,6 +62,10 @@ std::unique_ptr<Table> filter(const Table& table, const Column& boolean_mask);
 
 // Column creation
 std::unique_ptr<Column> create_boolean_column(rust::Slice<const bool> data);
+
+// Arrow interop
+std::unique_ptr<Table> from_arrow(uint8_t* schema_ptr, uint8_t* array_ptr);
+void to_arrow(const Table& table, uint8_t* schema_ptr, uint8_t* array_ptr);
 
 // Utility functions
 rust::String get_cudf_version();

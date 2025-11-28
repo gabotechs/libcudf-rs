@@ -10,8 +10,11 @@
 #include <cudf/stream_compaction.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/types.hpp>
+#include <cudf/interop.hpp>
 
 #include <rmm/device_buffer.hpp>
+#include <nanoarrow/nanoarrow.h>
+#include <nanoarrow/nanoarrow_device.h>
 #include <stdexcept>
 #include <sstream>
 #include <vector>
@@ -175,6 +178,62 @@ std::unique_ptr<Column> create_boolean_column(rust::Slice<const bool> data) {
     auto result = std::make_unique<Column>();
     result->inner = std::move(column);
     return result;
+}
+
+// Arrow interop
+std::unique_ptr<Table> from_arrow(uint8_t* schema_ptr, uint8_t* array_ptr) {
+    if (!schema_ptr || !array_ptr) {
+        throw std::runtime_error("Schema and array pointers must not be null");
+    }
+
+    auto* schema = reinterpret_cast<ArrowSchema*>(schema_ptr);
+    auto* array = reinterpret_cast<ArrowArray*>(array_ptr);
+
+    // Create ArrowDeviceArray from ArrowArray
+    // This structure describes where the data is located (CPU in this case)
+    ArrowDeviceArray device_array;
+    device_array.array = *array;
+    device_array.device_id = -1;  // CPU
+    device_array.device_type = ARROW_DEVICE_CPU;
+    device_array.sync_event = nullptr;
+
+    // Convert from Arrow to cuDF
+    auto cudf_table = cudf::from_arrow_host(schema, &device_array);
+
+    auto result = std::make_unique<Table>();
+    result->inner = std::move(cudf_table);
+    return result;
+}
+
+void to_arrow(const Table& table, uint8_t* schema_ptr, uint8_t* array_ptr) {
+    if (!table.inner) {
+        throw std::runtime_error("Table is null");
+    }
+    if (!schema_ptr || !array_ptr) {
+        throw std::runtime_error("Schema and array pointers must not be null");
+    }
+
+    auto table_view = table.inner->view();
+
+    // Get Arrow schema (empty metadata for now)
+    std::vector<cudf::column_metadata> metadata(table_view.num_columns());
+    auto schema_unique = cudf::to_arrow_schema(table_view, cudf::host_span<cudf::column_metadata const>(metadata));
+
+    // Get Arrow array (on host)
+    auto device_array_unique = cudf::to_arrow_host(table_view);
+
+    // Copy to output pointers
+    auto* out_schema = reinterpret_cast<ArrowSchema*>(schema_ptr);
+    auto* out_array = reinterpret_cast<ArrowArray*>(array_ptr);
+
+    // Move ownership to output
+    *out_schema = *schema_unique.get();
+    *out_array = device_array_unique->array;
+
+    // Release the unique_ptrs without calling their deleters
+    // since we've transferred ownership
+    schema_unique.release();
+    device_array_unique.release();
 }
 
 rust::String get_cudf_version() {
