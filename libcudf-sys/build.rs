@@ -1,7 +1,7 @@
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::fs;
 
 const CUDF_VERSION: &str = "25.10.00";
 
@@ -16,19 +16,17 @@ fn main() {
     fs::create_dir_all(&cudf_cache_dir).expect("Failed to create .cudf-build directory");
 
     // Define paths
-    let cudf_src_dir = cudf_cache_dir.join(format!("cudf-{}", CUDF_VERSION));
+    let cudf_src_dir = cudf_cache_dir.join(format!("cudf-{CUDF_VERSION}"));
     let cudf_cpp_dir = cudf_src_dir.join("cpp");
     let cudf_build_dir = cudf_cpp_dir.join("build");
-    let tarball_path = cudf_cache_dir.join(format!("cudf-{}.tar.gz", CUDF_VERSION));
+    let tarball_path = cudf_cache_dir.join(format!("cudf-{CUDF_VERSION}.tar.gz"));
 
     // Download and extract cuDF source if not already present
     if !cudf_src_dir.exists() {
-        println!("cargo:warning=Downloading cuDF {} source...", CUDF_VERSION);
+        println!("cargo:warning=Downloading cuDF {CUDF_VERSION} source...");
 
-        let download_url = format!(
-            "https://github.com/rapidsai/cudf/archive/refs/tags/v{}.tar.gz",
-            CUDF_VERSION
-        );
+        let download_url =
+            format!("https://github.com/rapidsai/cudf/archive/refs/tags/v{CUDF_VERSION}.tar.gz");
 
         // Download using curl
         let status = Command::new("curl")
@@ -110,7 +108,10 @@ fn main() {
 
         println!("cargo:warning=cuDF built at: {}", dst.display());
     } else {
-        println!("cargo:warning=Using existing cuDF build at: {}", cudf_build_dir.display());
+        println!(
+            "cargo:warning=Using existing cuDF build at: {}",
+            cudf_build_dir.display()
+        );
     }
 
     // Set up include paths
@@ -152,7 +153,8 @@ fn main() {
     // Set up library paths
     let cudf_lib = cudf_build_dir.join("lib");
     let rmm_lib = cmake_build_dir.join("_deps/rmm-build");
-    let cuda_lib = PathBuf::from(&cuda_root).join("lib64")
+    let cuda_lib = PathBuf::from(&cuda_root)
+        .join("lib64")
         .canonicalize()
         .unwrap_or_else(|_| PathBuf::from(&cuda_root).join("targets/x86_64-linux/lib"));
 
@@ -176,7 +178,8 @@ fn main() {
 
             // Symlink librmm.so
             let _ = fs::remove_file(target_dir.join("librmm.so"));
-            let _ = std::os::unix::fs::symlink(rmm_lib.join("librmm.so"), target_dir.join("librmm.so"));
+            let _ =
+                std::os::unix::fs::symlink(rmm_lib.join("librmm.so"), target_dir.join("librmm.so"));
         }
     }
 
