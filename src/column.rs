@@ -1,6 +1,6 @@
 use cxx::UniquePtr;
 
-use crate::{ffi, Result};
+use crate::ffi;
 
 /// A GPU-accelerated column
 ///
@@ -10,30 +10,6 @@ pub struct Column {
 }
 
 impl Column {
-    /// Create a new boolean column from a slice of bool values
-    ///
-    /// # Arguments
-    ///
-    /// * `data` - Slice of boolean values
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if there is insufficient GPU memory
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use libcudf_rs::Column;
-    ///
-    /// let mask = Column::from_bools(&[true, false, true, true, false])?;
-    /// assert_eq!(mask.size(), 5);
-    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
-    /// ```
-    pub fn from_bools(data: &[bool]) -> Result<Self> {
-        let inner = ffi::create_boolean_column(data)?;
-        Ok(Self { inner })
-    }
-
     /// Get the number of elements in the column
     ///
     /// # Examples

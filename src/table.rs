@@ -135,10 +135,26 @@ impl Table {
         let ffi_array = FFI_ArrowArray::new(&array_data);
         let ffi_schema = FFI_ArrowSchema::try_from(batch.schema().as_ref())?;
 
-        let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *mut u8;
-        let array_ptr = &ffi_array as *const FFI_ArrowArray as *mut u8;
+        // Create ArrowDeviceArray structure (describes CPU data location)
+        #[repr(C)]
+        struct ArrowDeviceArray {
+            array: FFI_ArrowArray,
+            device_id: i64,
+            device_type: i32,
+            sync_event: *mut std::ffi::c_void,
+        }
 
-        let inner = unsafe { ffi::from_arrow(schema_ptr, array_ptr)? };
+        let device_array = ArrowDeviceArray {
+            array: ffi_array,
+            device_id: -1,  // CPU
+            device_type: 1, // ARROW_DEVICE_CPU
+            sync_event: std::ptr::null_mut(),
+        };
+
+        let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *mut u8;
+        let device_array_ptr = &device_array as *const ArrowDeviceArray as *mut u8;
+
+        let inner = unsafe { ffi::from_arrow_host(schema_ptr, device_array_ptr)? };
         Ok(Self { inner })
     }
 
@@ -166,16 +182,32 @@ impl Table {
     /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
     pub fn to_arrow(&self) -> Result<RecordBatch> {
+        #[repr(C)]
+        struct ArrowDeviceArray {
+            array: FFI_ArrowArray,
+            device_id: i64,
+            device_type: i32,
+            sync_event: *mut std::ffi::c_void,
+        }
+
         let mut ffi_schema = FFI_ArrowSchema::empty();
-        let mut ffi_array = FFI_ArrowArray::empty();
+        let mut device_array = ArrowDeviceArray {
+            array: FFI_ArrowArray::empty(),
+            device_id: 0,
+            device_type: 0,
+            sync_event: std::ptr::null_mut(),
+        };
 
         let schema_ptr = &mut ffi_schema as *mut FFI_ArrowSchema as *mut u8;
-        let array_ptr = &mut ffi_array as *mut FFI_ArrowArray as *mut u8;
+        let array_ptr = &mut device_array as *mut ArrowDeviceArray as *mut u8;
 
-        unsafe { ffi::to_arrow(&self.inner, schema_ptr, array_ptr)? };
+        unsafe {
+            ffi::to_arrow_schema(&self.inner, schema_ptr)?;
+            ffi::to_arrow_host_array(&self.inner, array_ptr)?;
+        }
 
         let schema = Arc::new(Schema::try_from(&ffi_schema)?);
-        let array_data = unsafe { from_ffi(ffi_array, &ffi_schema)? };
+        let array_data = unsafe { from_ffi(device_array.array, &ffi_schema)? };
         let struct_array = StructArray::from(array_data);
 
         let batch = RecordBatch::try_new(schema, struct_array.columns().to_vec())?;
@@ -225,34 +257,6 @@ impl Table {
         self.num_rows() == 0
     }
 
-    /// Select specific columns from the table by their indices
-    ///
-    /// Returns a new table containing only the specified columns.
-    ///
-    /// # Arguments
-    ///
-    /// * `indices` - Slice of column indices to select
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any index is out of bounds
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use libcudf_rs::Table;
-    ///
-    /// let table = Table::from_parquet("data.parquet")?;
-    /// // Select columns 0, 2, and 4
-    /// let selected = table.select(&[0, 2, 4])?;
-    /// assert_eq!(selected.num_columns(), 3);
-    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
-    /// ```
-    pub fn select(&self, indices: &[usize]) -> Result<Self> {
-        let inner = ffi::select_columns(&self.inner, indices)?;
-        Ok(Self { inner })
-    }
-
     /// Get a specific column from the table by index
     ///
     /// # Arguments
@@ -274,7 +278,12 @@ impl Table {
     /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
     pub fn get_column(&self, index: usize) -> Result<Column> {
-        let inner = ffi::get_column(&self.inner, index)?;
+        if index >= self.num_columns() {
+            return Err(arrow::error::ArrowError::InvalidArgumentError(
+                format!("Column index {} out of bounds (table has {} columns)", index, self.num_columns())
+            ).into());
+        }
+        let inner = ffi::table_get_column(&self.inner, index)?;
         Ok(Column { inner })
     }
 
@@ -305,7 +314,12 @@ impl Table {
     /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
     pub fn filter(&self, mask: &Column) -> Result<Self> {
-        let inner = ffi::filter(&self.inner, &mask.inner)?;
+        if mask.size() != self.num_rows() {
+            return Err(arrow::error::ArrowError::InvalidArgumentError(
+                format!("Boolean mask size {} must match table rows {}", mask.size(), self.num_rows())
+            ).into());
+        }
+        let inner = ffi::apply_boolean_mask(&self.inner, &mask.inner)?;
         Ok(Self { inner })
     }
 }

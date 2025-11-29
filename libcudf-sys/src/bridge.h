@@ -8,6 +8,7 @@
 // Forward declarations of Arrow C ABI types
 struct ArrowSchema;
 struct ArrowArray;
+struct ArrowDeviceArray;
 
 // Forward declarations of cuDF types
 namespace cudf {
@@ -15,6 +16,7 @@ namespace cudf {
     class column;
     class table_view;
     class column_view;
+    struct column_metadata;
     namespace io {
         struct table_with_metadata;
     }
@@ -55,17 +57,14 @@ std::unique_ptr<Table> create_empty_table();
 std::unique_ptr<Table> read_parquet(rust::Str filename);
 void write_parquet(const Table& table, rust::Str filename);
 
-// Table operations
-std::unique_ptr<Table> select_columns(const Table& table, rust::Slice<const size_t> indices);
-std::unique_ptr<Column> get_column(const Table& table, size_t index);
-std::unique_ptr<Table> filter(const Table& table, const Column& boolean_mask);
+// Direct cuDF operations - 1:1 mappings
+std::unique_ptr<Table> apply_boolean_mask(const Table& table, const Column& boolean_mask);
+std::unique_ptr<Column> table_get_column(const Table& table, size_t index);
 
-// Column creation
-std::unique_ptr<Column> create_boolean_column(rust::Slice<const bool> data);
-
-// Arrow interop
-std::unique_ptr<Table> from_arrow(uint8_t* schema_ptr, uint8_t* array_ptr);
-void to_arrow(const Table& table, uint8_t* schema_ptr, uint8_t* array_ptr);
+// Arrow interop - direct cuDF calls
+std::unique_ptr<Table> from_arrow_host(uint8_t* schema_ptr, uint8_t* device_array_ptr);
+void to_arrow_schema(const Table& table, uint8_t* out_schema_ptr);
+void to_arrow_host_array(const Table& table, uint8_t* out_array_ptr);
 
 // Utility functions
 rust::String get_cudf_version();

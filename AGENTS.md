@@ -38,3 +38,59 @@ This project is divided in the following crates:
   - `sccache` (optional): better intermediate results cache during compilation
 - Be careful of having multiple versions of the CUDA toolkit installed in the system
 - The first compilation needs to compile `libcudf` from source, this might take several hours on a powerful machine
+
+### libcudf-sys: The Thin Wrapper Layer
+
+**CRITICAL: This crate must be a 1:1 mapping to cuDF C++ API with ZERO opinions.**
+
+Rules for `libcudf-sys`:
+- **NO type conversions** - If cuDF returns a specific type, expose that exact type
+- **NO switch statements** - Don't handle different data types, let the caller do it
+- **NO API design** - Just expose what cuDF provides, nothing more
+- **NO helper functions** - If cuDF has `cudf::make_max_aggregation()`, expose it as-is
+- **NO value judgments** - Don't decide what's "better" for the user
+
+Example of what NOT to do:
+```cpp
+// ❌ BAD: Adding type conversion logic
+double column_max(const Column& column) {
+    auto result = cudf::reduce(...);
+    switch (result->type().id()) {  // NO! This is API design
+        case INT32: return static_cast<double>(...);
+        case INT64: return static_cast<double>(...);
+        // ...
+    }
+}
+```
+
+Example of what to do:
+```cpp
+// ✅ GOOD: Direct 1:1 mapping
+std::unique_ptr<cudf::scalar> reduce(
+    const Column& column,
+    const cudf::reduce_aggregation& agg,
+    cudf::data_type output_type
+) {
+    return cudf::reduce(column.inner->view(), agg, output_type);
+}
+```
+
+The thin wrapper should only:
+1. Handle Rust ↔ C++ FFI boundary (using `cxx`)
+2. Wrap/unwrap smart pointers (UniquePtr, etc.)
+3. Convert between Rust slices and C++ spans
+4. Throw exceptions on null pointers
+
+ALL API design, type conversions, ergonomic improvements belong in `libcudf-rs` (the root crate).
+
+### libcudf-rs: The High-Level API Layer
+
+This root project adds an API layer on top of `libcudf-sys` for better UX. This crate should closely mimic other
+bindings in the original https://github.com/rapidsai/cudf project, like the Java or Python ones.
+
+This is where you can:
+- Add ergonomic wrapper methods
+- Handle type conversions
+- Provide simplified APIs
+- Add Rust-idiomatic patterns
+

@@ -11,6 +11,9 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/types.hpp>
 #include <cudf/interop.hpp>
+#include <cudf/reduction.hpp>
+#include <cudf/aggregation.hpp>
+#include <cudf/scalar/scalar.hpp>
 
 #include <rmm/device_buffer.hpp>
 #include <nanoarrow/nanoarrow.h>
@@ -81,158 +84,43 @@ void write_parquet(const Table& table, rust::Str filename) {
     cudf::io::write_parquet(options.build());
 }
 
-// Table operations
-std::unique_ptr<Table> select_columns(const Table& table, rust::Slice<const size_t> indices) {
-    if (!table.inner) {
-        throw std::runtime_error("Table is null");
-    }
-
-    auto view = table.inner->view();
-    std::vector<cudf::size_type> column_indices;
-    column_indices.reserve(indices.size());
-
-    for (size_t idx : indices) {
-        if (idx >= view.num_columns()) {
-            throw std::out_of_range("Column index out of range");
-        }
-        column_indices.push_back(static_cast<cudf::size_type>(idx));
-    }
-
-    // Select columns by creating a new table with only the specified columns
-    std::vector<std::unique_ptr<cudf::column>> selected_columns;
-    selected_columns.reserve(column_indices.size());
-
-    for (auto idx : column_indices) {
-        selected_columns.push_back(std::make_unique<cudf::column>(view.column(idx)));
-    }
-
+// Direct cuDF operations - 1:1 mappings
+std::unique_ptr<Table> apply_boolean_mask(const Table& table, const Column& boolean_mask) {
     auto result = std::make_unique<Table>();
-    result->inner = std::make_unique<cudf::table>(std::move(selected_columns));
+    result->inner = cudf::apply_boolean_mask(table.inner->view(), boolean_mask.inner->view());
     return result;
 }
 
-std::unique_ptr<Column> get_column(const Table& table, size_t index) {
-    if (!table.inner) {
-        throw std::runtime_error("Table is null");
-    }
-
-    auto view = table.inner->view();
-    if (index >= view.num_columns()) {
-        throw std::out_of_range("Column index out of range");
-    }
-
+std::unique_ptr<Column> table_get_column(const Table& table, size_t index) {
     auto result = std::make_unique<Column>();
-    result->inner = std::make_unique<cudf::column>(view.column(index));
+    result->inner = std::make_unique<cudf::column>(table.inner->view().column(index));
     return result;
 }
 
-std::unique_ptr<Table> filter(const Table& table, const Column& boolean_mask) {
-    if (!table.inner) {
-        throw std::runtime_error("Table is null");
-    }
-    if (!boolean_mask.inner) {
-        throw std::runtime_error("Boolean mask is null");
-    }
-
-    auto table_view = table.inner->view();
-    auto mask_view = boolean_mask.inner->view();
-
-    // Verify the mask has the same number of rows as the table
-    if (mask_view.size() != table_view.num_rows()) {
-        throw std::runtime_error("Boolean mask must have same number of rows as table");
-    }
-
-    // Apply the boolean mask using cuDF's stream_compaction
-    auto filtered_table = cudf::apply_boolean_mask(table_view, mask_view);
-
-    auto result = std::make_unique<Table>();
-    result->inner = std::move(filtered_table);
-    return result;
-}
-
-// Column creation
-std::unique_ptr<Column> create_boolean_column(rust::Slice<const bool> data) {
-    cudf::size_type size = static_cast<cudf::size_type>(data.size());
-
-    // Convert bool to int8_t (BOOL8 in cuDF)
-    std::vector<int8_t> host_data(size);
-    for (size_t i = 0; i < data.size(); ++i) {
-        host_data[i] = data[i] ? 1 : 0;
-    }
-
-    // Create a mutable column
-    auto column = cudf::make_numeric_column(
-        cudf::data_type{cudf::type_id::BOOL8},
-        size,
-        cudf::mask_state::UNALLOCATED
-    );
-
-    // Copy data from host to device
-    cudaMemcpy(
-        column->mutable_view().data<int8_t>(),
-        host_data.data(),
-        size * sizeof(int8_t),
-        cudaMemcpyHostToDevice
-    );
-
-    auto result = std::make_unique<Column>();
-    result->inner = std::move(column);
-    return result;
-}
-
-// Arrow interop
-std::unique_ptr<Table> from_arrow(uint8_t* schema_ptr, uint8_t* array_ptr) {
-    if (!schema_ptr || !array_ptr) {
-        throw std::runtime_error("Schema and array pointers must not be null");
-    }
-
+// Arrow interop - direct cuDF calls
+std::unique_ptr<Table> from_arrow_host(uint8_t* schema_ptr, uint8_t* device_array_ptr) {
     auto* schema = reinterpret_cast<ArrowSchema*>(schema_ptr);
-    auto* array = reinterpret_cast<ArrowArray*>(array_ptr);
-
-    // Create ArrowDeviceArray from ArrowArray
-    // This structure describes where the data is located (CPU in this case)
-    ArrowDeviceArray device_array;
-    device_array.array = *array;
-    device_array.device_id = -1;  // CPU
-    device_array.device_type = ARROW_DEVICE_CPU;
-    device_array.sync_event = nullptr;
-
-    // Convert from Arrow to cuDF
-    auto cudf_table = cudf::from_arrow_host(schema, &device_array);
+    auto* device_array = reinterpret_cast<ArrowDeviceArray*>(device_array_ptr);
 
     auto result = std::make_unique<Table>();
-    result->inner = std::move(cudf_table);
+    result->inner = cudf::from_arrow_host(schema, device_array);
     return result;
 }
 
-void to_arrow(const Table& table, uint8_t* schema_ptr, uint8_t* array_ptr) {
-    if (!table.inner) {
-        throw std::runtime_error("Table is null");
-    }
-    if (!schema_ptr || !array_ptr) {
-        throw std::runtime_error("Schema and array pointers must not be null");
-    }
-
+void to_arrow_schema(const Table& table, uint8_t* out_schema_ptr) {
     auto table_view = table.inner->view();
-
-    // Get Arrow schema (empty metadata for now)
     std::vector<cudf::column_metadata> metadata(table_view.num_columns());
+
     auto schema_unique = cudf::to_arrow_schema(table_view, cudf::host_span<cudf::column_metadata const>(metadata));
-
-    // Get Arrow array (on host)
-    auto device_array_unique = cudf::to_arrow_host(table_view);
-
-    // Copy to output pointers
-    auto* out_schema = reinterpret_cast<ArrowSchema*>(schema_ptr);
-    auto* out_array = reinterpret_cast<ArrowArray*>(array_ptr);
-
-    // Move ownership to output
+    auto* out_schema = reinterpret_cast<ArrowSchema*>(out_schema_ptr);
     *out_schema = *schema_unique.get();
-    *out_array = device_array_unique->array;
-
-    // Release the unique_ptrs without calling their deleters
-    // since we've transferred ownership
     schema_unique.release();
+}
+
+void to_arrow_host_array(const Table& table, uint8_t* out_array_ptr) {
+    auto device_array_unique = cudf::to_arrow_host(table.inner->view());
+    auto* out_array = reinterpret_cast<ArrowDeviceArray*>(out_array_ptr);
+    *out_array = *device_array_unique.get();
     device_array_unique.release();
 }
 

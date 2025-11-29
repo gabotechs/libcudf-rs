@@ -33,17 +33,14 @@ pub mod ffi {
         fn read_parquet(filename: &str) -> Result<UniquePtr<Table>>;
         fn write_parquet(table: &Table, filename: &str) -> Result<()>;
 
-        // Table operations
-        fn select_columns(table: &Table, indices: &[usize]) -> Result<UniquePtr<Table>>;
-        fn get_column(table: &Table, index: usize) -> Result<UniquePtr<Column>>;
-        fn filter(table: &Table, boolean_mask: &Column) -> Result<UniquePtr<Table>>;
+        // Direct cuDF operations
+        fn apply_boolean_mask(table: &Table, boolean_mask: &Column) -> Result<UniquePtr<Table>>;
+        fn table_get_column(table: &Table, index: usize) -> Result<UniquePtr<Column>>;
 
-        // Column creation
-        fn create_boolean_column(data: &[bool]) -> Result<UniquePtr<Column>>;
-
-        // Arrow interop
-        unsafe fn from_arrow(schema_ptr: *mut u8, array_ptr: *mut u8) -> Result<UniquePtr<Table>>;
-        unsafe fn to_arrow(table: &Table, schema_ptr: *mut u8, array_ptr: *mut u8) -> Result<()>;
+        // Arrow interop - direct cuDF calls
+        unsafe fn from_arrow_host(schema_ptr: *mut u8, device_array_ptr: *mut u8) -> Result<UniquePtr<Table>>;
+        unsafe fn to_arrow_schema(table: &Table, out_schema_ptr: *mut u8) -> Result<()>;
+        unsafe fn to_arrow_host_array(table: &Table, out_array_ptr: *mut u8) -> Result<()>;
 
         // Utility functions
         fn get_cudf_version() -> String;
