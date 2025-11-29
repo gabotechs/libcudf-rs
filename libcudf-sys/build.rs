@@ -23,7 +23,7 @@ fn main() {
 
     // Download and extract cuDF source if not already present
     if !cudf_src_dir.exists() {
-        println!("cargo:warning=Downloading cuDF {CUDF_VERSION} source...");
+        println!("cargo:warning=Downloading cuDjF {CUDF_VERSION} source...");
 
         let download_url =
             format!("https://github.com/rapidsai/cudf/archive/refs/tags/v{CUDF_VERSION}.tar.gz");

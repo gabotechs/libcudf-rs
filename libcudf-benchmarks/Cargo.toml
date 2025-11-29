@@ -1,0 +1,15 @@
+[package]
+name = "libcudf-benchmarks"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libcudf-rs = { path = ".." }
+arrow = { version = "57", features = ["ffi"] }
+
+[dev-dependencies]
+criterion = { version = "0.7", features = ["html_reports"] }
+
+[[bench]]
+name = "arrow_conversion"
+harness = false

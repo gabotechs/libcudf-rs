@@ -1,5 +1,5 @@
 [workspace]
-members = ["libcudf-sys"]
+members = ["libcudf-sys", "libcudf-benchmarks"]
 resolver = "2"
 
 [package]
