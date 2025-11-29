@@ -19,25 +19,12 @@ This project is divided in the following crates:
   quantity of code, iterate over it and try to reduce it and make it simpler.
 - Do not add irrelevant comments that just explain what can already be seen in the code. Just add a comment for
   pieces of code that are not immediately obvious.
-- Tests are always welcome, but too many tests are a burden. Make the tests scoped and to the point, do not contribute
-  big quantities of tests, prefer quality to quantity.
 - Do not try to reinvent the wheel. This project is not supposed to be creative or disruptive, it's just a plumbing
   layer on top of https://github.com/rapidsai/cudf so that it's accessible from Rust.
 - Any public entity should be documented, but be brief and concise while documenting it. Quality is way preferable
   than quantity.
-
-## Compiling the project
-
-- This project can only be compiled in Ubuntu 24.04. Any other system will not work.
-- The following tools are needed:
-  - `rust`: a Rust toolchain
-  - `cmake`: version 3.30 or greater. Prefer cmake 4.2.0
-  - `gcc`: version 13.3.0 or greater
-  - `cuda-toolkit`: CUDA 13.0 or greater
-  - `ninja`   (optional): makes compilations faster
-  - `sccache` (optional): better intermediate results cache during compilation
-- Be careful of having multiple versions of the CUDA toolkit installed in the system
-- The first compilation needs to compile `libcudf` from source, this might take several hours on a powerful machine
+- [.cudf-build](.cudf-build/) contains the source code for https://github.com/rapidsai/cudf downloaded locally, so any
+  references to CuDF's code can be gathered from there.
 
 ### libcudf-sys: The Thin Wrapper Layer
 
@@ -49,6 +36,10 @@ Rules for `libcudf-sys`:
 - **NO API design** - Just expose what cuDF provides, nothing more
 - **NO helper functions** - If cuDF has `cudf::make_max_aggregation()`, expose it as-is
 - **NO value judgments** - Don't decide what's "better" for the user
+- **Methods vs Functions** - Match cuDF exactly:
+  - If cuDF has a class method (e.g., `table_view::column()`), expose as method (e.g., `Table::get_column()`)
+  - If cuDF has a free function (e.g., `cudf::reduce()`), expose as free function (e.g., `reduce()`)
+  - Constructors become factory functions (e.g., `groupby::groupby()` → `groupby_create()`)
 
 Example of what NOT to do:
 ```cpp
@@ -93,4 +84,28 @@ This is where you can:
 - Handle type conversions
 - Provide simplified APIs
 - Add Rust-idiomatic patterns
+
+
+### Contributing tests
+
+- Everytime a new functionality is added, new tests need to be contributed for covering the new code.
+  Follow existing patterns for contributing new tests.
+- Too many tests are a burden. Make the tests scoped and to the point, do not contribute big quantities of tests,
+  prefer quality to quantity.
+- When contributing tests, make sure they are always in a `mod tests` module, and upon adding helper functions for 
+  tests that are not actual tests, prefer adding them at the bottom of the file rather than the top.
+- Always make tests return `-> Result<(), Box<dyn std::error::Error>>` so that you can use the `?` operator.
+
+## Compiling the project
+
+- This project can only be compiled in Ubuntu 24.04. Any other system will not work.
+- The following tools are needed:
+  - `rust`: a Rust toolchain
+  - `cmake`: version 3.30 or greater. Prefer cmake 4.2.0
+  - `gcc`: version 13.3.0 or greater
+  - `cuda-toolkit`: CUDA 13.0 or greater
+  - `ninja`   (optional): makes compilations faster
+  - `sccache` (optional): better intermediate results cache during compilation
+- Be careful of having multiple versions of the CUDA toolkit installed in the system
+- The first compilation needs to compile `libcudf` from source, this might take several hours on a powerful machine
 

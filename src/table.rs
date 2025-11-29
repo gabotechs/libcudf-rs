@@ -7,7 +7,7 @@ use arrow::datatypes::Schema;
 use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
 use arrow::record_batch::RecordBatch;
 
-use crate::{ffi, Column, Result};
+use crate::{ffi, Result};
 
 /// A GPU-accelerated table (similar to a DataFrame)
 ///
@@ -257,71 +257,6 @@ impl Table {
         self.num_rows() == 0
     }
 
-    /// Get a specific column from the table by index
-    ///
-    /// # Arguments
-    ///
-    /// * `index` - The column index (0-based)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the index is out of bounds
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use libcudf_rs::Table;
-    ///
-    /// let table = Table::from_parquet("data.parquet")?;
-    /// let column = table.get_column(0)?;
-    /// println!("Column has {} elements", column.size());
-    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
-    /// ```
-    pub fn get_column(&self, index: usize) -> Result<Column> {
-        if index >= self.num_columns() {
-            return Err(arrow::error::ArrowError::InvalidArgumentError(
-                format!("Column index {} out of bounds (table has {} columns)", index, self.num_columns())
-            ).into());
-        }
-        let inner = ffi::table_get_column(&self.inner, index)?;
-        Ok(Column { inner })
-    }
-
-    /// Filter rows based on a boolean mask column
-    ///
-    /// Returns a new table containing only the rows where the mask is true.
-    ///
-    /// # Arguments
-    ///
-    /// * `mask` - A boolean column where true means keep the row
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The mask has a different number of rows than the table
-    /// - The mask is not a boolean column
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use libcudf_rs::Table;
-    ///
-    /// let table = Table::from_parquet("data.parquet")?;
-    /// // Get a boolean column (e.g., from a comparison operation)
-    /// let mask = table.get_column(0)?; // Assume this is a boolean column
-    /// let filtered = table.filter(&mask)?;
-    /// println!("Filtered to {} rows", filtered.num_rows());
-    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
-    /// ```
-    pub fn filter(&self, mask: &Column) -> Result<Self> {
-        if mask.size() != self.num_rows() {
-            return Err(arrow::error::ArrowError::InvalidArgumentError(
-                format!("Boolean mask size {} must match table rows {}", mask.size(), self.num_rows())
-            ).into());
-        }
-        let inner = ffi::apply_boolean_mask(&self.inner, &mask.inner)?;
-        Ok(Self { inner })
-    }
 }
 
 impl Default for Table {

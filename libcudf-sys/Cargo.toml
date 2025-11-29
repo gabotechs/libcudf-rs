@@ -10,7 +10,7 @@ authors = [
 links = "cudf"
 
 [dependencies]
-cxx = "1.0"
+cxx = { workspace = true }
 
 [build-dependencies]
 cxx-build = "1.0"

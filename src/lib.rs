@@ -21,11 +21,9 @@ pub use libcudf_sys::ffi;
 
 mod errors;
 mod table;
-mod column;
 
 pub use errors::{LibCuDFError, Result};
 pub use table::Table;
-pub use column::Column;
 
 /// Get cuDF version information
 ///

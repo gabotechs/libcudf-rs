@@ -2,6 +2,12 @@
 members = ["libcudf-sys", "libcudf-benchmarks"]
 resolver = "2"
 
+[workspace.dependencies]
+arrow = { version = "57", features = ["ffi"] }
+arrow-schema = "57"
+cxx = "1.0"
+thiserror = "2.0"
+
 [package]
 name = "libcudf-rs"
 version = "0.1.0"
@@ -13,7 +19,7 @@ authors = [
 
 [dependencies]
 libcudf-sys = { path = "libcudf-sys" }
-cxx = "1.0"
-arrow = { version = "57", features = ["ffi"] }
-arrow-schema = "57"
-thiserror = "2.0"
+cxx = { workspace = true }
+arrow = { workspace = true }
+arrow-schema = { workspace = true }
+thiserror = { workspace = true }
