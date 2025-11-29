@@ -3,3 +3,4 @@
 compile_commands.json
 .cache/
 /.cudf-build
+cufile.log
