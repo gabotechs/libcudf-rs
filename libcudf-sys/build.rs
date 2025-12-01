@@ -154,6 +154,7 @@ fn main() {
         .file("src/io.cpp")
         .file("src/operations.cpp")
         .file("src/binaryop.cpp")
+        .file("src/sorting.cpp")
         .std("c++20")
         .include("src")
         .include(&cudf_include)

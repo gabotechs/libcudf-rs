@@ -209,6 +209,44 @@ pub mod ffi {
             output_type_id: i32,
         ) -> Result<UniquePtr<Column>>;
 
+        // Sorting operations - direct cuDF mappings
+
+        /// Sort a table in lexicographic order
+        ///
+        /// Sorts the rows of the table according to the specified column orders and null precedence.
+        fn sort_table(
+            input: &TableView,
+            column_order: &[i32],
+            null_precedence: &[i32],
+        ) -> Result<UniquePtr<Table>>;
+
+        /// Stable sort a table in lexicographic order
+        ///
+        /// Like sort_table but guarantees that equivalent elements preserve their original order.
+        fn stable_sort_table(
+            input: &TableView,
+            column_order: &[i32],
+            null_precedence: &[i32],
+        ) -> Result<UniquePtr<Table>>;
+
+        /// Get the indices that would sort a table
+        ///
+        /// Returns a column of indices that would produce a sorted table if used to reorder the rows.
+        fn sorted_order(
+            input: &TableView,
+            column_order: &[i32],
+            null_precedence: &[i32],
+        ) -> Result<UniquePtr<Column>>;
+
+        /// Check if a table is sorted
+        ///
+        /// Returns true if the rows are sorted according to the specified column orders.
+        fn is_sorted(
+            input: &TableView,
+            column_order: &[i32],
+            null_precedence: &[i32],
+        ) -> Result<bool>;
+
         // Aggregation factory functions - direct cuDF mappings (for reduce)
 
         /// Create a SUM aggregation
@@ -287,6 +325,30 @@ pub mod ffi {
         /// Get the version of the cuDF library
         fn get_cudf_version() -> String;
     }
+}
+
+/// Sort order for columns
+///
+/// Specifies whether columns should be sorted in ascending or descending order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum Order {
+    /// Sort from smallest to largest
+    Ascending = 0,
+    /// Sort from largest to smallest
+    Descending = 1,
+}
+
+/// Null ordering for sorting
+///
+/// Specifies whether null values should appear before or after non-null values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum NullOrder {
+    /// Nulls appear after all other values
+    After = 0,
+    /// Nulls appear before all other values
+    Before = 1,
 }
 
 /// Binary operators supported by cuDF

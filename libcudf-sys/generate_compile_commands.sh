@@ -63,6 +63,7 @@ CPP_FILES=(
     "libcudf-sys/src/io.cpp"
     "libcudf-sys/src/operations.cpp"
     "libcudf-sys/src/binaryop.cpp"
+    "libcudf-sys/src/sorting.cpp"
 )
 
 # Array of header files

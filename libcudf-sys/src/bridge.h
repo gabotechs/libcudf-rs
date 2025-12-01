@@ -243,6 +243,27 @@ namespace libcudf_bridge {
         int32_t op,
         int32_t output_type_id);
 
+    // Sorting operations - direct cuDF mappings
+    std::unique_ptr<Table> sort_table(
+        const TableView &input,
+        rust::Slice<const int32_t> column_order,
+        rust::Slice<const int32_t> null_precedence);
+
+    std::unique_ptr<Table> stable_sort_table(
+        const TableView &input,
+        rust::Slice<const int32_t> column_order,
+        rust::Slice<const int32_t> null_precedence);
+
+    std::unique_ptr<Column> sorted_order(
+        const TableView &input,
+        rust::Slice<const int32_t> column_order,
+        rust::Slice<const int32_t> null_precedence);
+
+    bool is_sorted(
+        const TableView &input,
+        rust::Slice<const int32_t> column_order,
+        rust::Slice<const int32_t> null_precedence);
+
     // Aggregation factory functions - direct cuDF mappings (for reduce)
     std::unique_ptr<Aggregation> make_sum_aggregation();
 
