@@ -146,15 +146,22 @@ fn main() {
     };
 
     // Build the C++ bridge using cxx
+    // Discover all .cpp files in src/ for rerun-if-changed tracking
+    let src_dir = manifest_dir.join("src");
+    let cpp_files: Vec<PathBuf> = fs::read_dir(&src_dir)
+        .expect("Failed to read src directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry.path().extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext == "cpp")
+                .unwrap_or(false)
+        })
+        .map(|entry| entry.path())
+        .collect();
+
     cxx_build::bridge("src/lib.rs")
-        .file("src/table.cpp")
-        .file("src/column.cpp")
-        .file("src/groupby.cpp")
-        .file("src/aggregation.cpp")
-        .file("src/io.cpp")
-        .file("src/operations.cpp")
-        .file("src/binaryop.cpp")
-        .file("src/sorting.cpp")
+        .files(&cpp_files)
         .std("c++20")
         .include("src")
         .include(&cudf_include)
@@ -222,8 +229,12 @@ fn main() {
 
     // Rerun if bridge files change
     println!("cargo:rerun-if-changed=src/lib.rs");
-    println!("cargo:rerun-if-changed=src/bridge.cpp");
     println!("cargo:rerun-if-changed=src/bridge.h");
+
+    // Automatically track all .cpp files
+    for cpp_file in &cpp_files {
+        println!("cargo:rerun-if-changed={}", cpp_file.display());
+    }
 }
 
 fn which_sccache() -> Option<String> {
