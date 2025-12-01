@@ -7,7 +7,15 @@
 pub mod ffi {
     // Opaque C++ types
     unsafe extern "C++" {
-        include!("libcudf-sys/src/bridge.h");
+        // Include individual headers - order matters for dependencies
+        include!("libcudf-sys/src/column.h");
+        include!("libcudf-sys/src/table.h");
+        include!("libcudf-sys/src/aggregation.h");
+        include!("libcudf-sys/src/groupby.h");
+        include!("libcudf-sys/src/io.h");
+        include!("libcudf-sys/src/operations.h");
+        include!("libcudf-sys/src/binaryop.h");
+        include!("libcudf-sys/src/sorting.h");
 
         /// A set of cuDF columns of the same size
         ///

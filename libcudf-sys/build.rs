@@ -227,13 +227,29 @@ fn main() {
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", rmm_lib.display());
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", cuda_lib.display());
 
-    // Rerun if bridge files change
+    // Rerun if source files change
     println!("cargo:rerun-if-changed=src/lib.rs");
-    println!("cargo:rerun-if-changed=src/bridge.h");
 
     // Automatically track all .cpp files
     for cpp_file in &cpp_files {
         println!("cargo:rerun-if-changed={}", cpp_file.display());
+    }
+
+    // Automatically track all .h files
+    let h_files: Vec<PathBuf> = fs::read_dir(&src_dir)
+        .expect("Failed to read src directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry.path().extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext == "h")
+                .unwrap_or(false)
+        })
+        .map(|entry| entry.path())
+        .collect();
+
+    for h_file in &h_files {
+        println!("cargo:rerun-if-changed={}", h_file.display());
     }
 }
 

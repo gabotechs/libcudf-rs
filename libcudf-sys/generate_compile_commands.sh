@@ -68,7 +68,14 @@ CPP_FILES=(
 
 # Array of header files
 HEADER_FILES=(
-    "libcudf-sys/src/bridge.h"
+    "libcudf-sys/src/table.h"
+    "libcudf-sys/src/column.h"
+    "libcudf-sys/src/groupby.h"
+    "libcudf-sys/src/aggregation.h"
+    "libcudf-sys/src/io.h"
+    "libcudf-sys/src/operations.h"
+    "libcudf-sys/src/binaryop.h"
+    "libcudf-sys/src/sorting.h"
 )
 
 # Start JSON array

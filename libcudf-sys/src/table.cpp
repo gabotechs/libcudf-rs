@@ -1,4 +1,4 @@
-#include "bridge.h"
+#include "table.h"
 #include "libcudf-sys/src/lib.rs.h"
 
 #include <cudf/table/table.hpp>
