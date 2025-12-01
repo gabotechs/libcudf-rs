@@ -131,6 +131,20 @@ fn main() {
         .unwrap_or_else(|_| "/usr/local/cuda".to_string());
     let cuda_include = PathBuf::from(&cuda_root).join("include");
 
+    // Use sccache for cxx_build if available
+    // The cc crate (used by cxx_build) respects the RUSTC_WRAPPER environment variable
+    let _sccache_guard = if let Some(sccache) = which_sccache() {
+        println!(
+            "cargo:warning=Using sccache for C++ bridge compilation: {}",
+            sccache
+        );
+        // Set environment variable for this build only
+        env::set_var("CXX", format!("{sccache} c++"));
+        Some(sccache)
+    } else {
+        None
+    };
+
     // Build the C++ bridge using cxx
     cxx_build::bridge("src/lib.rs")
         .file("src/table.cpp")
