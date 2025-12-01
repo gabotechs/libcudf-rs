@@ -133,7 +133,12 @@ fn main() {
 
     // Build the C++ bridge using cxx
     cxx_build::bridge("src/lib.rs")
-        .file("src/bridge.cpp")
+        .file("src/table.cpp")
+        .file("src/column.cpp")
+        .file("src/groupby.cpp")
+        .file("src/aggregation.cpp")
+        .file("src/io.cpp")
+        .file("src/operations.cpp")
         .std("c++20")
         .include("src")
         .include(&cudf_include)
