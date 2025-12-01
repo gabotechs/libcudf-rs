@@ -224,6 +224,25 @@ namespace libcudf_bridge {
     // Direct cuDF operations - 1:1 mappings
     std::unique_ptr<Table> apply_boolean_mask(const Table &table, const Column &boolean_mask);
 
+    // Binary operations - direct cuDF mappings
+    std::unique_ptr<Column> binary_operation_col_col(
+        const ColumnView &lhs,
+        const ColumnView &rhs,
+        int32_t op,
+        int32_t output_type_id);
+
+    std::unique_ptr<Column> binary_operation_col_scalar(
+        const ColumnView &lhs,
+        const Scalar &rhs,
+        int32_t op,
+        int32_t output_type_id);
+
+    std::unique_ptr<Column> binary_operation_scalar_col(
+        const Scalar &lhs,
+        const ColumnView &rhs,
+        int32_t op,
+        int32_t output_type_id);
+
     // Aggregation factory functions - direct cuDF mappings (for reduce)
     std::unique_ptr<Aggregation> make_sum_aggregation();
 

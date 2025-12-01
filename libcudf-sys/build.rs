@@ -153,6 +153,7 @@ fn main() {
         .file("src/aggregation.cpp")
         .file("src/io.cpp")
         .file("src/operations.cpp")
+        .file("src/binaryop.cpp")
         .std("c++20")
         .include("src")
         .include(&cudf_include)

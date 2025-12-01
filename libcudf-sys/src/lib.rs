@@ -174,6 +174,41 @@ pub mod ffi {
         /// mask is non-null and `true`. This operation is stable: the input order is preserved.
         fn apply_boolean_mask(table: &Table, boolean_mask: &Column) -> Result<UniquePtr<Table>>;
 
+        // Binary operations - direct cuDF mappings
+
+        /// Perform a binary operation between two columns
+        ///
+        /// Returns a new column containing the result of `op(lhs[i], rhs[i])` for all elements.
+        /// The output type must be specified explicitly.
+        fn binary_operation_col_col(
+            lhs: &ColumnView,
+            rhs: &ColumnView,
+            op: i32,
+            output_type_id: i32,
+        ) -> Result<UniquePtr<Column>>;
+
+        /// Perform a binary operation between a column and a scalar
+        ///
+        /// Returns a new column containing the result of `op(lhs[i], rhs)` for all elements.
+        /// The output type must be specified explicitly.
+        fn binary_operation_col_scalar(
+            lhs: &ColumnView,
+            rhs: &Scalar,
+            op: i32,
+            output_type_id: i32,
+        ) -> Result<UniquePtr<Column>>;
+
+        /// Perform a binary operation between a scalar and a column
+        ///
+        /// Returns a new column containing the result of `op(lhs, rhs[i])` for all elements.
+        /// The output type must be specified explicitly.
+        fn binary_operation_scalar_col(
+            lhs: &Scalar,
+            rhs: &ColumnView,
+            op: i32,
+            output_type_id: i32,
+        ) -> Result<UniquePtr<Column>>;
+
         // Aggregation factory functions - direct cuDF mappings (for reduce)
 
         /// Create a SUM aggregation
@@ -252,6 +287,136 @@ pub mod ffi {
         /// Get the version of the cuDF library
         fn get_cudf_version() -> String;
     }
+}
+
+/// Binary operators supported by cuDF
+///
+/// These operators can be used with binary_operation functions to perform
+/// element-wise operations on columns and scalars.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum BinaryOperator {
+    /// Addition (+)
+    Add = 0,
+    /// Subtraction (-)
+    Sub = 1,
+    /// Multiplication (*)
+    Mul = 2,
+    /// Division (/)
+    Div = 3,
+    /// True division (promotes to floating point)
+    TrueDiv = 4,
+    /// Floor division (//)
+    FloorDiv = 5,
+    /// Modulo (%)
+    Mod = 6,
+    /// Positive modulo
+    PMod = 7,
+    /// Python-style modulo
+    PyMod = 8,
+    /// Power (^)
+    Pow = 9,
+    /// Integer power
+    IntPow = 10,
+    /// Logarithm to base
+    LogBase = 11,
+    /// Two-argument arctangent
+    Atan2 = 12,
+    /// Shift left (<<)
+    ShiftLeft = 13,
+    /// Shift right (>>)
+    ShiftRight = 14,
+    /// Unsigned shift right (>>>)
+    ShiftRightUnsigned = 15,
+    /// Bitwise AND (&)
+    BitwiseAnd = 16,
+    /// Bitwise OR (|)
+    BitwiseOr = 17,
+    /// Bitwise XOR (^)
+    BitwiseXor = 18,
+    /// Logical AND (&&)
+    LogicalAnd = 19,
+    /// Logical OR (||)
+    LogicalOr = 20,
+    /// Equal (==)
+    Equal = 21,
+    /// Not equal (!=)
+    NotEqual = 22,
+    /// Less than (<)
+    Less = 23,
+    /// Greater than (>)
+    Greater = 24,
+    /// Less than or equal (<=)
+    LessEqual = 25,
+    /// Greater than or equal (>=)
+    GreaterEqual = 26,
+}
+
+/// cuDF data type IDs
+///
+/// These correspond to cuDF's type_id enum and are used to specify
+/// the output type for binary operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum TypeId {
+    /// Empty type
+    Empty = 0,
+    /// 8-bit signed integer
+    Int8 = 1,
+    /// 16-bit signed integer
+    Int16 = 2,
+    /// 32-bit signed integer
+    Int32 = 3,
+    /// 64-bit signed integer
+    Int64 = 4,
+    /// 8-bit unsigned integer
+    Uint8 = 5,
+    /// 16-bit unsigned integer
+    Uint16 = 6,
+    /// 32-bit unsigned integer
+    Uint32 = 7,
+    /// 64-bit unsigned integer
+    Uint64 = 8,
+    /// 32-bit floating point
+    Float32 = 9,
+    /// 64-bit floating point
+    Float64 = 10,
+    /// Boolean
+    Bool8 = 11,
+    /// Timestamp in days since epoch
+    TimestampDays = 12,
+    /// Timestamp in seconds since epoch
+    TimestampSeconds = 13,
+    /// Timestamp in milliseconds since epoch
+    TimestampMilliseconds = 14,
+    /// Timestamp in microseconds since epoch
+    TimestampMicroseconds = 15,
+    /// Timestamp in nanoseconds since epoch
+    TimestampNanoseconds = 16,
+    /// Duration in days
+    DurationDays = 17,
+    /// Duration in seconds
+    DurationSeconds = 18,
+    /// Duration in milliseconds
+    DurationMilliseconds = 19,
+    /// Duration in microseconds
+    DurationMicroseconds = 20,
+    /// Duration in nanoseconds
+    DurationNanoseconds = 21,
+    /// Dictionary (categorical) type with 32-bit indices
+    Dictionary32 = 22,
+    /// String type
+    String = 23,
+    /// List type
+    List = 24,
+    /// Decimal 32-bit
+    Decimal32 = 25,
+    /// Decimal 64-bit
+    Decimal64 = 26,
+    /// Decimal 128-bit
+    Decimal128 = 27,
+    /// Struct type
+    Struct = 28,
 }
 
 /// Safe wrapper for converting an Arrow array to a cuDF table

@@ -62,6 +62,7 @@ CPP_FILES=(
     "libcudf-sys/src/aggregation.cpp"
     "libcudf-sys/src/io.cpp"
     "libcudf-sys/src/operations.cpp"
+    "libcudf-sys/src/binaryop.cpp"
 )
 
 # Array of header files
