@@ -154,8 +154,9 @@ pub mod ffi {
         /// Create an empty table with no columns and no rows
         fn create_empty_table() -> UniquePtr<Table>;
 
-        /// Create a table from a set of columns
-        fn create_table_from_columns(columns: &[*mut Column]) -> UniquePtr<Table>;
+        /// Create a table from a set of column pointers (takes ownership)
+        /// The columns are consumed and should not be used after this call
+        fn create_table_from_columns_move(columns: &[*mut Column]) -> UniquePtr<Table>;
 
         // Parquet I/O
 
@@ -246,6 +247,27 @@ pub mod ffi {
             column_order: &[i32],
             null_precedence: &[i32],
         ) -> Result<bool>;
+
+        /// Sort values table based on keys table
+        ///
+        /// Reorders the rows of `values` according to the lexicographic ordering of the rows of `keys`.
+        /// The `column_order` and `null_precedence` vectors must match the number of columns in `keys`.
+        fn sort_by_key(
+            values: &TableView,
+            keys: &TableView,
+            column_order: &[i32],
+            null_precedence: &[i32],
+        ) -> Result<UniquePtr<Table>>;
+
+        /// Stable sort values table based on keys table
+        ///
+        /// Same as `sort_by_key` but preserves the relative order of equivalent elements.
+        fn stable_sort_by_key(
+            values: &TableView,
+            keys: &TableView,
+            column_order: &[i32],
+            null_precedence: &[i32],
+        ) -> Result<UniquePtr<Table>>;
 
         // Aggregation factory functions - direct cuDF mappings (for reduce)
 

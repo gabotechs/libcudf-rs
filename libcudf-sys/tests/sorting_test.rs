@@ -10,7 +10,8 @@ mod tests {
         let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
-        // Sort by all columns in ascending order
+        // Sort by first column in ascending order
+        // Note: cuDF requires column_order for ALL columns, but only the first matters for sorting
         let num_cols = table.num_columns();
         let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
@@ -144,5 +145,51 @@ mod tests {
     fn test_null_order_enum() {
         assert_eq!(NullOrder::After as i32, 0);
         assert_eq!(NullOrder::Before as i32, 1);
+    }
+
+    #[test]
+    fn test_sort_by_key() -> Result<(), Box<dyn std::error::Error>> {
+        // Read a parquet file
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+
+        // Sort by only the first column - use select to create a view with just that column
+        let keys_view = table_view.select(&[0]);
+
+        // Provide ordering for just the one key column
+        let column_order = vec![Order::Ascending as i32];
+        let null_precedence = vec![NullOrder::Before as i32];
+
+        let sorted_table =
+            ffi::sort_by_key(&table_view, &keys_view, &column_order, &null_precedence)?;
+
+        // Verify dimensions
+        assert_eq!(sorted_table.num_rows(), table.num_rows());
+        assert_eq!(sorted_table.num_columns(), table.num_columns());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_stable_sort_by_key() -> Result<(), Box<dyn std::error::Error>> {
+        // Read a parquet file
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+
+        // Sort by first two columns - use select to create a view with just those columns
+        let keys_view = table_view.select(&[0, 1]);
+
+        // Provide ordering for the two key columns
+        let column_order = vec![Order::Ascending as i32, Order::Descending as i32];
+        let null_precedence = vec![NullOrder::Before as i32, NullOrder::After as i32];
+
+        let sorted_table =
+            ffi::stable_sort_by_key(&table_view, &keys_view, &column_order, &null_precedence)?;
+
+        // Verify dimensions
+        assert_eq!(sorted_table.num_rows(), table.num_rows());
+        assert_eq!(sorted_table.num_columns(), table.num_columns());
+
+        Ok(())
     }
 }

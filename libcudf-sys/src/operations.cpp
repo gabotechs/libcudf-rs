@@ -20,10 +20,11 @@ namespace libcudf_bridge {
         return table;
     }
 
-    std::unique_ptr<Table> create_table_from_columns(rust::Slice<Column * const> columns) {
+    std::unique_ptr<Table> create_table_from_columns_move(rust::Slice<Column *const> columns) {
         std::vector<std::unique_ptr<cudf::column> > cudf_columns;
         cudf_columns.reserve(columns.size());
 
+        // Take ownership of columns by moving from each pointer
         for (auto *col: columns) {
             cudf_columns.push_back(std::move(col->inner));
         }

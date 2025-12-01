@@ -214,7 +214,7 @@ namespace libcudf_bridge {
     // Table factory functions
     std::unique_ptr<Table> create_empty_table();
 
-    std::unique_ptr<Table> create_table_from_columns(rust::Slice<Column * const> columns);
+    std::unique_ptr<Table> create_table_from_columns_move(rust::Slice<Column *const> columns);
 
     // Parquet I/O
     std::unique_ptr<Table> read_parquet(rust::Str filename);
@@ -261,6 +261,18 @@ namespace libcudf_bridge {
 
     bool is_sorted(
         const TableView &input,
+        rust::Slice<const int32_t> column_order,
+        rust::Slice<const int32_t> null_precedence);
+
+    std::unique_ptr<Table> sort_by_key(
+        const TableView &values,
+        const TableView &keys,
+        rust::Slice<const int32_t> column_order,
+        rust::Slice<const int32_t> null_precedence);
+
+    std::unique_ptr<Table> stable_sort_by_key(
+        const TableView &values,
+        const TableView &keys,
         rust::Slice<const int32_t> column_order,
         rust::Slice<const int32_t> null_precedence);
 
