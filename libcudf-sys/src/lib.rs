@@ -332,8 +332,8 @@ pub mod ffi {
 
         /// Convert an Arrow array to a cuDF table
         unsafe fn from_arrow_host(
-            schema_ptr: *mut u8,
-            device_array_ptr: *mut u8,
+            schema_ptr: *const u8,
+            device_array_ptr: *const u8,
         ) -> Result<UniquePtr<Table>>;
 
         /// Convert a cuDF table schema to Arrow schema

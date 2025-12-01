@@ -7,7 +7,10 @@ use arrow::datatypes::Schema;
 use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
 use arrow::record_batch::RecordBatch;
 
-use crate::{ffi, ArrowDeviceArray, Result, table_from_arrow, table_to_arrow_array, table_to_arrow_schema};
+use crate::LibCuDFError;
+use libcudf_sys::{
+    ffi, table_from_arrow, table_to_arrow_array, table_to_arrow_schema, ArrowDeviceArray,
+};
 
 /// A GPU-accelerated table (similar to a DataFrame)
 ///
@@ -56,13 +59,12 @@ impl Table {
     /// let table = Table::from_parquet("data.parquet")?;
     /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
-    pub fn from_parquet<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let path_str = path
-            .as_ref()
-            .to_str()
-            .ok_or_else(|| arrow::error::ArrowError::InvalidArgumentError(
-                "Path contains invalid UTF-8".to_string()
-            ))?;
+    pub fn from_parquet<P: AsRef<Path>>(path: P) -> Result<Self, LibCuDFError> {
+        let path_str = path.as_ref().to_str().ok_or_else(|| {
+            arrow::error::ArrowError::InvalidArgumentError(
+                "Path contains invalid UTF-8".to_string(),
+            )
+        })?;
 
         let inner = ffi::read_parquet(path_str)?;
         Ok(Self { inner })
@@ -90,13 +92,12 @@ impl Table {
     /// table.to_parquet("output.parquet")?;
     /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
-    pub fn to_parquet<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let path_str = path
-            .as_ref()
-            .to_str()
-            .ok_or_else(|| arrow::error::ArrowError::InvalidArgumentError(
-                "Path contains invalid UTF-8".to_string()
-            ))?;
+    pub fn to_parquet<P: AsRef<Path>>(&self, path: P) -> Result<(), LibCuDFError> {
+        let path_str = path.as_ref().to_str().ok_or_else(|| {
+            arrow::error::ArrowError::InvalidArgumentError(
+                "Path contains invalid UTF-8".to_string(),
+            )
+        })?;
 
         ffi::write_parquet(&self.inner, path_str)?;
         Ok(())
@@ -128,7 +129,7 @@ impl Table {
     /// let table = Table::from_arrow(batch)?;
     /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
-    pub fn from_arrow(batch: RecordBatch) -> Result<Self> {
+    pub fn from_arrow(batch: RecordBatch) -> Result<Self, LibCuDFError> {
         let struct_array = StructArray::from(batch.clone());
         let array_data: ArrayData = struct_array.into_data();
 
@@ -164,7 +165,7 @@ impl Table {
     /// let batch = table.to_arrow()?;
     /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
-    pub fn to_arrow(&self) -> Result<RecordBatch> {
+    pub fn to_arrow(&self) -> Result<RecordBatch, LibCuDFError> {
         let mut ffi_schema = FFI_ArrowSchema::empty();
         let mut device_array = ArrowDeviceArray::empty();
 
@@ -221,7 +222,6 @@ impl Table {
     pub fn is_empty(&self) -> bool {
         self.num_rows() == 0
     }
-
 }
 
 impl Default for Table {

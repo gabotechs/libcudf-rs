@@ -307,7 +307,7 @@ namespace libcudf_bridge {
     std::unique_ptr<AggregationRequest> aggregation_request_create(const ColumnView &values);
 
     // Arrow interop - direct cuDF calls
-    std::unique_ptr<Table> from_arrow_host(uint8_t *schema_ptr, uint8_t *device_array_ptr);
+    std::unique_ptr<Table> from_arrow_host(uint8_t const *schema_ptr, uint8_t const *device_array_ptr);
 
     void to_arrow_schema(const Table &table, uint8_t *out_schema_ptr);
 
