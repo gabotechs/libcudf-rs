@@ -17,7 +17,7 @@
 //! table.to_parquet("output.parquet").expect("Failed to write Parquet");
 //! ```
 
-pub use libcudf_sys::ffi;
+pub use libcudf_sys::{ffi, ArrowDeviceArray, table_from_arrow, table_to_arrow_array, table_to_arrow_schema};
 
 mod errors;
 mod table;

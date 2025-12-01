@@ -146,7 +146,11 @@ std::unique_ptr<GroupByResult> GroupBy::aggregate(rust::Slice<const AggregationR
 
     for (auto& agg_result : result.second) {
         AggregationResult ar;
-        ar.results = std::move(agg_result.results);
+        for (auto& col : agg_result.results) {
+            Column wrapped_col;
+            wrapped_col.inner = std::move(col);
+            ar.results.emplace_back(std::move(wrapped_col));
+        }
         wrapped->results.push_back(std::move(ar));
     }
 
@@ -168,8 +172,12 @@ AggregationResult::AggregationResult() = default;
 
 AggregationResult::~AggregationResult() = default;
 
-size_t AggregationResult::results_size() const {
+size_t AggregationResult::len() const {
     return results.size();
+}
+
+const Column& AggregationResult::get(size_t index) const {
+    return results[index];
 }
 
 // GroupByResult implementation
@@ -185,7 +193,11 @@ size_t GroupByResult::results_size() const {
     return results.size();
 }
 
-AggregationResult& GroupByResult::get_result(size_t index) {
+const AggregationResult& GroupByResult::get_result(size_t index) const {
+    return results[index];
+}
+
+AggregationResult& GroupByResult::get_result_mut(size_t index) {
     return results[index];
 }
 

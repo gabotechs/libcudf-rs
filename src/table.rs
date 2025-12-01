@@ -7,7 +7,7 @@ use arrow::datatypes::Schema;
 use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
 use arrow::record_batch::RecordBatch;
 
-use crate::{ffi, Result};
+use crate::{ffi, ArrowDeviceArray, Result, table_from_arrow, table_to_arrow_array, table_to_arrow_schema};
 
 /// A GPU-accelerated table (similar to a DataFrame)
 ///
@@ -135,26 +135,9 @@ impl Table {
         let ffi_array = FFI_ArrowArray::new(&array_data);
         let ffi_schema = FFI_ArrowSchema::try_from(batch.schema().as_ref())?;
 
-        // Create ArrowDeviceArray structure (describes CPU data location)
-        #[repr(C)]
-        struct ArrowDeviceArray {
-            array: FFI_ArrowArray,
-            device_id: i64,
-            device_type: i32,
-            sync_event: *mut std::ffi::c_void,
-        }
+        let device_array = ArrowDeviceArray::new_cpu(ffi_array);
 
-        let device_array = ArrowDeviceArray {
-            array: ffi_array,
-            device_id: -1,  // CPU
-            device_type: 1, // ARROW_DEVICE_CPU
-            sync_event: std::ptr::null_mut(),
-        };
-
-        let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *mut u8;
-        let device_array_ptr = &device_array as *const ArrowDeviceArray as *mut u8;
-
-        let inner = unsafe { ffi::from_arrow_host(schema_ptr, device_array_ptr)? };
+        let inner = table_from_arrow(&ffi_schema, &device_array)?;
         Ok(Self { inner })
     }
 
@@ -182,29 +165,11 @@ impl Table {
     /// # Ok::<(), libcudf_rs::LibCuDFError>(())
     /// ```
     pub fn to_arrow(&self) -> Result<RecordBatch> {
-        #[repr(C)]
-        struct ArrowDeviceArray {
-            array: FFI_ArrowArray,
-            device_id: i64,
-            device_type: i32,
-            sync_event: *mut std::ffi::c_void,
-        }
-
         let mut ffi_schema = FFI_ArrowSchema::empty();
-        let mut device_array = ArrowDeviceArray {
-            array: FFI_ArrowArray::empty(),
-            device_id: 0,
-            device_type: 0,
-            sync_event: std::ptr::null_mut(),
-        };
+        let mut device_array = ArrowDeviceArray::empty();
 
-        let schema_ptr = &mut ffi_schema as *mut FFI_ArrowSchema as *mut u8;
-        let array_ptr = &mut device_array as *mut ArrowDeviceArray as *mut u8;
-
-        unsafe {
-            ffi::to_arrow_schema(&self.inner, schema_ptr)?;
-            ffi::to_arrow_host_array(&self.inner, array_ptr)?;
-        }
+        table_to_arrow_schema(&self.inner, &mut ffi_schema)?;
+        table_to_arrow_array(&self.inner, &mut device_array)?;
 
         let schema = Arc::new(Schema::try_from(&ffi_schema)?);
         let array_data = unsafe { from_ffi(device_array.array, &ffi_schema)? };

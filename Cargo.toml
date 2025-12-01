@@ -3,7 +3,7 @@ members = ["libcudf-sys", "libcudf-benchmarks"]
 resolver = "2"
 
 [workspace.dependencies]
-arrow = { version = "57", features = ["ffi"] }
+arrow = { version = "57", features = ["ffi", "prettyprint"] }
 arrow-schema = "57"
 cxx = "1.0"
 thiserror = "2.0"

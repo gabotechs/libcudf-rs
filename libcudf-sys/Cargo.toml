@@ -11,6 +11,11 @@ links = "cudf"
 
 [dependencies]
 cxx = { workspace = true }
+arrow = { workspace = true }
+arrow-schema = { workspace = true }
+
+[dev-dependencies]
+insta = "1"
 
 [build-dependencies]
 cxx-build = "1.0"

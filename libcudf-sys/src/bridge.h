@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 #include "rust/cxx.h"
 
 // Forward declarations of Arrow C ABI types
@@ -98,6 +99,12 @@ struct Column {
     Column();
     ~Column();
 
+    // Delete copy, allow move
+    Column(const Column&) = delete;
+    Column& operator=(const Column&) = delete;
+    Column(Column&&) = default;
+    Column& operator=(Column&&) = default;
+
     // Get number of elements
     size_t size() const;
 };
@@ -149,7 +156,7 @@ struct AggregationRequest {
 
 // Direct exposure of cuDF's aggregation_result
 struct AggregationResult {
-    std::vector<std::unique_ptr<cudf::column>> results;
+    std::vector<Column> results;
 
     AggregationResult();
     ~AggregationResult();
@@ -160,8 +167,9 @@ struct AggregationResult {
     AggregationResult(AggregationResult&&) = default;
     AggregationResult& operator=(AggregationResult&&) = default;
 
-    // Field accessors as methods
-    size_t results_size() const;
+    // Accessors for the results vector
+    size_t len() const;
+    const Column& get(size_t index) const;
 };
 
 // Direct exposure of cuDF's groupby aggregate() return type
@@ -175,7 +183,8 @@ struct GroupByResult {
     // Field accessors as methods
     const Table& get_keys() const;
     size_t results_size() const;
-    AggregationResult& get_result(size_t index);
+    const AggregationResult& get_result(size_t index) const;
+    AggregationResult& get_result_mut(size_t index);
 };
 
 // Table factory functions
