@@ -27,7 +27,10 @@ mod tests {
         assert_eq!(aggregation_result.len(), 1);
 
         // Verify the column has the expected number of rows
-        assert_eq!(aggregation_result.get(0).size(), groupby_result.get_keys().num_rows());
+        assert_eq!(
+            aggregation_result.get(0).size(),
+            groupby_result.get_keys().num_rows()
+        );
 
         Ok(())
     }
@@ -42,9 +45,15 @@ mod tests {
 
         let value_column = table_view.column(1);
         let mut agg_request = ffi::aggregation_request_create(&value_column);
-        agg_request.pin_mut().add(ffi::make_sum_aggregation_groupby());
-        agg_request.pin_mut().add(ffi::make_min_aggregation_groupby());
-        agg_request.pin_mut().add(ffi::make_max_aggregation_groupby());
+        agg_request
+            .pin_mut()
+            .add(ffi::make_sum_aggregation_groupby());
+        agg_request
+            .pin_mut()
+            .add(ffi::make_min_aggregation_groupby());
+        agg_request
+            .pin_mut()
+            .add(ffi::make_max_aggregation_groupby());
 
         let requests = &[&*agg_request as *const ffi::AggregationRequest];
         let groupby_result = groupby.aggregate(requests)?;
@@ -79,7 +88,9 @@ mod tests {
 
         let value_column = table_view.column(1);
         let mut agg_request = ffi::aggregation_request_create(&value_column);
-        agg_request.pin_mut().add(ffi::make_count_aggregation_groupby());
+        agg_request
+            .pin_mut()
+            .add(ffi::make_count_aggregation_groupby());
 
         let agg_requests = &[&*agg_request as *const ffi::AggregationRequest];
         let groupby_result = groupby.aggregate(agg_requests)?;

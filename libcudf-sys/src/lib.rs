@@ -69,7 +69,7 @@ pub mod ffi {
         // AggregationRequest methods
 
         /// Add an aggregation to this request
-        fn add(self: Pin<&mut AggregationRequest>, agg: UniquePtr<Aggregation>);
+        fn add(self: &AggregationRequest, agg: UniquePtr<Aggregation>);
 
         /// The result(s) of an aggregation_request
         ///
