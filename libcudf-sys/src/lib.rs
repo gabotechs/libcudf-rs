@@ -57,7 +57,10 @@ pub mod ffi {
         ///
         /// For each aggregation in a request, `values[i]` is aggregated with all other
         /// `values[j]` where rows `i` and `j` in `keys` are equivalent.
-        fn aggregate(self: &GroupBy, requests: &[*const AggregationRequest]) -> Result<UniquePtr<GroupByResult>>;
+        fn aggregate(
+            self: &GroupBy,
+            requests: &[*const AggregationRequest],
+        ) -> Result<UniquePtr<GroupByResult>>;
 
         /// Request for groupby aggregation(s) to perform on a column
         ///
@@ -106,7 +109,10 @@ pub mod ffi {
         fn get_result(self: &GroupByResult, index: usize) -> &AggregationResult;
 
         /// Get a mutable reference to the aggregation result at the specified index
-        fn get_result_mut(self: Pin<&mut GroupByResult>, index: usize) -> Pin<&mut AggregationResult>;
+        fn get_result_mut(
+            self: Pin<&mut GroupByResult>,
+            index: usize,
+        ) -> Pin<&mut AggregationResult>;
 
         // Table methods
         /// Get the number of columns in the table
@@ -126,10 +132,10 @@ pub mod ffi {
         fn num_rows(self: &TableView) -> usize;
 
         /// Select specific columns by indices
-        fn select(self: &TableView, column_indices: &[usize]) -> UniquePtr<TableView>;
+        fn select(self: &TableView, column_indices: &[i32]) -> UniquePtr<TableView>;
 
         /// Get column view at index
-        fn column(self: &TableView, index: usize) -> UniquePtr<ColumnView>;
+        fn column(self: &TableView, index: i32) -> UniquePtr<ColumnView>;
 
         // Column methods
         /// Get the number of elements in the column
@@ -208,7 +214,11 @@ pub mod ffi {
         ///
         /// This function does not detect overflows in reductions. Any null values are skipped
         /// for the operation. If the reduction fails, the output scalar returns with `is_valid()==false`.
-        fn reduce(col: &Column, agg: &Aggregation, output_type_id: i32) -> Result<UniquePtr<Scalar>>;
+        fn reduce(
+            col: &Column,
+            agg: &Aggregation,
+            output_type_id: i32,
+        ) -> Result<UniquePtr<Scalar>>;
 
         // GroupBy operations - direct cuDF mappings
 
@@ -226,7 +236,10 @@ pub mod ffi {
         // Arrow interop - direct cuDF calls
 
         /// Convert an Arrow array to a cuDF table
-        unsafe fn from_arrow_host(schema_ptr: *mut u8, device_array_ptr: *mut u8) -> Result<UniquePtr<Table>>;
+        unsafe fn from_arrow_host(
+            schema_ptr: *mut u8,
+            device_array_ptr: *mut u8,
+        ) -> Result<UniquePtr<Table>>;
 
         /// Convert a cuDF table schema to Arrow schema
         unsafe fn to_arrow_schema(table: &Table, out_schema_ptr: *mut u8) -> Result<()>;

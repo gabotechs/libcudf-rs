@@ -45,11 +45,11 @@ namespace libcudf_bridge {
         return inner->num_rows();
     }
 
-    std::unique_ptr<TableView> TableView::select(rust::Slice<const size_t> column_indices) const {
+    std::unique_ptr<TableView> TableView::select(const rust::Slice<const int32_t> column_indices) const {
         std::vector<cudf::size_type> indices;
         indices.reserve(column_indices.size());
-        for (auto idx: column_indices) {
-            indices.push_back(static_cast<cudf::size_type>(idx));
+        for (const auto idx: column_indices) {
+            indices.push_back(idx);
         }
 
         auto result = std::make_unique<TableView>();
@@ -57,7 +57,7 @@ namespace libcudf_bridge {
         return result;
     }
 
-    std::unique_ptr<ColumnView> TableView::column(size_t index) const {
+    std::unique_ptr<ColumnView> TableView::column(const int32_t index) const {
         auto result = std::make_unique<ColumnView>();
         result->inner = std::make_unique<cudf::column_view>(inner->column(index));
         return result;
