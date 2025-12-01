@@ -77,10 +77,10 @@ namespace libcudf_bridge {
         [[nodiscard]] size_t num_rows() const;
 
         // Select specific columns by indices
-        [[nodiscard]] std::unique_ptr<TableView> select(rust::Slice<const size_t> column_indices) const;
+        [[nodiscard]] std::unique_ptr<TableView> select(rust::Slice<const int32_t> column_indices) const;
 
         // Get column view at index
-        [[nodiscard]] std::unique_ptr<ColumnView> column(size_t index) const;
+        [[nodiscard]] std::unique_ptr<ColumnView> column(int32_t index) const;
     };
 
     // Opaque wrapper for cuDF column_view

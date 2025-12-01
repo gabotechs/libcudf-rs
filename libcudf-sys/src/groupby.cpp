@@ -2,11 +2,20 @@
 #include "libcudf-sys/src/lib.rs.h"
 
 #include <cudf/table/table.hpp>
-#include <cudf/column/column.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/aggregation.hpp>
 
 namespace libcudf_bridge {
+    // Helper function to create AggregationResult from cudf::groupby::aggregation_result
+    AggregationResult aggregation_result_from_cudf(cudf::groupby::aggregation_result cudf_result) {
+        AggregationResult ar;
+        for (auto &cudf_col: cudf_result.results) {
+            auto col = column_from_unique_ptr(std::move(cudf_col));
+            ar.results.emplace_back(std::move(col));
+        }
+        return ar;
+    }
+
     // Aggregation implementation
     Aggregation::Aggregation() : inner(nullptr) {
     }
@@ -34,22 +43,17 @@ namespace libcudf_bridge {
             cudf_requests.push_back(std::move(cudf_req));
         }
 
-        auto result = inner->aggregate(cudf_requests);
+        auto aggregate_result = inner->aggregate(cudf_requests);
 
-        auto wrapped = std::make_unique<GroupByResult>();
-        wrapped->keys.inner = std::move(result.first);
+        auto group_by_result = std::make_unique<GroupByResult>();
+        group_by_result->keys.inner = std::move(aggregate_result.first);
 
-        for (auto &agg_result: result.second) {
-            AggregationResult ar;
-            for (auto &col: agg_result.results) {
-                Column wrapped_col;
-                wrapped_col.inner = std::move(col);
-                ar.results.emplace_back(std::move(wrapped_col));
-            }
-            wrapped->results.push_back(std::move(ar));
+        for (auto &cudf_agg_result: aggregate_result.second) {
+            auto ar = aggregation_result_from_cudf(std::move(cudf_agg_result));
+            group_by_result->results.push_back(std::move(ar));
         }
 
-        return wrapped;
+        return group_by_result;
     }
 
     // AggregationRequest implementation

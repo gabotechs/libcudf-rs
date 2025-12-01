@@ -3,7 +3,6 @@
 
 #include <cudf/table/table_view.hpp>
 #include <cudf/column/column.hpp>
-#include <cudf/scalar/scalar.hpp>
 #include <cudf/aggregation.hpp>
 #include <cudf/reduction.hpp>
 #include <cudf/groupby.hpp>
@@ -74,7 +73,7 @@ namespace libcudf_bridge {
     // Reduction - direct cuDF mapping
     std::unique_ptr<Scalar> reduce(const Column &col, const Aggregation &agg, int32_t output_type_id) {
         auto result = std::make_unique<Scalar>();
-        auto output_type = cudf::data_type{static_cast<cudf::type_id>(output_type_id)};
+        const auto output_type = cudf::data_type{static_cast<cudf::type_id>(output_type_id)};
         auto *reduce_agg = dynamic_cast<cudf::reduce_aggregation const *>(agg.inner.get());
         result->inner = cudf::reduce(col.inner->view(), *reduce_agg, output_type);
         return result;
