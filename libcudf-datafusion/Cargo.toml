@@ -1,0 +1,18 @@
+[package]
+name = "libcudf-datafusion"
+version = "0.1.0"
+edition = "2021"
+authors = [
+    "notfilippo",
+    "gabotechs",
+]
+
+[dependencies]
+libcudf-rs = { path = ".." }
+arrow = { workspace = true }
+arrow-schema = { workspace = true }
+datafusion = "51"
+datafusion-expr = "51"
+datafusion-physical-plan = "51"
+async-trait = "0.1"
+tokio = { version = "1.41", features = ["rt", "macros"] }

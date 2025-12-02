@@ -2,6 +2,7 @@
 members = [
     "libcudf-sys",
     "libcudf-benchmarks",
+    "libcudf-datafusion",
 ]
 resolver = "2"
 
