@@ -19,6 +19,9 @@ namespace libcudf_bridge {
     std::unique_ptr<Table> table_from_arrow_host(uint8_t const *schema_ptr, uint8_t const *device_array_ptr);
     std::unique_ptr<Column> column_from_arrow(uint8_t const *schema_ptr, uint8_t const *array_ptr);
 
+    std::unique_ptr<Table> concat_table_views(rust::Slice<const std::unique_ptr<TableView>> views);
+    std::unique_ptr<Column> concat_column_views(rust::Slice<const std::unique_ptr<ColumnView>> views);
+
     // Utility functions
     rust::String get_cudf_version();
 } // namespace libcudf_bridge

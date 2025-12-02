@@ -193,12 +193,15 @@ pub mod ffi {
         /// Create an empty table with no columns and no rows
         fn create_empty_table() -> UniquePtr<Table>;
 
-        /// Create a table from vertically concatenating TableView together
-        fn concat(views: &[UniquePtr<TableView>]) -> UniquePtr<Table>;
-
         /// Create a table from a set of column pointers (takes ownership)
         /// The columns are consumed and should not be used after this call
         fn create_table_from_columns_move(columns: &[*mut Column]) -> UniquePtr<Table>;
+
+        /// Create a table from vertically concatenating TableView together
+        fn concat_table_views(views: &[UniquePtr<TableView>]) -> UniquePtr<Table>;
+
+        /// Create a table from vertically concatenating ColumnView together
+        fn concat_column_views(views: &[UniquePtr<ColumnView>]) -> UniquePtr<Column>;
 
         // Parquet I/O
 
