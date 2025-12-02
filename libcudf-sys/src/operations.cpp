@@ -34,8 +34,22 @@ namespace libcudf_bridge {
         return table;
     }
 
-    std::unique_ptr<Table> concat(rust::Slice<const std::unique_ptr<TableView>> views) {
+    std::unique_ptr<Table> concat_table_views(rust::Slice<const std::unique_ptr<TableView>> views) {
         std::vector<cudf::table_view> table_views;
+        table_views.reserve(views.size());
+
+        // Take ownership of tables by moving out of each unique pointer
+        for (auto &col: views) {
+            table_views.push_back(std::move(*col->inner));
+        }
+
+        auto table = std::make_unique<Table>();
+        table->inner = cudf::concatenate(table_views);
+        return table;
+    }
+
+    std::unique_ptr<Column> concat_column_views(rust::Slice<const std::unique_ptr<ColumnView>> views) {
+        std::vector<cudf::column_view> table_views;
         table_views.reserve(views.size());
 
         // Take ownership of columns by moving out of each unique pointer
@@ -43,7 +57,7 @@ namespace libcudf_bridge {
             table_views.push_back(std::move(*col->inner));
         }
 
-        auto table = std::make_unique<Table>();
+        auto table = std::make_unique<Column>();
         table->inner = cudf::concatenate(table_views);
         return table;
     }
