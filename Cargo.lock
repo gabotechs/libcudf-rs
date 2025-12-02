@@ -544,6 +544,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cuda-config"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ee74643f7430213a1a78320f88649de309b20b80818325575e393f848f79f5d"
+dependencies = [
+ "glob",
+]
+
+[[package]]
+name = "cuda-runtime-sys"
+version = "0.3.0-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d070b301187fee3c611e75a425cf12247b7c75c09729dbdef95cb9cb64e8c39"
+dependencies = [
+ "cuda-config",
+]
+
+[[package]]
 name = "cxx"
 version = "1.0.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -667,6 +685,12 @@ dependencies = [
  "r-efi",
  "wasip2",
 ]
+
+[[package]]
+name = "glob"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "half"
@@ -840,6 +864,7 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "arrow-schema",
+ "cuda-runtime-sys",
  "cxx",
  "libcudf-sys",
  "thiserror",

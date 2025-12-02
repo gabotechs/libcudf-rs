@@ -1,5 +1,8 @@
 [workspace]
-members = ["libcudf-sys", "libcudf-benchmarks"]
+members = [
+    "libcudf-sys",
+    "libcudf-benchmarks",
+]
 resolver = "2"
 
 [workspace.dependencies]
@@ -23,3 +26,6 @@ cxx = { workspace = true }
 arrow = { workspace = true }
 arrow-schema = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+cuda-runtime-sys = "0.3.0-alpha.1"
