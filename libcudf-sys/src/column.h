@@ -27,6 +27,9 @@ namespace libcudf_bridge {
 
         // Get the column's data as an FFI Arrow Array
         void to_arrow_array(uint8_t *out_array_ptr) const;
+
+        // Get the raw device pointer to the column view's data
+        [[nodiscard]] uint64_t data_ptr() const;
     };
 
     // Opaque wrapper for cuDF column

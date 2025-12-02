@@ -53,6 +53,34 @@ impl CuDFColumn {
 
         Ok(Self::new(inner))
     }
+
+    /// Get the raw device pointer to the column's data
+    ///
+    /// This returns a pointer to GPU device memory. The pointer is only valid
+    /// as long as this CuDFColumn exists.
+    ///
+    /// # Safety
+    ///
+    /// This is marked unsafe because:
+    /// - The returned pointer points to GPU device memory
+    /// - Dereferencing it from CPU code will cause undefined behavior
+    /// - Use CUDA APIs to interact with this pointer
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use arrow::array::Int32Array;
+    /// use libcudf_rs::CuDFColumn;
+    ///
+    /// let array = Int32Array::from(vec![1, 2, 3]);
+    /// let column = CuDFColumn::from_arrow(&array)?;
+    /// let gpu_ptr = unsafe { column.data_ptr() };
+    /// // Use CUDA APIs to work with gpu_ptr
+    /// # Ok::<(), libcudf_rs::CuDFError>(())
+    /// ```
+    pub unsafe fn data_ptr(&self) -> u64 {
+        self.inner.view().data_ptr()
+    }
 }
 
 impl Debug for CuDFColumn {

@@ -174,6 +174,9 @@ pub mod ffi {
         /// Get the column view data as an FFI ArrowArray
         unsafe fn to_arrow_array(self: &ColumnView, out_array_ptr: *mut u8) -> Result<()>;
 
+        /// Get the raw device pointer to the column view's data
+        fn data_ptr(self: &ColumnView) -> u64;
+
         // DataType methods
         /// Get the type_id
         fn id(self: &DataType) -> i32;

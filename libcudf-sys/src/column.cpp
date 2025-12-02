@@ -28,6 +28,13 @@ namespace libcudf_bridge {
         device_array_unique.release();
     }
 
+    [[nodiscard]] uint64_t ColumnView::data_ptr() const {
+        if (!inner) {
+            return 0;
+        }
+        return reinterpret_cast<uint64_t>(inner->head());
+    }
+
     // Column implementation
     Column::Column() : inner(nullptr) {
     }
