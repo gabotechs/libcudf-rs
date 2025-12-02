@@ -7,6 +7,9 @@
 #include <cudf/interop.hpp>
 #include <cudf/version_config.hpp>
 
+#include <nanoarrow/nanoarrow.h>
+#include <nanoarrow/nanoarrow_device.h>
+
 #include <sstream>
 
 namespace libcudf_bridge {
@@ -39,5 +42,15 @@ namespace libcudf_bridge {
                 << CUDF_VERSION_MINOR << "."
                 << CUDF_VERSION_PATCH;
         return {version.str()};
+    }
+
+    // Arrow interop - convert Arrow data to cuDF table
+    std::unique_ptr<Table> from_arrow_host(uint8_t const *schema_ptr, uint8_t const *device_array_ptr) {
+        auto *schema = reinterpret_cast<const ArrowSchema *>(schema_ptr);
+        auto *device_array = reinterpret_cast<const ArrowDeviceArray *>(device_array_ptr);
+
+        auto result = std::make_unique<Table>();
+        result->inner = cudf::from_arrow_host(schema, device_array);
+        return result;
     }
 } // namespace libcudf_bridge

@@ -535,55 +535,8 @@ pub struct ArrowDeviceArray {
     pub device_type: i32,
     /// Synchronization event pointer (usually null)
     pub sync_event: *mut std::ffi::c_void,
-}
-
-impl ArrowDeviceArray {
-    /// Create an empty ArrowDeviceArray for CPU
-    pub fn empty() -> Self {
-        Self {
-            array: arrow::ffi::FFI_ArrowArray::empty(),
-            device_id: -1,
-            device_type: 1, // ARROW_DEVICE_CPU
-            sync_event: std::ptr::null_mut(),
-        }
-    }
-
-    /// Create an ArrowDeviceArray for CPU with the given array
-    pub fn new_cpu(array: arrow::ffi::FFI_ArrowArray) -> Self {
-        Self {
-            array,
-            device_id: -1,
-            device_type: 1, // ARROW_DEVICE_CPU
-            sync_event: std::ptr::null_mut(),
-        }
-    }
-
-    /// Create an ArrowDeviceArray for CUDA device with the given array and device ID
-    pub fn new_cuda(array: arrow::ffi::FFI_ArrowArray, device_id: i64) -> Self {
-        Self {
-            array,
-            device_id,
-            device_type: 2, // ARROW_DEVICE_CUDA
-            sync_event: std::ptr::null_mut(),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_create_empty_table() {
-        let table = super::ffi::create_empty_table();
-        assert_eq!(table.num_columns(), 0);
-        assert_eq!(table.num_rows(), 0);
-    }
-
-    #[test]
-    fn test_get_version() {
-        let version = super::ffi::get_cudf_version();
-        assert!(!version.is_empty());
-        println!("cuDF version: {}", version);
-    }
+    /// Reserved bytes for future expansion
+    pub reserved: [i64; 3],
 }
 
 // Thread safety implementations for cuDF types

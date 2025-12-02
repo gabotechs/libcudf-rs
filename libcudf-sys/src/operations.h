@@ -11,14 +11,11 @@ struct ArrowSchema;
 struct ArrowDeviceArray;
 
 namespace libcudf_bridge {
-
     // Direct cuDF operations - 1:1 mappings
     std::unique_ptr<Table> apply_boolean_mask(const Table &table, const Column &boolean_mask);
 
     // Arrow interop - direct cuDF calls
     std::unique_ptr<Table> from_arrow_host(uint8_t const *schema_ptr, uint8_t const *device_array_ptr);
-    void to_arrow_schema(const Table &table, uint8_t *out_schema_ptr);
-    void to_arrow_host_array(const Table &table, uint8_t *out_array_ptr);
 
     // Utility functions
     rust::String get_cudf_version();

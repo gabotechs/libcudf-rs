@@ -1,6 +1,5 @@
-use crate::arrow_device_array::CuDFArrowDeviceArray;
 use crate::CuDFError;
-use arrow::array::StructArray;
+use arrow::array::{Array, ArrayData, StructArray};
 use arrow::datatypes::Schema;
 use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
 use arrow::record_batch::RecordBatch;
@@ -126,12 +125,24 @@ impl CuDFTable {
     /// let table = CuDFTable::from_arrow(batch)?;
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
-    pub fn from_cudf_array(arr: CuDFArrowDeviceArray) -> Result<Self, CuDFError> {
-        let ffi_schema = arr.schema()?;
-        let dev_arr: ArrowDeviceArray = arr.try_into()?;
+    pub fn from_arrow(batch: RecordBatch) -> Result<Self, CuDFError> {
+        let schema = batch.schema().as_ref().clone();
+        let struct_array = StructArray::from(batch);
+        let array_data: ArrayData = struct_array.into_data();
 
-        let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *mut u8;
-        let device_array_ptr = &dev_arr as *const ArrowDeviceArray as *mut u8;
+        let ffi_array = FFI_ArrowArray::new(&array_data);
+        let ffi_schema = FFI_ArrowSchema::try_from(schema)?;
+
+        let device_array = ArrowDeviceArray {
+            array: ffi_array,
+            device_id: -1,
+            device_type: 1, // CPU
+            sync_event: std::ptr::null_mut(),
+            reserved: [0; 3],
+        };
+
+        let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
+        let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
         let inner = unsafe { ffi::from_arrow_host(schema_ptr, device_array_ptr) }?;
 
         Ok(Self { inner })

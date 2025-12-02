@@ -17,12 +17,10 @@
 //! table.to_parquet("output.parquet").expect("Failed to write Parquet");
 //! ```
 
-mod arrow_device_array;
 mod column;
 mod errors;
 mod table;
 
-pub use arrow_device_array::*;
 pub use errors::{CuDFError, Result};
 pub use libcudf_sys::*;
 pub use table::CuDFTable;

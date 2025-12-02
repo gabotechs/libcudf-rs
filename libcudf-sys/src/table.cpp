@@ -78,8 +78,9 @@ namespace libcudf_bridge {
 
     void TableView::to_arrow_array(uint8_t *out_array_ptr) const {
         auto device_array_unique = cudf::to_arrow_host(*this->inner);
-        auto *out_array = reinterpret_cast<ArrowDeviceArray *>(out_array_ptr);
-        *out_array = *device_array_unique.get();
+        auto *out_array = reinterpret_cast<ArrowArray *>(out_array_ptr);
+        // Extract just the ArrowArray from the ArrowDeviceArray
+        *out_array = device_array_unique->array;
         device_array_unique.release();
     }
 } // namespace libcudf_bridge
