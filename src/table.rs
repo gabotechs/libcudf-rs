@@ -1,31 +1,30 @@
-use cxx::UniquePtr;
-use std::path::Path;
-use std::sync::Arc;
-
-use arrow::array::{Array, ArrayData, StructArray};
+use crate::arrow_device_array::CuDFArrowDeviceArray;
+use crate::CuDFError;
+use arrow::array::StructArray;
 use arrow::datatypes::Schema;
 use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
 use arrow::record_batch::RecordBatch;
-
-use crate::LibCuDFError;
-use libcudf_sys::{ffi, table_from_arrow, ArrowDeviceArray};
+use cxx::UniquePtr;
+use libcudf_sys::{ffi, ArrowDeviceArray};
+use std::path::Path;
+use std::sync::Arc;
 
 /// A GPU-accelerated table (similar to a DataFrame)
 ///
 /// This is a safe wrapper around cuDF's table type.
-pub struct Table {
+pub struct CuDFTable {
     inner: UniquePtr<ffi::Table>,
 }
 
-impl Table {
+impl CuDFTable {
     /// Create an empty table
     ///
     /// # Examples
     ///
     /// ```
-    /// use libcudf_rs::Table;
+    /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = Table::new();
+    /// let table = CuDFTable::new();
     /// assert_eq!(table.num_rows(), 0);
     /// assert_eq!(table.num_columns(), 0);
     /// ```
@@ -52,12 +51,12 @@ impl Table {
     /// # Examples
     ///
     /// ```no_run
-    /// use libcudf_rs::Table;
+    /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = Table::from_parquet("data.parquet")?;
-    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
+    /// let table = CuDFTable::from_parquet("data.parquet")?;
+    /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
-    pub fn from_parquet<P: AsRef<Path>>(path: P) -> Result<Self, LibCuDFError> {
+    pub fn from_parquet<P: AsRef<Path>>(path: P) -> Result<Self, CuDFError> {
         let path_str = path.as_ref().to_str().ok_or_else(|| {
             arrow::error::ArrowError::InvalidArgumentError(
                 "Path contains invalid UTF-8".to_string(),
@@ -84,13 +83,13 @@ impl Table {
     /// # Examples
     ///
     /// ```no_run
-    /// use libcudf_rs::Table;
+    /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = Table::new();
+    /// let table = CuDFTable::new();
     /// table.to_parquet("output.parquet")?;
-    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
+    /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
-    pub fn to_parquet<P: AsRef<Path>>(&self, path: P) -> Result<(), LibCuDFError> {
+    pub fn to_parquet<P: AsRef<Path>>(&self, path: P) -> Result<(), CuDFError> {
         let path_str = path.as_ref().to_str().ok_or_else(|| {
             arrow::error::ArrowError::InvalidArgumentError(
                 "Path contains invalid UTF-8".to_string(),
@@ -120,23 +119,21 @@ impl Table {
     ///
     /// ```no_run
     /// use arrow::record_batch::RecordBatch;
-    /// use libcudf_rs::Table;
+    /// use libcudf_rs::CuDFTable;
     ///
     /// # let batch: RecordBatch = todo!();
     /// // Convert Arrow RecordBatch to cuDF table for GPU acceleration
-    /// let table = Table::from_arrow(batch)?;
-    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
+    /// let table = CuDFTable::from_arrow(batch)?;
+    /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
-    pub fn from_arrow(batch: RecordBatch) -> Result<Self, LibCuDFError> {
-        let struct_array = StructArray::from(batch.clone());
-        let array_data: ArrayData = struct_array.into_data();
+    pub fn from_cudf_array(arr: CuDFArrowDeviceArray) -> Result<Self, CuDFError> {
+        let ffi_schema = arr.schema()?;
+        let dev_arr: ArrowDeviceArray = arr.try_into()?;
 
-        let ffi_array = FFI_ArrowArray::new(&array_data);
-        let ffi_schema = FFI_ArrowSchema::try_from(batch.schema().as_ref())?;
+        let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *mut u8;
+        let device_array_ptr = &dev_arr as *const ArrowDeviceArray as *mut u8;
+        let inner = unsafe { ffi::from_arrow_host(schema_ptr, device_array_ptr) }?;
 
-        let device_array = ArrowDeviceArray::new_cpu(ffi_array);
-
-        let inner = table_from_arrow(&ffi_schema, &device_array)?;
         Ok(Self { inner })
     }
 
@@ -154,30 +151,27 @@ impl Table {
     /// # Examples
     ///
     /// ```no_run
-    /// use libcudf_rs::Table;
+    /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = Table::from_parquet("data.parquet")?;
+    /// let table = CuDFTable::from_parquet("data.parquet")?;
     /// // Perform GPU operations...
     ///
     /// // Convert back to Arrow for further processing
     /// let batch = table.to_arrow()?;
-    /// # Ok::<(), libcudf_rs::LibCuDFError>(())
+    /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
-    pub fn to_arrow(&self) -> Result<RecordBatch, LibCuDFError> {
+    pub fn to_arrow(&self) -> Result<RecordBatch, CuDFError> {
         let mut ffi_schema = FFI_ArrowSchema::empty();
-        let mut device_array = ArrowDeviceArray::empty();
+        let mut ffi_array = FFI_ArrowArray::empty();
 
         unsafe {
-            self.inner
-                .view()
-                .to_arrow_schema(&mut ffi_schema as *mut FFI_ArrowSchema as *mut u8)?;
-            self.inner
-                .view()
-                .to_arrow_array(&mut device_array.array as *mut FFI_ArrowArray as *mut u8)?;
+            let view = self.inner.view();
+            view.to_arrow_schema(&mut ffi_schema as *mut FFI_ArrowSchema as *mut u8)?;
+            view.to_arrow_array(&mut ffi_array as *mut FFI_ArrowArray as *mut u8)?;
         }
 
         let schema = Arc::new(Schema::try_from(&ffi_schema)?);
-        let array_data = unsafe { from_ffi(device_array.array, &ffi_schema)? };
+        let array_data = unsafe { from_ffi(ffi_array, &ffi_schema)? };
         let struct_array = StructArray::from(array_data);
 
         let batch = RecordBatch::try_new(schema, struct_array.columns().to_vec())?;
@@ -190,9 +184,9 @@ impl Table {
     /// # Examples
     ///
     /// ```
-    /// use libcudf_rs::Table;
+    /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = Table::new();
+    /// let table = CuDFTable::new();
     /// assert_eq!(table.num_rows(), 0);
     /// ```
     pub fn num_rows(&self) -> usize {
@@ -204,9 +198,9 @@ impl Table {
     /// # Examples
     ///
     /// ```
-    /// use libcudf_rs::Table;
+    /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = Table::new();
+    /// let table = CuDFTable::new();
     /// assert_eq!(table.num_columns(), 0);
     /// ```
     pub fn num_columns(&self) -> usize {
@@ -218,9 +212,9 @@ impl Table {
     /// # Examples
     ///
     /// ```
-    /// use libcudf_rs::Table;
+    /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = Table::new();
+    /// let table = CuDFTable::new();
     /// assert!(table.is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
@@ -228,7 +222,7 @@ impl Table {
     }
 }
 
-impl Default for Table {
+impl Default for CuDFTable {
     fn default() -> Self {
         Self::new()
     }
@@ -240,7 +234,7 @@ mod tests {
 
     #[test]
     fn test_empty_table() {
-        let table = Table::new();
+        let table = CuDFTable::new();
         assert_eq!(table.num_rows(), 0);
         assert_eq!(table.num_columns(), 0);
         assert!(table.is_empty());
@@ -248,7 +242,7 @@ mod tests {
 
     #[test]
     fn test_default_table() {
-        let table = Table::default();
+        let table = CuDFTable::default();
         assert!(table.is_empty());
     }
 }

@@ -3,7 +3,7 @@ mod tests {
     use arrow::array::{Float64Array, Int32Array};
     use arrow::datatypes::{DataType, Field, Schema};
     use arrow::record_batch::RecordBatch;
-    use libcudf_rs::Table;
+    use libcudf_rs::{CuDFArrowDeviceArray, CuDFTable};
     use std::sync::Arc;
 
     #[test]
@@ -73,7 +73,8 @@ mod tests {
             RecordBatch::try_new(Arc::new(schema), arrays).expect("Failed to create RecordBatch");
 
         // Convert to cuDF Table
-        let table = Table::from_arrow(batch.clone()).expect("Failed to convert to cuDF");
+        let arr = CuDFArrowDeviceArray::new_cuda(batch.clone());
+        let table = CuDFTable::from_cudf_array(arr).expect("Failed to convert to cuDF");
 
         // Verify dimensions
         assert_eq!(table.num_rows(), 5);
@@ -138,7 +139,8 @@ mod tests {
         .expect("Failed to create RecordBatch");
 
         // Convert to cuDF and back
-        let table = Table::from_arrow(batch.clone()).expect("Failed to convert to cuDF");
+        let arr = CuDFArrowDeviceArray::new_cuda(batch);
+        let table = CuDFTable::from_cudf_array(arr).expect("Failed to convert to cuDF");
         assert_eq!(table.num_rows(), 0);
         assert_eq!(table.num_columns(), 2);
 
@@ -150,7 +152,7 @@ mod tests {
     #[test]
     fn test_arrow_parquet_roundtrip() {
         // Load from Parquet, convert to Arrow, filter, convert back
-        let table = Table::from_parquet("testdata/weather/result-000000.parquet")
+        let table = CuDFTable::from_parquet("testdata/weather/result-000000.parquet")
             .expect("Failed to read parquet");
 
         // Convert to Arrow
@@ -160,7 +162,8 @@ mod tests {
         let original_cols = batch.num_columns();
 
         // Convert back to cuDF
-        let table2 = Table::from_arrow(batch).expect("Failed to convert from Arrow");
+        let arr = CuDFArrowDeviceArray::new_cuda(batch);
+        let table2 = CuDFTable::from_cudf_array(arr).expect("Failed to convert from Arrow");
 
         // Verify dimensions are preserved
         assert_eq!(table2.num_rows(), original_rows);

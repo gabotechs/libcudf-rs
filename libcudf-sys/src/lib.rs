@@ -515,32 +515,6 @@ pub enum TypeId {
     Struct = 28,
 }
 
-/// Safe wrapper for converting an Arrow array to a cuDF table
-///
-/// This function provides a safe interface to the underlying FFI function by
-/// taking references to the Arrow FFI structures.
-///
-/// # Arguments
-///
-/// * `schema` - Reference to an Arrow FFI schema
-/// * `device_array` - Reference to an Arrow device array
-///
-/// # Returns
-///
-/// A cuDF table created from the Arrow data
-///
-/// # Errors
-///
-/// Returns an error if the Arrow data cannot be converted to a cuDF table
-pub fn table_from_arrow(
-    schema: &arrow::ffi::FFI_ArrowSchema,
-    device_array: &ArrowDeviceArray,
-) -> Result<cxx::UniquePtr<ffi::Table>, cxx::Exception> {
-    let schema_ptr = schema as *const arrow::ffi::FFI_ArrowSchema as *mut u8;
-    let device_array_ptr = device_array as *const ArrowDeviceArray as *mut u8;
-    unsafe { ffi::from_arrow_host(schema_ptr, device_array_ptr) }
-}
-
 /// Arrow Device Array C ABI structure
 ///
 /// This struct represents the Arrow C Device Data Interface structure used for
@@ -611,3 +585,74 @@ mod tests {
         println!("cuDF version: {}", version);
     }
 }
+
+// Thread safety implementations for cuDF types
+//
+// These are safe because:
+// 1. GPU memory is process-wide, not thread-local
+// 2. cuDF uses proper locking internally where needed
+// 3. CUDA operations are serialized per-stream
+// 4. The underlying cudf::column/table are just smart pointers to GPU memory
+
+/// SAFETY: GPU device memory can be safely transferred between threads.
+/// The underlying cudf::column contains only pointers to GPU memory which is
+/// process-wide. CUDA contexts are managed properly by the CUDA runtime.
+unsafe impl Send for ffi::Column {}
+
+/// SAFETY: cudf::column can be safely accessed from multiple threads concurrently.
+/// Read operations on GPU memory are thread-safe.
+unsafe impl Sync for ffi::Column {}
+
+/// SAFETY: ColumnView is a non-owning view and can be sent between threads.
+unsafe impl Send for ffi::ColumnView {}
+
+/// SAFETY: ColumnView can be safely accessed from multiple threads.
+unsafe impl Sync for ffi::ColumnView {}
+
+/// SAFETY: GPU device memory in Table can be safely transferred between threads.
+unsafe impl Send for ffi::Table {}
+
+/// SAFETY: Table can be safely accessed from multiple threads concurrently.
+unsafe impl Sync for ffi::Table {}
+
+/// SAFETY: TableView is a non-owning view and can be sent between threads.
+unsafe impl Send for ffi::TableView {}
+
+/// SAFETY: TableView can be safely accessed from multiple threads.
+unsafe impl Sync for ffi::TableView {}
+
+/// SAFETY: Scalar contains GPU memory and can be sent between threads.
+unsafe impl Send for ffi::Scalar {}
+
+/// SAFETY: Scalar can be safely accessed from multiple threads.
+unsafe impl Sync for ffi::Scalar {}
+
+/// SAFETY: Aggregation is a configuration object with no thread-local state.
+unsafe impl Send for ffi::Aggregation {}
+
+/// SAFETY: Aggregation can be safely accessed from multiple threads.
+unsafe impl Sync for ffi::Aggregation {}
+
+/// SAFETY: GroupBy configuration can be sent between threads.
+unsafe impl Send for ffi::GroupBy {}
+
+/// SAFETY: GroupBy configuration can be accessed from multiple threads.
+unsafe impl Sync for ffi::GroupBy {}
+
+/// SAFETY: AggregationRequest configuration can be sent between threads.
+unsafe impl Send for ffi::AggregationRequest {}
+
+/// SAFETY: AggregationRequest configuration can be accessed from multiple threads.
+unsafe impl Sync for ffi::AggregationRequest {}
+
+/// SAFETY: AggregationResult contains GPU data that can be sent between threads.
+unsafe impl Send for ffi::AggregationResult {}
+
+/// SAFETY: AggregationResult can be accessed from multiple threads.
+unsafe impl Sync for ffi::AggregationResult {}
+
+/// SAFETY: GroupByResult contains GPU data that can be sent between threads.
+unsafe impl Send for ffi::GroupByResult {}
+
+/// SAFETY: GroupByResult can be accessed from multiple threads.
+unsafe impl Sync for ffi::GroupByResult {}

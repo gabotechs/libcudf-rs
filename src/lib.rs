@@ -6,10 +6,10 @@
 //! # Examples
 //!
 //! ```no_run
-//! use libcudf_rs::Table;
+//! use libcudf_rs::CuDFTable;
 //!
 //! // Read a Parquet file
-//! let table = Table::from_parquet("data.parquet").expect("Failed to read Parquet");
+//! let table = CuDFTable::from_parquet("data.parquet").expect("Failed to read Parquet");
 //! println!("Loaded table with {} rows and {} columns",
 //!          table.num_rows(), table.num_columns());
 //!
@@ -17,11 +17,15 @@
 //! table.to_parquet("output.parquet").expect("Failed to write Parquet");
 //! ```
 
+mod arrow_device_array;
+mod column;
 mod errors;
 mod table;
 
-pub use errors::{LibCuDFError, Result};
-pub use table::Table;
+pub use arrow_device_array::*;
+pub use errors::{CuDFError, Result};
+pub use libcudf_sys::*;
+pub use table::CuDFTable;
 
 /// Get cuDF version information
 ///
@@ -33,7 +37,7 @@ pub use table::Table;
 /// println!("cuDF version: {}", version());
 /// ```
 pub fn version() -> String {
-    libcudf_sys::ffi::get_cudf_version()
+    ffi::get_cudf_version()
 }
 
 #[cfg(test)]

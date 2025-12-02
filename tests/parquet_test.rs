@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use libcudf_rs::Table;
+    use libcudf_rs::CuDFTable;
 
     #[test]
     fn test_read_parquet() {
-        let table = Table::from_parquet("testdata/weather/result-000000.parquet")
+        let table = CuDFTable::from_parquet("testdata/weather/result-000000.parquet")
             .expect("Failed to read parquet file");
 
         assert!(table.num_rows() > 0, "Table should have rows");
@@ -22,7 +22,7 @@ mod tests {
         for i in 0..3 {
             let filename = format!("testdata/weather/result-{:06}.parquet", i);
             let table =
-                Table::from_parquet(&filename).expect(&format!("Failed to read {}", filename));
+                CuDFTable::from_parquet(&filename).expect(&format!("Failed to read {}", filename));
 
             println!(
                 "{}: {} rows, {} columns",
