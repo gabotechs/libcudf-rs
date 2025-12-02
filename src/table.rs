@@ -143,7 +143,7 @@ impl CuDFTable {
 
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
-        let inner = unsafe { ffi::from_arrow_host(schema_ptr, device_array_ptr) }?;
+        let inner = unsafe { ffi::table_from_arrow_host(schema_ptr, device_array_ptr) }?;
 
         Ok(Self { inner })
     }

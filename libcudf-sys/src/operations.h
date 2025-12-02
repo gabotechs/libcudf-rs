@@ -15,7 +15,7 @@ namespace libcudf_bridge {
     std::unique_ptr<Table> apply_boolean_mask(const Table &table, const Column &boolean_mask);
 
     // Arrow interop - direct cuDF calls
-    std::unique_ptr<Table> from_arrow_host(uint8_t const *schema_ptr, uint8_t const *device_array_ptr);
+    std::unique_ptr<Table> table_from_arrow_host(uint8_t const *schema_ptr, uint8_t const *device_array_ptr);
 
     // Utility functions
     rust::String get_cudf_version();

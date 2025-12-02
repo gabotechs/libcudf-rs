@@ -351,7 +351,7 @@ pub mod ffi {
         // Arrow interop - direct cuDF calls
 
         /// Convert an Arrow array to a cuDF table
-        unsafe fn from_arrow_host(
+        unsafe fn table_from_arrow_host(
             schema_ptr: *const u8,
             device_array_ptr: *const u8,
         ) -> Result<UniquePtr<Table>>;

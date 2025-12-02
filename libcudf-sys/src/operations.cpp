@@ -45,7 +45,7 @@ namespace libcudf_bridge {
     }
 
     // Arrow interop - convert Arrow data to cuDF table
-    std::unique_ptr<Table> from_arrow_host(uint8_t const *schema_ptr, uint8_t const *device_array_ptr) {
+    std::unique_ptr<Table> table_from_arrow_host(uint8_t const *schema_ptr, uint8_t const *device_array_ptr) {
         auto *schema = reinterpret_cast<const ArrowSchema *>(schema_ptr);
         auto *device_array = reinterpret_cast<const ArrowDeviceArray *>(device_array_ptr);
 
