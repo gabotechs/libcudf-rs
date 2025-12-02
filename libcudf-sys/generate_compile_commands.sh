@@ -94,7 +94,7 @@ for file in "${CPP_FILES[@]}"; do
     cat >> "$PROJECT_ROOT/compile_commands.json" <<EOF
   {
     "directory": "$PROJECT_ROOT",
-    "command": "c++ -std=c++20 $INCLUDES $DEFINES $WARNINGS -c $file",
+    "command": "c++ -xc++ -std=c++20 $INCLUDES $DEFINES $WARNINGS -c $file",
     "file": "$file"
   }
 EOF
@@ -106,7 +106,7 @@ for file in "${HEADER_FILES[@]}"; do
     cat >> "$PROJECT_ROOT/compile_commands.json" <<EOF
   {
     "directory": "$PROJECT_ROOT",
-    "command": "c++ -std=c++20 $INCLUDES $DEFINES $WARNINGS -c $file",
+    "command": "c++ -xc++ -std=c++20 $INCLUDES $DEFINES $WARNINGS -c $file",
     "file": "$file"
   }
 EOF
