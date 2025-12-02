@@ -4,6 +4,11 @@
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
 
+#include <nanoarrow/nanoarrow.h>
+#include <nanoarrow/nanoarrow_device.h>
+
+#include "cudf/interop.hpp"
+
 namespace libcudf_bridge {
     // Table implementation
     Table::Table() : inner(nullptr) {
@@ -61,5 +66,20 @@ namespace libcudf_bridge {
         auto result = std::make_unique<ColumnView>();
         result->inner = std::make_unique<cudf::column_view>(inner->column(index));
         return result;
+    }
+
+    void TableView::to_arrow_schema(uint8_t *out_schema_ptr) const {
+        std::vector<cudf::column_metadata> metadata(this->inner->num_columns());
+        auto schema_unique = cudf::to_arrow_schema(*this->inner, cudf::host_span<cudf::column_metadata const>(metadata));
+        auto *out_schema = reinterpret_cast<ArrowSchema *>(out_schema_ptr);
+        *out_schema = *schema_unique.get();
+        schema_unique.release();
+    }
+
+    void TableView::to_arrow_array(uint8_t *out_array_ptr) const {
+        auto device_array_unique = cudf::to_arrow_host(*this->inner);
+        auto *out_array = reinterpret_cast<ArrowDeviceArray *>(out_array_ptr);
+        *out_array = *device_array_unique.get();
+        device_array_unique.release();
     }
 } // namespace libcudf_bridge

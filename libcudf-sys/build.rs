@@ -152,7 +152,9 @@ fn main() {
         .expect("Failed to read src directory")
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
-            entry.path().extension()
+            entry
+                .path()
+                .extension()
                 .and_then(|ext| ext.to_str())
                 .map(|ext| ext == "cpp")
                 .unwrap_or(false)
@@ -240,7 +242,9 @@ fn main() {
         .expect("Failed to read src directory")
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
-            entry.path().extension()
+            entry
+                .path()
+                .extension()
                 .and_then(|ext| ext.to_str())
                 .map(|ext| ext == "h")
                 .unwrap_or(false)

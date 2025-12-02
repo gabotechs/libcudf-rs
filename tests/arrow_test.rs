@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use libcudf_rs::Table;
-    use arrow::array::{Int32Array, Float64Array};
+    use arrow::array::{Float64Array, Int32Array};
     use arrow::datatypes::{DataType, Field, Schema};
     use arrow::record_batch::RecordBatch;
+    use libcudf_rs::Table;
     use std::sync::Arc;
 
     #[test]
@@ -32,7 +32,11 @@ mod tests {
             Field::new("string", DataType::Utf8, false),
             // Date and Time (basic types)
             Field::new("date32", DataType::Date32, false),
-            Field::new("timestamp_ms", DataType::Timestamp(TimeUnit::Millisecond, None), false),
+            Field::new(
+                "timestamp_ms",
+                DataType::Timestamp(TimeUnit::Millisecond, None),
+                false,
+            ),
         ]);
 
         let arrays: Vec<Arc<dyn arrow::array::Array>> = vec![
@@ -65,8 +69,8 @@ mod tests {
             ])),
         ];
 
-        let batch = RecordBatch::try_new(Arc::new(schema), arrays)
-            .expect("Failed to create RecordBatch");
+        let batch =
+            RecordBatch::try_new(Arc::new(schema), arrays).expect("Failed to create RecordBatch");
 
         // Convert to cuDF Table
         let table = Table::from_arrow(batch.clone()).expect("Failed to convert to cuDF");
@@ -84,11 +88,21 @@ mod tests {
         assert_eq!(result_batch.num_columns(), batch.num_columns());
 
         // Verify data types match (column names are not preserved yet)
-        for (i, (original_field, result_field)) in batch.schema().fields().iter()
-            .zip(result_batch.schema().fields().iter()).enumerate() {
-            assert_eq!(result_field.data_type(), original_field.data_type(),
-                      "Data type mismatch for column {}: expected {:?}, got {:?}",
-                      i, original_field.data_type(), result_field.data_type());
+        for (i, (original_field, result_field)) in batch
+            .schema()
+            .fields()
+            .iter()
+            .zip(result_batch.schema().fields().iter())
+            .enumerate()
+        {
+            assert_eq!(
+                result_field.data_type(),
+                original_field.data_type(),
+                "Data type mismatch for column {}: expected {:?}, got {:?}",
+                i,
+                original_field.data_type(),
+                result_field.data_type()
+            );
         }
 
         // Verify actual data values match for each column using Arrow's built-in equality
@@ -96,9 +110,13 @@ mod tests {
             let original_col = batch.column(col_idx);
             let result_col = result_batch.column(col_idx);
 
-            assert_eq!(original_col, result_col,
-                      "Data mismatch for column {} (type: {:?})",
-                      col_idx, original_col.data_type());
+            assert_eq!(
+                original_col,
+                result_col,
+                "Data mismatch for column {} (type: {:?})",
+                col_idx,
+                original_col.data_type()
+            );
         }
     }
 

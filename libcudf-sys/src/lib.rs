@@ -145,6 +145,12 @@ pub mod ffi {
         /// Get column view at index
         fn column(self: &TableView, index: i32) -> UniquePtr<ColumnView>;
 
+        /// Get the table view schema as an FFI ArrowSchema
+        unsafe fn to_arrow_schema(self: &TableView, out_schema_ptr: *mut u8) -> Result<()>;
+
+        /// Get the table view data as an FFI ArrowArray
+        unsafe fn to_arrow_array(self: &TableView, out_array_ptr: *mut u8) -> Result<()>;
+
         // Column methods
         /// Get the number of elements in the column
         fn size(self: &Column) -> usize;
@@ -152,6 +158,12 @@ pub mod ffi {
         // ColumnView methods
         /// Get the number of elements in the column view
         fn size(self: &ColumnView) -> usize;
+
+        /// Get a view of this column
+        fn view(self: &Column) -> UniquePtr<ColumnView>;
+
+        /// Get the column view data as an FFI ArrowArray
+        unsafe fn to_arrow_array(self: &ColumnView, out_array_ptr: *mut u8) -> Result<()>;
 
         // Scalar methods
         /// Check if the scalar is valid (not null)
@@ -344,14 +356,6 @@ pub mod ffi {
             device_array_ptr: *const u8,
         ) -> Result<UniquePtr<Table>>;
 
-        /// Convert a cuDF table schema to Arrow schema
-        unsafe fn to_arrow_schema(table: &Table, out_schema_ptr: *mut u8) -> Result<()>;
-
-        /// Convert a cuDF table to Arrow array
-        unsafe fn to_arrow_host_array(table: &Table, out_array_ptr: *mut u8) -> Result<()>;
-
-        // Utility functions
-
         /// Get the version of the cuDF library
         fn get_cudf_version() -> String;
     }
@@ -535,48 +539,6 @@ pub fn table_from_arrow(
     let schema_ptr = schema as *const arrow::ffi::FFI_ArrowSchema as *mut u8;
     let device_array_ptr = device_array as *const ArrowDeviceArray as *mut u8;
     unsafe { ffi::from_arrow_host(schema_ptr, device_array_ptr) }
-}
-
-/// Safe wrapper for converting a cuDF table to Arrow schema
-///
-/// This function provides a safe interface to the underlying FFI function by
-/// taking a mutable reference to the Arrow FFI schema.
-///
-/// # Arguments
-///
-/// * `table` - Reference to the cuDF table
-/// * `out_schema` - Mutable reference to an Arrow FFI schema to be filled
-///
-/// # Errors
-///
-/// Returns an error if the table cannot be converted to an Arrow schema
-pub fn table_to_arrow_schema(
-    table: &ffi::Table,
-    out_schema: &mut arrow::ffi::FFI_ArrowSchema,
-) -> Result<(), cxx::Exception> {
-    let schema_ptr = out_schema as *mut arrow::ffi::FFI_ArrowSchema as *mut u8;
-    unsafe { ffi::to_arrow_schema(table, schema_ptr) }
-}
-
-/// Safe wrapper for converting a cuDF table to Arrow array
-///
-/// This function provides a safe interface to the underlying FFI function by
-/// taking a mutable reference to the Arrow device array.
-///
-/// # Arguments
-///
-/// * `table` - Reference to the cuDF table
-/// * `out_array` - Mutable reference to an Arrow device array to be filled
-///
-/// # Errors
-///
-/// Returns an error if the table cannot be converted to an Arrow array
-pub fn table_to_arrow_array(
-    table: &ffi::Table,
-    out_array: &mut ArrowDeviceArray,
-) -> Result<(), cxx::Exception> {
-    let array_ptr = out_array as *mut ArrowDeviceArray as *mut u8;
-    unsafe { ffi::to_arrow_host_array(table, array_ptr) }
 }
 
 /// Arrow Device Array C ABI structure

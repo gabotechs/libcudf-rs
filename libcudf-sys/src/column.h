@@ -20,6 +20,9 @@ namespace libcudf_bridge {
 
         // Get number of elements
         [[nodiscard]] size_t size() const;
+
+        // Get the column's data as an FFI Arrow Array
+        void to_arrow_array(uint8_t *out_array_ptr) const;
     };
 
     // Opaque wrapper for cuDF column
@@ -37,6 +40,9 @@ namespace libcudf_bridge {
 
         // Get number of elements
         [[nodiscard]] size_t size() const;
+
+        // Get the column as a read-only view
+        [[nodiscard]] std::unique_ptr<ColumnView> view() const;
     };
 
     // Helper function to create Column from unique_ptr<cudf::column>

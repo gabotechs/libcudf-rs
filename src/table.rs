@@ -8,9 +8,7 @@ use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
 use arrow::record_batch::RecordBatch;
 
 use crate::LibCuDFError;
-use libcudf_sys::{
-    ffi, table_from_arrow, table_to_arrow_array, table_to_arrow_schema, ArrowDeviceArray,
-};
+use libcudf_sys::{ffi, table_from_arrow, ArrowDeviceArray};
 
 /// A GPU-accelerated table (similar to a DataFrame)
 ///
@@ -169,8 +167,14 @@ impl Table {
         let mut ffi_schema = FFI_ArrowSchema::empty();
         let mut device_array = ArrowDeviceArray::empty();
 
-        table_to_arrow_schema(&self.inner, &mut ffi_schema)?;
-        table_to_arrow_array(&self.inner, &mut device_array)?;
+        unsafe {
+            self.inner
+                .view()
+                .to_arrow_schema(&mut ffi_schema as *mut FFI_ArrowSchema as *mut u8)?;
+            self.inner
+                .view()
+                .to_arrow_array(&mut device_array.array as *mut FFI_ArrowArray as *mut u8)?;
+        }
 
         let schema = Arc::new(Schema::try_from(&ffi_schema)?);
         let array_data = unsafe { from_ffi(device_array.array, &ffi_schema)? };

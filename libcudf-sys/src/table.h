@@ -31,6 +31,12 @@ namespace libcudf_bridge {
 
         // Get column view at index
         [[nodiscard]] std::unique_ptr<ColumnView> column(int32_t index) const;
+
+        // Get the columns' data types as an FFI Arrow Schema
+        void to_arrow_schema(uint8_t *out_schema_ptr) const;
+
+        // Get the columns' data as an FFI Arrow Array
+        void to_arrow_array(uint8_t *out_array_ptr) const;
     };
 
     // Opaque wrapper for cuDF table
