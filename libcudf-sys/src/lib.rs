@@ -8,6 +8,7 @@ pub mod ffi {
     // Opaque C++ types
     unsafe extern "C++" {
         // Include individual headers - order matters for dependencies
+        include!("libcudf-sys/src/data_type.h");
         include!("libcudf-sys/src/column.h");
         include!("libcudf-sys/src/table.h");
         include!("libcudf-sys/src/aggregation.h");
@@ -40,6 +41,11 @@ pub mod ffi {
         /// A column_view is a non-owning, immutable view of device data as a column of elements,
         /// some of which may be null as indicated by a bitmask.
         type ColumnView;
+
+        /// cuDF data type with type_id and optional scale
+        ///
+        /// Represents a data type in cuDF, including the type_id and scale for fixed_point types.
+        type DataType;
 
         /// An owning class to represent a singular value
         ///
@@ -155,6 +161,9 @@ pub mod ffi {
         /// Get the number of elements in the column
         fn size(self: &Column) -> usize;
 
+        /// Get the data type of the column
+        fn data_type(self: &Column) -> UniquePtr<DataType>;
+
         // ColumnView methods
         /// Get the number of elements in the column view
         fn size(self: &ColumnView) -> usize;
@@ -164,6 +173,13 @@ pub mod ffi {
 
         /// Get the column view data as an FFI ArrowArray
         unsafe fn to_arrow_array(self: &ColumnView, out_array_ptr: *mut u8) -> Result<()>;
+
+        // DataType methods
+        /// Get the type_id
+        fn id(self: &DataType) -> i32;
+
+        /// Get the scale (for fixed_point types)
+        fn scale(self: &DataType) -> i32;
 
         // Scalar methods
         /// Check if the scalar is valid (not null)
@@ -561,6 +577,13 @@ unsafe impl Send for ffi::ColumnView {}
 
 /// SAFETY: ColumnView can be safely accessed from multiple threads.
 unsafe impl Sync for ffi::ColumnView {}
+
+/// SAFETY: DataType is a small value type that can be safely shared and sent between threads.
+/// It only contains a type_id enum and an optional scale value.
+unsafe impl Send for ffi::DataType {}
+
+/// SAFETY: DataType is immutable and can be safely accessed from multiple threads.
+unsafe impl Sync for ffi::DataType {}
 
 /// SAFETY: GPU device memory in Table can be safely transferred between threads.
 unsafe impl Send for ffi::Table {}

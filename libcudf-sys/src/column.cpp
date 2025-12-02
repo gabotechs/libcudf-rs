@@ -1,4 +1,5 @@
 #include "column.h"
+#include "data_type.h"
 #include "libcudf-sys/src/lib.rs.h"
 
 #include <cudf/column/column.hpp>
@@ -43,6 +44,14 @@ namespace libcudf_bridge {
     [[nodiscard]] std::unique_ptr<ColumnView> Column::view() const {
         auto result = std::make_unique<ColumnView>();
         result->inner = std::make_unique<cudf::column_view>(inner->view());
+        return result;
+    }
+
+    [[nodiscard]] std::unique_ptr<DataType> Column::data_type() const {
+        auto result = std::make_unique<DataType>(
+            static_cast<int32_t>(inner->type().id()),
+            inner->type().scale()
+        );
         return result;
     }
 

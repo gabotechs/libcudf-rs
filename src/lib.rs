@@ -18,9 +18,11 @@
 //! ```
 
 mod column;
+mod data_type;
 mod errors;
 mod table;
 
+pub use data_type::*;
 pub use errors::{CuDFError, Result};
 pub use libcudf_sys::*;
 pub use table::CuDFTable;
