@@ -66,4 +66,14 @@ namespace libcudf_bridge {
         result->inner = cudf::from_arrow_host(schema, device_array);
         return result;
     }
+
+    // Arrow interop - convert Arrow array to cuDF column
+    std::unique_ptr<Column> column_from_arrow(uint8_t const *schema_ptr, uint8_t const *array_ptr) {
+        auto *schema = reinterpret_cast<const ArrowSchema *>(schema_ptr);
+        auto *array = reinterpret_cast<const ArrowArray *>(array_ptr);
+
+        auto result = std::make_unique<Column>();
+        result->inner = cudf::from_arrow_column(schema, array);
+        return result;
+    }
 } // namespace libcudf_bridge

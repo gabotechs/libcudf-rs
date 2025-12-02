@@ -48,11 +48,17 @@ namespace libcudf_bridge {
     }
 
     [[nodiscard]] std::unique_ptr<DataType> Column::data_type() const {
-        auto result = std::make_unique<DataType>(
-            static_cast<int32_t>(inner->type().id()),
-            inner->type().scale()
-        );
-        return result;
+        auto dtype = inner->type();
+        auto type_id = static_cast<int32_t>(dtype.id());
+
+        // Only pass scale for decimal types
+        if (dtype.id() == cudf::type_id::DECIMAL32 ||
+            dtype.id() == cudf::type_id::DECIMAL64 ||
+            dtype.id() == cudf::type_id::DECIMAL128) {
+            return std::make_unique<DataType>(type_id, dtype.scale());
+        } else {
+            return std::make_unique<DataType>(type_id);
+        }
     }
 
     // Helper function to create Column from unique_ptr

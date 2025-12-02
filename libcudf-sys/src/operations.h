@@ -9,6 +9,7 @@
 // Forward declarations of Arrow C ABI types
 struct ArrowSchema;
 struct ArrowDeviceArray;
+struct ArrowArray;
 
 namespace libcudf_bridge {
     // Direct cuDF operations - 1:1 mappings
@@ -16,6 +17,7 @@ namespace libcudf_bridge {
 
     // Arrow interop - direct cuDF calls
     std::unique_ptr<Table> table_from_arrow_host(uint8_t const *schema_ptr, uint8_t const *device_array_ptr);
+    std::unique_ptr<Column> column_from_arrow(uint8_t const *schema_ptr, uint8_t const *array_ptr);
 
     // Utility functions
     rust::String get_cudf_version();

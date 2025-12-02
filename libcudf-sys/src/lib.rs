@@ -369,11 +369,17 @@ pub mod ffi {
 
         // Arrow interop - direct cuDF calls
 
-        /// Convert an Arrow array to a cuDF table
+        /// Convert an Arrow DeviceArray to a cuDF table
         unsafe fn table_from_arrow_host(
             schema_ptr: *const u8,
             device_array_ptr: *const u8,
         ) -> Result<UniquePtr<Table>>;
+
+        /// Convert an Arrow array to a cuDF column
+        unsafe fn column_from_arrow(
+            schema_ptr: *const u8,
+            array_ptr: *const u8,
+        ) -> Result<UniquePtr<Column>>;
 
         /// Get the version of the cuDF library
         fn get_cudf_version() -> String;

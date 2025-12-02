@@ -22,6 +22,7 @@ mod data_type;
 mod errors;
 mod table;
 
+pub use column::CuDFColumn;
 pub use data_type::*;
 pub use errors::{CuDFError, Result};
 pub use libcudf_sys::*;
