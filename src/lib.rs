@@ -25,7 +25,7 @@ mod scalar;
 mod table;
 mod union_types;
 
-pub use binary_op::cudf_binary_op;
+pub use binary_op::{cudf_binary_op, CuDFBinaryOp};
 pub use column_view::CuDFColumnView;
 pub use data_type::*;
 pub use errors::{CuDFError, Result};
