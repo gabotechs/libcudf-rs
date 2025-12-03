@@ -119,6 +119,50 @@ impl CuDFColumnView {
     pub unsafe fn data_ptr(&self) -> u64 {
         self.inner.data_ptr()
     }
+
+    /// Convert the cuDF column view to an Arrow array, copying data from GPU to host
+    ///
+    /// This method copies the GPU data back to the CPU and creates an Arrow array.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The cuDF column cannot be converted to Arrow format
+    /// - There is an error copying data from GPU to host
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use arrow::array::Int32Array;
+    /// use libcudf_rs::CuDFColumnView;
+    ///
+    /// let array = Int32Array::from(vec![1, 2, 3, 4, 5]);
+    /// let column = CuDFColumnView::from_arrow(&array)?;
+    /// // Do some GPU processing...
+    /// let result = column.to_arrow_host()?;
+    /// # Ok::<(), libcudf_rs::CuDFError>(())
+    /// ```
+    pub fn to_arrow_host(&self) -> Result<ArrayRef, CuDFError> {
+        // Allocate space for the Arrow C Data Interface structures
+        let mut ffi_array = FFI_ArrowArray::empty();
+
+        // Create schema from the column's data type
+        let ffi_schema = FFI_ArrowSchema::try_from(self.data_type())?;
+
+        // Convert the column view to Arrow format (copying from GPU to host)
+        unsafe {
+            let array_ptr = &mut ffi_array as *mut FFI_ArrowArray as *mut u8;
+            self.inner.to_arrow_array(array_ptr)?;
+        }
+
+        // Convert from FFI structures to Arrow ArrayData
+        let array_data = unsafe {
+            arrow::ffi::from_ffi(ffi_array, &ffi_schema)?
+        };
+
+        // Create an ArrayRef from the ArrayData
+        Ok(arrow::array::make_array(array_data))
+    }
 }
 
 impl Clone for CuDFColumnView {

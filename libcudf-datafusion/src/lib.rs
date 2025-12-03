@@ -3,6 +3,8 @@
 //! This crate provides custom ExecutionPlan nodes that execute operations
 //! on the GPU using NVIDIA's cuDF library through DataFusion.
 
+mod cudf_load;
+mod cudf_unload;
 mod errors;
 mod expr;
 mod filter;

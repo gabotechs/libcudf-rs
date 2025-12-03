@@ -16,3 +16,4 @@ datafusion-expr = "51"
 datafusion-physical-plan = "51"
 async-trait = "0.1"
 tokio = { version = "1.41", features = ["rt", "macros"] }
+futures-util = "0.3"

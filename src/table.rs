@@ -1,8 +1,10 @@
+use crate::cudf_array::is_cudf_array;
 use crate::CuDFError;
 use arrow::array::{Array, ArrayData, StructArray};
 use arrow::datatypes::Schema;
 use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
 use arrow::record_batch::RecordBatch;
+use arrow_schema::ArrowError;
 use cxx::UniquePtr;
 use libcudf_sys::{ffi, ArrowDeviceArray};
 use std::path::Path;
@@ -112,6 +114,7 @@ impl CuDFTable {
     ///
     /// Returns an error if:
     /// - The Arrow data cannot be converted to cuDF format
+    /// - The Arrow RecordBatch contains columns that are already in cuDF
     /// - There is insufficient GPU memory
     ///
     /// # Examples
@@ -122,10 +125,15 @@ impl CuDFTable {
     ///
     /// # let batch: RecordBatch = todo!();
     /// // Convert Arrow RecordBatch to cuDF table for GPU acceleration
-    /// let table = CuDFTable::from_arrow(batch)?;
+    /// let table = CuDFTable::from_arrow_host(batch)?;
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
-    pub fn from_arrow(batch: RecordBatch) -> Result<Self, CuDFError> {
+    pub fn from_arrow_host(batch: RecordBatch) -> Result<Self, CuDFError> {
+        for col in batch.columns() {
+            if is_cudf_array(col) {
+                return Err(ArrowError::InvalidArgumentError("Tried to move a RecordBatch from the host to CuDF, but a column was already in CuDF".to_string()))?;
+            }
+        }
         let schema = batch.schema().as_ref().clone();
         let struct_array = StructArray::from(batch);
         let array_data: ArrayData = struct_array.into_data();
@@ -148,7 +156,7 @@ impl CuDFTable {
         Ok(Self { inner })
     }
 
-    /// Convert the table to an Arrow RecordBatch
+    /// Convert the CuDF table allocated on the GPU to an Arrow RecordBatch allocated on the host.
     ///
     /// This allows you to use cuDF for GPU-accelerated operations and then
     /// return the results to arrow-rs for further processing or output.
@@ -168,10 +176,10 @@ impl CuDFTable {
     /// // Perform GPU operations...
     ///
     /// // Convert back to Arrow for further processing
-    /// let batch = table.to_arrow()?;
+    /// let batch = table.to_arrow_host()?;
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
-    pub fn to_arrow(&self) -> Result<RecordBatch, CuDFError> {
+    pub fn to_arrow_host(&self) -> Result<RecordBatch, CuDFError> {
         let mut ffi_schema = FFI_ArrowSchema::empty();
         let mut ffi_array = FFI_ArrowArray::empty();
 

@@ -2105,6 +2105,7 @@ dependencies = [
  "datafusion",
  "datafusion-expr",
  "datafusion-physical-plan",
+ "futures-util",
  "libcudf-rs",
  "tokio",
 ]

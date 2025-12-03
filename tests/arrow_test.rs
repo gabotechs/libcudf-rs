@@ -73,14 +73,16 @@ mod tests {
             RecordBatch::try_new(Arc::new(schema), arrays).expect("Failed to create RecordBatch");
 
         // Convert to cuDF Table
-        let table = CuDFTable::from_arrow(batch.clone()).expect("Failed to convert to cuDF");
+        let table = CuDFTable::from_arrow_host(batch.clone()).expect("Failed to convert to cuDF");
 
         // Verify dimensions
         assert_eq!(table.num_rows(), 5);
         assert_eq!(table.num_columns(), 14);
 
         // Convert back to Arrow
-        let result_batch = table.to_arrow().expect("Failed to convert back to Arrow");
+        let result_batch = table
+            .to_arrow_host()
+            .expect("Failed to convert back to Arrow");
 
         // Verify schema - Note: column names are currently not preserved through cuDF
         // This is because cuDF tables store only data, not metadata like column names
@@ -138,11 +140,13 @@ mod tests {
         .expect("Failed to create RecordBatch");
 
         // Convert to cuDF and back
-        let table = CuDFTable::from_arrow(batch).expect("Failed to convert to cuDF");
+        let table = CuDFTable::from_arrow_host(batch).expect("Failed to convert to cuDF");
         assert_eq!(table.num_rows(), 0);
         assert_eq!(table.num_columns(), 2);
 
-        let result_batch = table.to_arrow().expect("Failed to convert back to Arrow");
+        let result_batch = table
+            .to_arrow_host()
+            .expect("Failed to convert back to Arrow");
         assert_eq!(result_batch.num_rows(), 0);
         assert_eq!(result_batch.num_columns(), 2);
     }
@@ -154,13 +158,13 @@ mod tests {
             .expect("Failed to read parquet");
 
         // Convert to Arrow
-        let batch = table.to_arrow().expect("Failed to convert to Arrow");
+        let batch = table.to_arrow_host().expect("Failed to convert to Arrow");
 
         let original_rows = batch.num_rows();
         let original_cols = batch.num_columns();
 
         // Convert back to cuDF
-        let table2 = CuDFTable::from_arrow(batch).expect("Failed to convert from Arrow");
+        let table2 = CuDFTable::from_arrow_host(batch).expect("Failed to convert from Arrow");
 
         // Verify dimensions are preserved
         assert_eq!(table2.num_rows(), original_rows);
