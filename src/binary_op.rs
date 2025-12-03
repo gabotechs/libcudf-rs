@@ -1,12 +1,12 @@
-use crate::{arrow_type_to_cudf, CuDFColumnView, CuDFError, CudfColumnViewOrScalar};
+use crate::{arrow_type_to_cudf, CuDFColumnView, CuDFColumnViewOrScalar, CuDFError};
 use arrow_schema::{ArrowError, DataType};
 
 pub fn cudf_binary_op(
-    left: CudfColumnViewOrScalar,
-    right: CudfColumnViewOrScalar,
+    left: CuDFColumnViewOrScalar,
+    right: CuDFColumnViewOrScalar,
     op: i32,
     output_type: &DataType,
-) -> Result<CudfColumnViewOrScalar, CuDFError> {
+) -> Result<CuDFColumnViewOrScalar, CuDFError> {
     let Some(dt) = arrow_type_to_cudf(output_type) else {
         return Err(ArrowError::NotYetImplemented(format!(
             "Output type {output_type} not supported in CuDF"
@@ -14,20 +14,20 @@ pub fn cudf_binary_op(
     };
 
     let result = match (left, right) {
-        (CudfColumnViewOrScalar::ColumnView(lhs), CudfColumnViewOrScalar::ColumnView(rhs)) => {
+        (CuDFColumnViewOrScalar::ColumnView(lhs), CuDFColumnViewOrScalar::ColumnView(rhs)) => {
             libcudf_sys::ffi::binary_operation_col_col(lhs.inner(), rhs.inner(), op, dt)
         }
-        (CudfColumnViewOrScalar::ColumnView(lhs), CudfColumnViewOrScalar::Scalar(rhs)) => {
+        (CuDFColumnViewOrScalar::ColumnView(lhs), CuDFColumnViewOrScalar::Scalar(rhs)) => {
             libcudf_sys::ffi::binary_operation_col_scalar(lhs.inner(), rhs.inner(), op, dt)
         }
-        (CudfColumnViewOrScalar::Scalar(lhs), CudfColumnViewOrScalar::ColumnView(rhs)) => {
+        (CuDFColumnViewOrScalar::Scalar(lhs), CuDFColumnViewOrScalar::ColumnView(rhs)) => {
             libcudf_sys::ffi::binary_operation_scalar_col(lhs.inner(), rhs.inner(), op, dt)
         }
-        (CudfColumnViewOrScalar::Scalar(_), CudfColumnViewOrScalar::Scalar(_)) => {
+        (CuDFColumnViewOrScalar::Scalar(_), CuDFColumnViewOrScalar::Scalar(_)) => {
             return Err(ArrowError::InvalidArgumentError("".to_string()))?
         }
     }?;
-    Ok(CudfColumnViewOrScalar::ColumnView(
+    Ok(CuDFColumnViewOrScalar::ColumnView(
         CuDFColumnView::from_column(result),
     ))
 }

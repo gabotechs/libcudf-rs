@@ -32,7 +32,7 @@ pub use errors::{CuDFError, Result};
 pub use libcudf_sys::*;
 pub use scalar::CuDFScalar;
 pub use table::CuDFTable;
-pub use union_types::CudfColumnViewOrScalar;
+pub use union_types::CuDFColumnViewOrScalar;
 
 /// Get cuDF version information
 ///

@@ -2,14 +2,14 @@ use arrow::array::Array;
 use datafusion::common::exec_err;
 use datafusion::error::DataFusionError;
 use datafusion_expr::ColumnarValue;
-use libcudf_rs::{CuDFColumnView, CuDFScalar, CudfColumnViewOrScalar};
+use libcudf_rs::{CuDFColumnView, CuDFColumnViewOrScalar, CuDFScalar};
 use std::sync::Arc;
 
 mod binary_op;
 
 pub(crate) fn columnar_value_to_cudf(
     c: ColumnarValue,
-) -> Result<CudfColumnViewOrScalar, DataFusionError> {
+) -> Result<CuDFColumnViewOrScalar, DataFusionError> {
     match c {
         ColumnarValue::Array(arr) => {
             if let Some(cudf_col_view) = arr.as_any().downcast_ref::<CuDFColumnView>() {
@@ -26,9 +26,9 @@ pub(crate) fn columnar_value_to_cudf(
     }
 }
 
-pub(crate) fn cudf_to_columnar_value(view: impl Into<CudfColumnViewOrScalar>) -> ColumnarValue {
+pub(crate) fn cudf_to_columnar_value(view: impl Into<CuDFColumnViewOrScalar>) -> ColumnarValue {
     match view.into() {
-        CudfColumnViewOrScalar::ColumnView(value) => ColumnarValue::Array(Arc::new(value)),
-        CudfColumnViewOrScalar::Scalar(value) => ColumnarValue::Array(Arc::new(value)),
+        CuDFColumnViewOrScalar::ColumnView(value) => ColumnarValue::Array(Arc::new(value)),
+        CuDFColumnViewOrScalar::Scalar(value) => ColumnarValue::Array(Arc::new(value)),
     }
 }
