@@ -10,6 +10,7 @@ pub mod ffi {
         // Include individual headers - order matters for dependencies
         include!("libcudf-sys/src/data_type.h");
         include!("libcudf-sys/src/column.h");
+        include!("libcudf-sys/src/scalar.h");
         include!("libcudf-sys/src/table.h");
         include!("libcudf-sys/src/aggregation.h");
         include!("libcudf-sys/src/groupby.h");
@@ -193,6 +194,12 @@ pub mod ffi {
         // Scalar methods
         /// Check if the scalar is valid (not null)
         fn is_valid(self: &Scalar) -> bool;
+
+        /// Get the data type of the scalar
+        fn data_type(self: &Scalar) -> UniquePtr<DataType>;
+
+        /// Clone this scalar (deep copy)
+        fn clone(self: &Scalar) -> UniquePtr<Scalar>;
 
         // Factory functions
 

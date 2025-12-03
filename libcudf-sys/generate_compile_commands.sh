@@ -65,6 +65,7 @@ CPP_FILES=(
     "libcudf-sys/src/binaryop.cpp"
     "libcudf-sys/src/sorting.cpp"
     "libcudf-sys/src/data_type.cpp"
+    "libcudf-sys/src/scalar.cpp"
 )
 
 # Array of header files
@@ -78,6 +79,7 @@ HEADER_FILES=(
     "libcudf-sys/src/binaryop.h"
     "libcudf-sys/src/sorting.h"
     "libcudf-sys/src/data_type.h"
+    "libcudf-sys/src/scalar.h"
 )
 
 # Start JSON array

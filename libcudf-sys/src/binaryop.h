@@ -4,6 +4,7 @@
 #include <cstdint>
 #include "rust/cxx.h"
 #include "column.h"
+#include "scalar.h"
 
 namespace libcudf_bridge {
 

@@ -3,6 +3,7 @@
 #include <memory>
 #include "rust/cxx.h"
 #include "column.h"
+#include "scalar.h"
 
 // Forward declarations of cuDF types
 namespace cudf {

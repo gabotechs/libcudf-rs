@@ -17,16 +17,22 @@
 //! table.to_parquet("output.parquet").expect("Failed to write Parquet");
 //! ```
 
+mod binary_op;
 mod column_view;
 mod data_type;
 mod errors;
+mod scalar;
 mod table;
+mod union_types;
 
+pub use binary_op::cudf_binary_op;
 pub use column_view::CuDFColumnView;
 pub use data_type::*;
 pub use errors::{CuDFError, Result};
 pub use libcudf_sys::*;
+pub use scalar::CuDFScalar;
 pub use table::CuDFTable;
+pub use union_types::CudfColumnViewOrScalar;
 
 /// Get cuDF version information
 ///

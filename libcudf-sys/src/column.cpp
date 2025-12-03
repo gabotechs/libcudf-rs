@@ -3,7 +3,6 @@
 #include "libcudf-sys/src/lib.rs.h"
 
 #include <cudf/column/column.hpp>
-#include <cudf/scalar/scalar.hpp>
 #include <cudf/interop.hpp>
 
 #include <nanoarrow/nanoarrow.h>
@@ -95,18 +94,5 @@ namespace libcudf_bridge {
         Column c;
         c.inner = std::move(col);
         return c;
-    }
-
-    // Scalar implementation
-    Scalar::Scalar() : inner(nullptr) {
-    }
-
-    Scalar::~Scalar() = default;
-
-    bool Scalar::is_valid() const {
-        if (!inner) {
-            return false;
-        }
-        return inner->is_valid();
     }
 } // namespace libcudf_bridge

@@ -28,6 +28,22 @@ impl CuDFColumnView {
         }
     }
 
+    pub fn from_column(col: UniquePtr<libcudf_sys::ffi::Column>) -> Self {
+        let cudf_dtype = col.data_type();
+        let dt = cudf_type_to_arrow(cudf_dtype.id());
+        let dt = dt.unwrap_or(DataType::Null);
+        let inner = col.view();
+        Self {
+            _column: Some(Arc::new(col)),
+            inner,
+            dt,
+        }
+    }
+
+    pub fn inner(&self) -> &UniquePtr<libcudf_sys::ffi::ColumnView> {
+        &self.inner
+    }
+
     /// Convert an Arrow array to a cuDF column
     ///
     /// This transfers the Arrow array data to GPU memory for processing with cuDF.
@@ -118,8 +134,13 @@ impl Clone for CuDFColumnView {
 }
 
 impl Debug for CuDFColumnView {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "CuDFColumnView: type={}, size={}",
+            self.data_type(),
+            self.len()
+        )
     }
 }
 

@@ -1,8 +1,10 @@
-use crate::expr::columnar_value_to_cudf;
+use crate::errors::cudf_to_df;
+use crate::expr::{columnar_value_to_cudf, cudf_to_columnar_value};
 use arrow::array::RecordBatch;
 use datafusion::logical_expr::ColumnarValue;
 use datafusion::physical_expr::expressions::BinaryExpr;
 use datafusion::physical_expr::PhysicalExpr;
+use libcudf_rs::cudf_binary_op;
 use std::any::Any;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
@@ -25,12 +27,16 @@ impl PhysicalExpr for BinaryOp {
     }
 
     fn evaluate(&self, batch: &RecordBatch) -> datafusion::common::Result<ColumnarValue> {
-        let left = self.expr.left().evaluate(batch)?;
-        let left = columnar_value_to_cudf(left)?;
-        let right = self.expr.right().evaluate(batch)?;
-        let right = columnar_value_to_cudf(right)?;
+        let output_type = self.expr.data_type(batch.schema_ref())?;
 
-        todo!()
+        let lhs = self.expr.left().evaluate(batch)?;
+        let lhs = columnar_value_to_cudf(lhs)?;
+        let rhs = self.expr.right().evaluate(batch)?;
+        let rhs = columnar_value_to_cudf(rhs)?;
+
+        let result = cudf_binary_op(lhs, rhs, 0, &output_type).map_err(cudf_to_df)?;
+
+        Ok(cudf_to_columnar_value(result))
     }
 
     fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>> {

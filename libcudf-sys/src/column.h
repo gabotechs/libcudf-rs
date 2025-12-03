@@ -68,16 +68,4 @@ namespace libcudf_bridge {
 
     // Helper function to create Column from unique_ptr<cudf::column>
     Column column_from_unique_ptr(std::unique_ptr<cudf::column> col);
-
-    // Opaque wrapper for cuDF scalar
-    struct Scalar {
-        std::unique_ptr<cudf::scalar> inner;
-
-        Scalar();
-
-        ~Scalar();
-
-        // Check if the scalar is valid (not null)
-        [[nodiscard]] bool is_valid() const;
-    };
 } // namespace libcudf_bridge
