@@ -5,7 +5,6 @@ use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures_util::stream::StreamExt;
-use futures_util::TryStreamExt;
 use libcudf_rs::{is_cudf_array, CuDFColumnView};
 use std::any::Any;
 use std::fmt::Formatter;
