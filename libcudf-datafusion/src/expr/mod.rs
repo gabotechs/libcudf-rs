@@ -1,11 +1,13 @@
 use crate::expr::binary::CuDFBinaryExpr;
 use crate::expr::column::CuDFColumnExpr;
+use crate::expr::literal::CuDFLiteral;
 use arrow::array::Array;
 use datafusion::common::{exec_err, not_impl_err};
 use datafusion::error::DataFusionError;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::expressions::{BinaryExpr, Column};
 use datafusion_expr::ColumnarValue;
+use datafusion_physical_plan::expressions::Literal;
 use libcudf_rs::{CuDFColumnView, CuDFColumnViewOrScalar, CuDFScalar};
 use std::sync::Arc;
 
@@ -48,6 +50,9 @@ pub(crate) fn expr_to_cudf_expr(
     };
     if let Some(column_expr) = any.downcast_ref::<Column>() {
         return Ok(Arc::new(CuDFColumnExpr::from_host(column_expr.clone())));
+    };
+    if let Some(literal) = any.downcast_ref::<Literal>() {
+        return Ok(Arc::new(CuDFLiteral::from_host(literal.clone())));
     }
 
     not_impl_err!("Expression {expr} not supported in CuDF")

@@ -66,6 +66,12 @@ namespace libcudf_bridge {
         [[nodiscard]] std::unique_ptr<DataType> data_type() const;
     };
 
+    // Forward declaration
+    struct Scalar;
+
     // Helper function to create Column from unique_ptr<cudf::column>
     Column column_from_unique_ptr(std::unique_ptr<cudf::column> col);
+
+    // Extract a scalar from a column at the specified index
+    std::unique_ptr<Scalar> get_element(const ColumnView& column, size_t index);
 } // namespace libcudf_bridge

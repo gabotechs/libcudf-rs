@@ -98,30 +98,14 @@ impl ExecutionPlan for CuDFProjectionExec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assert_snapshot;
     use crate::test_utils::TestFramework;
 
     #[tokio::test]
-    async fn test_fn() -> Result<(), DataFusionError> {
+    async fn test_basic_projection() -> Result<(), DataFusionError> {
         let tf = TestFramework::new().await;
 
-        let result = tf
-            .sql(r#"SELECT "MinTemp" + 1 FROM weather LIMIT 1"#)
-            .await?;
-
-        insta::assert_snapshot!(result.pretty_print, @r"
-        +----------------------------+
-        | weather.MinTemp + Int64(1) |
-        +----------------------------+
-        | 7.6                        |
-        +----------------------------+
-        ");
-        insta::assert_snapshot!(result.plan, @r"
-        ProjectionExec: expr=[MinTemp@0 + 1 as weather.MinTemp + Int64(1)]
-          RepartitionExec: partitioning=RoundRobinBatch(16), input_partitions=1
-            DataSourceExec: file_groups={1 group: [[home/ubuntu/github/libcudf-rs/testdata/weather/result-000002.parquet]]}, projection=[MinTemp], limit=1, file_type=parquet
-        ");
-
-        let result = tf
+        let plan = tf
             .sql(
                 r#"
             SET datafusion.execution.target_partitions=1;
@@ -130,17 +114,19 @@ mod tests {
             )
             .await?;
 
-        insta::assert_snapshot!(result.pretty_print, @r"
+        assert_snapshot!(plan.display(), @r"
+        CudfUnloadExec
+          CuDFProjectionExec: expr=[MinTemp@0 + 1 as weather.MinTemp + Int64(1)]
+            CudfLoadExec
+              DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000002.parquet]]}, projection=[MinTemp], limit=1, file_type=parquet
+        ");
+        let result = plan.execute().await?;
+        assert_snapshot!(result.pretty_print, @r"
         +----------------------------+
         | weather.MinTemp + Int64(1) |
         +----------------------------+
-        | 7.6                        |
+        | 13.2                       |
         +----------------------------+
-        ");
-        insta::assert_snapshot!(result.plan, @r"
-        ProjectionExec: expr=[MinTemp@0 + 1 as weather.MinTemp + Int64(1)]
-          RepartitionExec: partitioning=RoundRobinBatch(16), input_partitions=1
-            DataSourceExec: file_groups={1 group: [[home/ubuntu/github/libcudf-rs/testdata/weather/result-000002.parquet]]}, projection=[MinTemp], limit=1, file_type=parquet
         ");
         Ok(())
     }

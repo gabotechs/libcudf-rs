@@ -1,9 +1,9 @@
 use crate::optimizer::{CuDFBoundariesRule, CuDFConfig, HostToCuDFRule};
 use arrow::util::pretty::pretty_format_batches;
 use datafusion::error::DataFusionError;
-use datafusion::execution::SessionStateBuilder;
+use datafusion::execution::{SessionStateBuilder, TaskContext};
 use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
-use datafusion_physical_plan::{displayable, execute_stream};
+use datafusion_physical_plan::{displayable, execute_stream, ExecutionPlan};
 use futures_util::TryStreamExt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -35,7 +35,7 @@ impl TestFramework {
         Self { ctx }
     }
 
-    pub async fn sql(&self, sql: &str) -> Result<SqlResult, DataFusionError> {
+    pub async fn sql(&self, sql: &str) -> Result<TestPlan, DataFusionError> {
         let mut prepare_statements = sql.split(";").collect::<Vec<_>>();
         let sql = prepare_statements.pop().unwrap();
         for sql in prepare_statements {
@@ -43,13 +43,30 @@ impl TestFramework {
         }
         let df = self.ctx.sql(sql).await?;
         let plan = df.create_physical_plan().await?;
-        let plan_str = displayable(plan.as_ref()).indent(true).to_string();
-        let stream = execute_stream(plan, self.ctx.task_ctx())?;
+        Ok(TestPlan {
+            plan,
+            ctx: self.ctx.task_ctx(),
+        })
+    }
+}
+
+pub struct TestPlan {
+    pub plan: Arc<dyn ExecutionPlan>,
+    ctx: Arc<TaskContext>,
+}
+
+impl TestPlan {
+    pub async fn execute(&self) -> Result<SqlResult, DataFusionError> {
+        let stream = execute_stream(self.plan.clone(), self.ctx.clone())?;
         let batches = stream.try_collect::<Vec<_>>().await?;
         Ok(SqlResult {
             pretty_print: pretty_format_batches(&batches)?.to_string(),
-            plan: plan_str,
+            plan: self.display(),
         })
+    }
+
+    pub fn display(&self) -> String {
+        displayable(self.plan.as_ref()).indent(true).to_string()
     }
 }
 

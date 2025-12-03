@@ -1,9 +1,11 @@
 #include "column.h"
 #include "data_type.h"
+#include "scalar.h"
 #include "libcudf-sys/src/lib.rs.h"
 
 #include <cudf/column/column.hpp>
 #include <cudf/interop.hpp>
+#include <cudf/copying.hpp>
 
 #include <nanoarrow/nanoarrow.h>
 #include <nanoarrow/nanoarrow_device.h>
@@ -94,5 +96,12 @@ namespace libcudf_bridge {
         Column c;
         c.inner = std::move(col);
         return c;
+    }
+
+    // Extract a scalar from a column at the specified index
+    std::unique_ptr<Scalar> get_element(const ColumnView& column, size_t index) {
+        auto result = std::make_unique<Scalar>();
+        result->inner = cudf::get_element(*column.inner, static_cast<cudf::size_type>(index));
+        return result;
     }
 } // namespace libcudf_bridge

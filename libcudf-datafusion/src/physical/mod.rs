@@ -12,5 +12,8 @@ pub use projection::CuDFProjectionExec;
 
 pub fn is_cudf_plan(plan: &dyn ExecutionPlan) -> bool {
     let any = plan.as_any();
-    any.is::<CuDFFilterExec>() || any.is::<CuDFLoadExec>() || any.is::<CuDFUnloadExec>()
+    any.is::<CuDFFilterExec>()
+        || any.is::<CuDFLoadExec>()
+        || any.is::<CuDFUnloadExec>()
+        || any.is::<CuDFProjectionExec>()
 }

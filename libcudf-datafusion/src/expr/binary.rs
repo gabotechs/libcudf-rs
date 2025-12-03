@@ -1,11 +1,13 @@
 use crate::errors::cudf_to_df;
 use crate::expr::{columnar_value_to_cudf, cudf_to_columnar_value, expr_to_cudf_expr};
 use arrow::array::RecordBatch;
+use arrow_schema::{DataType, FieldRef, Schema};
 use datafusion::common::DataFusionError;
 use datafusion::logical_expr::ColumnarValue;
 use datafusion::physical_expr::expressions::BinaryExpr;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion_expr::Operator;
+use delegate::delegate;
 use libcudf_rs::{cudf_binary_op, CuDFBinaryOp};
 use std::any::Any;
 use std::fmt::{Display, Formatter};
@@ -68,6 +70,8 @@ impl PhysicalExpr for CuDFBinaryExpr {
         let output_type = self.inner.data_type(batch.schema_ref())?;
 
         let lhs = self.left.evaluate(batch)?;
+        let lhs_dbg = format!("{:?}", self.left);
+        dbg!(lhs_dbg);
         let lhs = columnar_value_to_cudf(lhs)?;
         let rhs = self.left.evaluate(batch)?;
         let rhs = columnar_value_to_cudf(rhs)?;
@@ -75,10 +79,6 @@ impl PhysicalExpr for CuDFBinaryExpr {
         let result = cudf_binary_op(lhs, rhs, self.op, &output_type).map_err(cudf_to_df)?;
 
         Ok(cudf_to_columnar_value(result))
-    }
-
-    fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>> {
-        self.inner.children()
     }
 
     fn with_new_children(
@@ -93,8 +93,13 @@ impl PhysicalExpr for CuDFBinaryExpr {
         Ok(Arc::new(Self::from_host(expr)?))
     }
 
-    fn fmt_sql(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.inner.fmt_sql(f)
+    delegate! {
+        to self.inner {
+            fn fmt_sql(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
+            fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>>;
+            fn data_type(&self, input_schema: &Schema) -> datafusion::common::Result<DataType>;
+            fn return_field(&self, input_schema: &Schema) -> datafusion::common::Result<FieldRef>;
+        }
     }
 }
 

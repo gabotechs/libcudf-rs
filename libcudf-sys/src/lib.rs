@@ -400,6 +400,9 @@ pub mod ffi {
             array_ptr: *const u8,
         ) -> Result<UniquePtr<Column>>;
 
+        /// Extract a scalar from a column at the specified index
+        fn get_element(column: &ColumnView, index: usize) -> UniquePtr<Scalar>;
+
         /// Get the version of the cuDF library
         fn get_cudf_version() -> String;
     }

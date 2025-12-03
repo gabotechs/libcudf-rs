@@ -23,7 +23,7 @@ impl CuDFUnloadExec {
 
 impl DisplayAs for CuDFUnloadExec {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "CudfLoadExec")
+        write!(f, "CudfUnloadExec")
     }
 }
 

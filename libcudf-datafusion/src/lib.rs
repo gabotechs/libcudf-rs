@@ -7,4 +7,5 @@ mod errors;
 mod expr;
 mod optimizer;
 mod physical;
+#[cfg(test)]
 mod test_utils;

@@ -21,4 +21,4 @@ delegate = "0.13"
 
 [dev-dependencies]
 tokio = { version = "1.48.0", features = ["full"] }
-insta = { version = "1.44.3" }
+insta = { version = "1.44.3", features = ["filters"] }

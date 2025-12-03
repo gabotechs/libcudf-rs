@@ -1,7 +1,9 @@
 use arrow::array::RecordBatch;
+use arrow_schema::{DataType, FieldRef, Schema};
 use datafusion::logical_expr::ColumnarValue;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion_physical_plan::expressions::Column;
+use delegate::delegate;
 use std::any::Any;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
@@ -33,10 +35,6 @@ impl PhysicalExpr for CuDFColumnExpr {
         self.inner.evaluate(batch)
     }
 
-    fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>> {
-        self.inner.children()
-    }
-
     fn with_new_children(
         self: Arc<Self>,
         _children: Vec<Arc<dyn PhysicalExpr>>,
@@ -44,7 +42,12 @@ impl PhysicalExpr for CuDFColumnExpr {
         Ok(self)
     }
 
-    fn fmt_sql(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.inner.fmt_sql(f)
+    delegate! {
+        to self.inner {
+            fn fmt_sql(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
+            fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>>;
+            fn data_type(&self, input_schema: &Schema) -> datafusion::common::Result<DataType>;
+            fn return_field(&self, input_schema: &Schema) -> datafusion::common::Result<FieldRef>;
+        }
     }
 }
