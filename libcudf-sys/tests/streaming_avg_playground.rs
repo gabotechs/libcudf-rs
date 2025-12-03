@@ -1,8 +1,8 @@
 use crate::pretty::{pretty_column, pretty_table};
 use arrow_schema::DataType;
 use cxx::UniquePtr;
-use libcudf_sys::{ffi, BinaryOperator, TypeId};
 use libcudf_sys::ffi::TableView;
+use libcudf_sys::{ffi, BinaryOperator, TypeId};
 use std::error::Error;
 
 mod pretty;
@@ -97,15 +97,14 @@ fn streaming_avg() -> Result<(), Box<dyn Error>> {
     let sum = result.get_result(0).get(0);
     let count = result.get_result(1).get(0);
 
-
     let avg = ffi::binary_operation_col_col(
         &sum.view(),
         &count.view(),
         BinaryOperator::Div as i32,
         TypeId::Float64 as i32,
     )?;
-    
-    eprintln!("{}", pretty_table(&result.get_keys().view())?);
+
+    eprintln!("{}", pretty_table(&keys.view())?);
     eprintln!("{}", pretty_column(&avg.view(), DataType::Float64)?);
 
     Ok(())

@@ -13,12 +13,8 @@ pub fn pretty_table(table_view: &TableView) -> Result<impl Display + use<>, Arro
     let mut schema = FFI_ArrowSchema::empty();
 
     let data = unsafe {
-        table_view
-            .to_arrow_array(&mut array as *mut FFI_ArrowArray as *mut u8)
-            .expect("to_arrow_array should never fail");
-        table_view
-            .to_arrow_schema(&mut schema as *mut FFI_ArrowSchema as *mut u8)
-            .expect("to_arrow_schema should never fail");
+        table_view.to_arrow_array(&mut array as *mut FFI_ArrowArray as *mut u8);
+        table_view.to_arrow_schema(&mut schema as *mut FFI_ArrowSchema as *mut u8);
 
         from_ffi(array, &schema).expect("ffi data should be valid")
     };
@@ -35,9 +31,7 @@ pub fn pretty_column(
     let mut array = FFI_ArrowArray::empty();
 
     let data = unsafe {
-        column_view
-            .to_arrow_array(&mut array as *mut FFI_ArrowArray as *mut u8)
-            .expect("to_arrow_array should never fail");
+        column_view.to_arrow_array(&mut array as *mut FFI_ArrowArray as *mut u8);
 
         from_ffi_and_data_type(array, data_type).expect("ffi data should be valid")
     };

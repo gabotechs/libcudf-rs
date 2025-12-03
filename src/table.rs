@@ -206,8 +206,8 @@ impl CuDFTable {
 
         unsafe {
             let view = self.inner.view();
-            view.to_arrow_schema(&mut ffi_schema as *mut FFI_ArrowSchema as *mut u8)?;
-            view.to_arrow_array(&mut ffi_array as *mut FFI_ArrowArray as *mut u8)?;
+            view.to_arrow_schema(&mut ffi_schema as *mut FFI_ArrowSchema as *mut u8);
+            view.to_arrow_array(&mut ffi_array as *mut FFI_ArrowArray as *mut u8);
         }
 
         let schema = Arc::new(Schema::try_from(&ffi_schema)?);

@@ -182,7 +182,7 @@ impl CuDFColumnView {
         unsafe {
             let device_array_ptr =
                 &mut device_array as *mut libcudf_sys::ArrowDeviceArray as *mut u8;
-            self.inner.to_arrow_array(device_array_ptr)?;
+            self.inner.to_arrow_array(device_array_ptr);
         }
 
         // Convert from FFI structures to Arrow ArrayData
