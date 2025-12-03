@@ -1,20 +1,28 @@
-use arrow::array::RecordBatch;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use std::any::Any;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct GpuFilterExec {}
+pub struct CuDFFilterExec {
+    inner: FilterExec,
+}
 
-impl DisplayAs for GpuFilterExec {
+impl CuDFFilterExec {
+    pub fn new(inner: FilterExec) -> Self {
+        Self { inner }
+    }
+}
+
+impl DisplayAs for CuDFFilterExec {
     fn fmt_as(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
         todo!()
     }
 }
 
-impl ExecutionPlan for GpuFilterExec {
+impl ExecutionPlan for CuDFFilterExec {
     fn name(&self) -> &str {
         "GpuFilterExec"
     }
