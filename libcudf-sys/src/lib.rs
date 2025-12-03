@@ -177,6 +177,12 @@ pub mod ffi {
         /// Get the raw device pointer to the column view's data
         fn data_ptr(self: &ColumnView) -> u64;
 
+        /// Get the data type of the column view
+        fn data_type(self: &ColumnView) -> UniquePtr<DataType>;
+
+        /// Clone this column view
+        fn clone(self: &ColumnView) -> UniquePtr<ColumnView>;
+
         // DataType methods
         /// Get the type_id
         fn id(self: &DataType) -> i32;

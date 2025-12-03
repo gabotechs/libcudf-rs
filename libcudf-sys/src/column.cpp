@@ -35,6 +35,28 @@ namespace libcudf_bridge {
         return reinterpret_cast<uint64_t>(inner->head());
     }
 
+    [[nodiscard]] std::unique_ptr<DataType> ColumnView::data_type() const {
+        auto dtype = inner->type();
+        auto type_id = static_cast<int32_t>(dtype.id());
+
+        // Only pass scale for decimal types
+        if (dtype.id() == cudf::type_id::DECIMAL32 ||
+            dtype.id() == cudf::type_id::DECIMAL64 ||
+            dtype.id() == cudf::type_id::DECIMAL128) {
+            return std::make_unique<DataType>(type_id, dtype.scale());
+        } else {
+            return std::make_unique<DataType>(type_id);
+        }
+    }
+
+    [[nodiscard]] std::unique_ptr<ColumnView> ColumnView::clone() const {
+        auto cloned = std::make_unique<ColumnView>();
+        if (inner) {
+            cloned->inner = std::make_unique<cudf::column_view>(*inner);
+        }
+        return cloned;
+    }
+
     // Column implementation
     Column::Column() : inner(nullptr) {
     }

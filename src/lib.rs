@@ -17,12 +17,12 @@
 //! table.to_parquet("output.parquet").expect("Failed to write Parquet");
 //! ```
 
-mod column;
+mod column_view;
 mod data_type;
 mod errors;
 mod table;
 
-pub use column::CuDFColumn;
+pub use column_view::CuDFColumnView;
 pub use data_type::*;
 pub use errors::{CuDFError, Result};
 pub use libcudf_sys::*;

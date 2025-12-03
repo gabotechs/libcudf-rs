@@ -14,6 +14,7 @@ namespace cudf {
 
 namespace libcudf_bridge {
     struct DataType;
+
     // Opaque wrapper for cuDF column_view
     struct ColumnView {
         std::unique_ptr<cudf::column_view> inner;
@@ -30,6 +31,12 @@ namespace libcudf_bridge {
 
         // Get the raw device pointer to the column view's data
         [[nodiscard]] uint64_t data_ptr() const;
+
+        // Get the data type of the column view
+        [[nodiscard]] std::unique_ptr<DataType> data_type() const;
+
+        // Clone this column view
+        [[nodiscard]] std::unique_ptr<ColumnView> clone() const;
     };
 
     // Opaque wrapper for cuDF column
