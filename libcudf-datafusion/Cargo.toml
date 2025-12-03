@@ -14,6 +14,7 @@ arrow-schema = { workspace = true }
 datafusion = "51"
 datafusion-expr = "51"
 datafusion-physical-plan = "51"
+futures = "0.3"
 async-trait = "0.1"
 tokio = { version = "1.41", features = ["rt", "macros"] }
 futures-util = "0.3"

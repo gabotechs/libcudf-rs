@@ -2118,6 +2118,7 @@ dependencies = [
  "datafusion-expr",
  "datafusion-physical-plan",
  "delegate",
+ "futures",
  "futures-util",
  "insta",
  "libcudf-rs",

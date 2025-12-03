@@ -153,10 +153,10 @@ pub mod ffi {
         fn column(self: &TableView, index: i32) -> UniquePtr<ColumnView>;
 
         /// Get the table view schema as an FFI ArrowSchema
-        unsafe fn to_arrow_schema(self: &TableView, out_schema_ptr: *mut u8) -> Result<()>;
+        unsafe fn to_arrow_schema(self: &TableView, out_schema_ptr: *mut u8);
 
         /// Get the table view data as an FFI ArrowArray
-        unsafe fn to_arrow_array(self: &TableView, out_array_ptr: *mut u8) -> Result<()>;
+        unsafe fn to_arrow_array(self: &TableView, out_array_ptr: *mut u8);
 
         // Column methods
         /// Get the number of elements in the column
@@ -173,7 +173,7 @@ pub mod ffi {
         fn view(self: &Column) -> UniquePtr<ColumnView>;
 
         /// Get the column view data as an FFI ArrowArray
-        unsafe fn to_arrow_array(self: &ColumnView, out_array_ptr: *mut u8) -> Result<()>;
+        unsafe fn to_arrow_array(self: &ColumnView, out_array_ptr: *mut u8);
 
         /// Get the raw device pointer to the column view's data
         fn data_ptr(self: &ColumnView) -> u64;
