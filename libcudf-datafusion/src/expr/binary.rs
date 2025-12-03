@@ -1,7 +1,7 @@
 use crate::errors::cudf_to_df;
-use crate::expr::{columnar_value_to_cudf, cudf_to_columnar_value};
+use crate::expr::{columnar_value_to_cudf, cudf_to_columnar_value, expr_to_cudf_expr};
 use arrow::array::RecordBatch;
-use datafusion::common::not_impl_err;
+use datafusion::common::DataFusionError;
 use datafusion::logical_expr::ColumnarValue;
 use datafusion::physical_expr::expressions::BinaryExpr;
 use datafusion::physical_expr::PhysicalExpr;
@@ -9,44 +9,76 @@ use datafusion_expr::Operator;
 use libcudf_rs::{cudf_binary_op, CuDFBinaryOp};
 use std::any::Any;
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct BinaryOp {
-    expr: BinaryExpr,
+#[derive(Debug, Clone, Eq)]
+pub struct CuDFBinaryExpr {
+    inner: BinaryExpr,
+
+    left: Arc<dyn PhysicalExpr>,
+    right: Arc<dyn PhysicalExpr>,
+    op: CuDFBinaryOp,
 }
 
-impl Display for BinaryOp {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CuDF")?;
-        self.expr.fmt(f)
+impl PartialEq for CuDFBinaryExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.eq(&other.inner)
     }
 }
 
-impl PhysicalExpr for BinaryOp {
+impl Hash for CuDFBinaryExpr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.inner.hash(state);
+    }
+}
+
+impl CuDFBinaryExpr {
+    pub fn from_host(expr: BinaryExpr) -> Result<Self, DataFusionError> {
+        let left = expr_to_cudf_expr(expr.left().as_ref())?;
+        let right = expr_to_cudf_expr(expr.right().as_ref())?;
+        let op = map_op(expr.op()).ok_or_else(|| {
+            DataFusionError::NotImplemented(format!(
+                "Operator {:?} is not supported by cuDF",
+                expr.op()
+            ))
+        })?;
+        Ok(Self {
+            inner: expr,
+            left,
+            right,
+            op,
+        })
+    }
+}
+
+impl Display for CuDFBinaryExpr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CuDF")?;
+        self.inner.fmt(f)
+    }
+}
+
+impl PhysicalExpr for CuDFBinaryExpr {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn evaluate(&self, batch: &RecordBatch) -> datafusion::common::Result<ColumnarValue> {
-        let output_type = self.expr.data_type(batch.schema_ref())?;
+        let output_type = self.inner.data_type(batch.schema_ref())?;
 
-        let lhs = self.expr.left().evaluate(batch)?;
+        let lhs = self.left.evaluate(batch)?;
         let lhs = columnar_value_to_cudf(lhs)?;
-        let rhs = self.expr.right().evaluate(batch)?;
+        let rhs = self.left.evaluate(batch)?;
         let rhs = columnar_value_to_cudf(rhs)?;
 
-        let Some(op) = map_op(self.expr.op()) else {
-            return not_impl_err!("Operator {:?} is not supported by cuDF", self.expr.op());
-        };
-
-        let result = cudf_binary_op(lhs, rhs, op, &output_type).map_err(cudf_to_df)?;
+        let result = cudf_binary_op(lhs, rhs, self.op, &output_type).map_err(cudf_to_df)?;
 
         Ok(cudf_to_columnar_value(result))
     }
 
     fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>> {
-        self.expr.children()
+        self.inner.children()
     }
 
     fn with_new_children(
@@ -55,14 +87,14 @@ impl PhysicalExpr for BinaryOp {
     ) -> datafusion::common::Result<Arc<dyn PhysicalExpr>> {
         let expr = BinaryExpr::new(
             Arc::clone(&children[0]),
-            *self.expr.op(),
+            *self.inner.op(),
             Arc::clone(&children[1]),
         );
-        Ok(Arc::new(Self { expr }))
+        Ok(Arc::new(Self::from_host(expr)?))
     }
 
     fn fmt_sql(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.expr.fmt_sql(f)
+        self.inner.fmt_sql(f)
     }
 }
 

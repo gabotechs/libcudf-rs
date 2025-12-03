@@ -5,7 +5,7 @@ use arrow_schema::{ArrowError, DataType};
 ///
 /// Maps to cuDF's `binary_operator` enum
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CuDFBinaryOp {
     /// operator +
     Add = 0,

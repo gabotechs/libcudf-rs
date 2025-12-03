@@ -1,5 +1,5 @@
 use crate::cudf_type_to_arrow;
-use arrow::array::{Array, ArrayData, ArrayRef};
+use arrow::array::{Array, ArrayData, ArrayRef, Scalar};
 use arrow::buffer::NullBuffer;
 use arrow_schema::DataType;
 use cxx::UniquePtr;
@@ -21,6 +21,10 @@ impl CuDFScalar {
 
     pub fn inner(&self) -> &UniquePtr<libcudf_sys::ffi::Scalar> {
         &self.inner
+    }
+
+    pub fn from_arrow_host<T: Array>(scalar: Scalar<T>) -> Self {
+        todo!()
     }
 }
 

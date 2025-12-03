@@ -7,3 +7,4 @@ mod errors;
 mod expr;
 mod optimizer;
 mod physical;
+mod test_utils;
