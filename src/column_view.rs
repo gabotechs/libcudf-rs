@@ -143,22 +143,28 @@ impl CuDFColumnView {
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
     pub fn to_arrow_host(&self) -> Result<ArrayRef, CuDFError> {
-        // Allocate space for the Arrow C Data Interface structures
-        let mut ffi_array = FFI_ArrowArray::empty();
+        let mut device_array = libcudf_sys::ArrowDeviceArray {
+            array: FFI_ArrowArray::empty(),
+            device_id: -1,
+            device_type: 1, // CPU
+            sync_event: std::ptr::null_mut(),
+            reserved: [0; 3],
+        };
 
         // Create schema from the column's data type
         let ffi_schema = FFI_ArrowSchema::try_from(self.data_type())?;
 
         // Convert the column view to Arrow format (copying from GPU to host)
+        // cuDF's to_arrow_array expects an ArrowDeviceArray pointer
         unsafe {
-            let array_ptr = &mut ffi_array as *mut FFI_ArrowArray as *mut u8;
-            self.inner.to_arrow_array(array_ptr)?;
+            let device_array_ptr =
+                &mut device_array as *mut libcudf_sys::ArrowDeviceArray as *mut u8;
+            self.inner.to_arrow_array(device_array_ptr)?;
         }
 
         // Convert from FFI structures to Arrow ArrayData
-        let array_data = unsafe {
-            arrow::ffi::from_ffi(ffi_array, &ffi_schema)?
-        };
+        // Extract just the ArrowArray part
+        let array_data = unsafe { arrow::ffi::from_ffi(device_array.array, &ffi_schema)? };
 
         // Create an ArrayRef from the ArrayData
         Ok(arrow::array::make_array(array_data))
