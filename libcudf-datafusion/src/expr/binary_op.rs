@@ -1,3 +1,4 @@
+use crate::expr::columnar_value_to_cudf;
 use arrow::array::RecordBatch;
 use datafusion::logical_expr::ColumnarValue;
 use datafusion::physical_expr::expressions::BinaryExpr;
@@ -24,6 +25,11 @@ impl PhysicalExpr for BinaryOp {
     }
 
     fn evaluate(&self, batch: &RecordBatch) -> datafusion::common::Result<ColumnarValue> {
+        let left = self.expr.left().evaluate(batch)?;
+        let left = columnar_value_to_cudf(left)?;
+        let right = self.expr.right().evaluate(batch)?;
+        let right = columnar_value_to_cudf(right)?;
+
         todo!()
     }
 
