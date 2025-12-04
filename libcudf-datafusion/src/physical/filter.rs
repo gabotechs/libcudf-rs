@@ -1,33 +1,52 @@
 use crate::expr::expr_to_cudf_expr;
+use arrow::array::RecordBatch;
+use arrow_schema::SchemaRef;
 use datafusion::common::Statistics;
 use datafusion::config::ConfigOptions;
 use datafusion::error::DataFusionError;
-use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::execution_plan::CardinalityEffect;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::filter_pushdown::{FilterDescription, FilterPushdownPhase};
-use datafusion_physical_plan::metrics::MetricsSet;
+use datafusion_physical_plan::metrics::{
+    BaselineMetrics, ExecutionPlanMetricsSet, MetricBuilder, MetricType, MetricsSet, RatioMetrics,
+};
 use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, PhysicalExpr, PlanProperties,
 };
 use delegate::delegate;
+use futures_util::{Stream, StreamExt};
 use std::any::Any;
 use std::fmt::Formatter;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{ready, Context, Poll};
 
 #[derive(Debug)]
 pub struct CuDFFilterExec {
     host_exec: FilterExec,
-    cudf_exec: FilterExec,
+
+    /// The expression to filter on. This expression must evaluate to a boolean value.
+    predicate: Arc<dyn PhysicalExpr>,
+    /// The input plan
+    input: Arc<dyn ExecutionPlan>,
+    /// Execution metrics
+    metrics: ExecutionPlanMetricsSet,
+    /// The projection indices of the columns in the output schema of join
+    projection: Option<Vec<usize>>,
 }
 
 impl CuDFFilterExec {
     pub fn try_new(host_exec: FilterExec) -> Result<Self, DataFusionError> {
         let predicate = expr_to_cudf_expr(host_exec.predicate().as_ref())?;
-        let cudf_exec = FilterExec::try_new(predicate, Arc::clone(host_exec.input()))?;
+        let input = Arc::clone(host_exec.input());
+        let projection = host_exec.projection().cloned();
         Ok(Self {
             host_exec,
-            cudf_exec,
+            predicate,
+            input,
+            metrics: ExecutionPlanMetricsSet::new(),
+            projection,
         })
     }
 }
@@ -64,7 +83,18 @@ impl ExecutionPlan for CuDFFilterExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
-        self.cudf_exec.execute(partition, context)
+        let metrics = CuDFFilterExecMetrics::new(&self.metrics, partition);
+        Ok(Box::pin(CuDFFilterExecStream {
+            schema: self.schema(),
+            predicate: Arc::clone(&self.predicate),
+            input: self.input.execute(partition, context)?,
+            metrics,
+            projection: self.projection.clone(),
+        }))
+    }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
     }
 
     delegate! {
@@ -76,14 +106,106 @@ impl ExecutionPlan for CuDFFilterExec {
             fn cardinality_effect(&self) -> CardinalityEffect;
             fn supports_limit_pushdown(&self) -> bool;
             fn gather_filters_for_pushdown(&self, phase: FilterPushdownPhase, parent_filters: Vec<Arc<dyn PhysicalExpr>>, config: &ConfigOptions) -> Result<FilterDescription, DataFusionError>;
-        }
-    }
-
-    delegate! {
-        to self.cudf_exec {
-            fn metrics(&self) -> Option<MetricsSet>;
             fn partition_statistics(&self, partition: Option<usize>) -> datafusion::common::Result<Statistics>;
         }
+    }
+}
+
+// Struct pretty much copied from `datafusion/core/src/physical_plan/filter.rs`
+/// The FilterExec streams wraps the input iterator and applies the predicate expression to
+/// determine which rows to include in its output batches
+struct CuDFFilterExecStream {
+    /// Output schema after the projection
+    schema: SchemaRef,
+    /// The expression to filter on. This expression must evaluate to a boolean value.
+    predicate: Arc<dyn PhysicalExpr>,
+    /// The input partition to filter.
+    input: SendableRecordBatchStream,
+    /// Runtime metrics recording
+    metrics: CuDFFilterExecMetrics,
+    /// The projection indices of the columns in the input schema
+    projection: Option<Vec<usize>>,
+}
+
+/// The metrics for `FilterExec`
+struct CuDFFilterExecMetrics {
+    // Common metrics for most operators
+    baseline_metrics: BaselineMetrics,
+    // Selectivity of the filter, calculated as output_rows / input_rows
+    selectivity: RatioMetrics,
+}
+
+impl CuDFFilterExecMetrics {
+    pub fn new(metrics: &ExecutionPlanMetricsSet, partition: usize) -> Self {
+        Self {
+            baseline_metrics: BaselineMetrics::new(metrics, partition),
+            selectivity: MetricBuilder::new(metrics)
+                .with_type(MetricType::SUMMARY)
+                .ratio_metrics("selectivity", partition),
+        }
+    }
+}
+
+fn filter_and_project(
+    batch: &RecordBatch,
+    predicate: &Arc<dyn PhysicalExpr>,
+    projection: Option<&Vec<usize>>,
+    output_schema: &SchemaRef,
+) -> Result<RecordBatch, DataFusionError> {
+    predicate
+        .evaluate(batch)
+        .and_then(|v| v.into_array(batch.num_rows()))
+        .and_then(|array| {
+            todo!();
+        })
+}
+
+// Implementation pretty much copied from `datafusion/core/src/physical_plan/filter.rs`
+impl Stream for CuDFFilterExecStream {
+    type Item = Result<RecordBatch, DataFusionError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let poll;
+        loop {
+            match ready!(self.input.poll_next_unpin(cx)) {
+                Some(Ok(batch)) => {
+                    let timer = self.metrics.baseline_metrics.elapsed_compute().timer();
+                    let filtered_batch = filter_and_project(
+                        &batch,
+                        &self.predicate,
+                        self.projection.as_ref(),
+                        &self.schema,
+                    )?;
+                    timer.done();
+
+                    self.metrics.selectivity.add_part(filtered_batch.num_rows());
+                    self.metrics.selectivity.add_total(batch.num_rows());
+
+                    // Skip entirely filtered batches
+                    if filtered_batch.num_rows() == 0 {
+                        continue;
+                    }
+                    poll = Poll::Ready(Some(Ok(filtered_batch)));
+                    break;
+                }
+                value => {
+                    poll = Poll::Ready(value);
+                    break;
+                }
+            }
+        }
+        self.metrics.baseline_metrics.record_poll(poll)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // Same number of record batches
+        self.input.size_hint()
+    }
+}
+
+impl RecordBatchStream for CuDFFilterExecStream {
+    fn schema(&self) -> SchemaRef {
+        Arc::clone(&self.schema)
     }
 }
 
