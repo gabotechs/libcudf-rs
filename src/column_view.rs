@@ -66,6 +66,10 @@ impl CuDFColumnView {
         &self.inner
     }
 
+    pub fn into_inner(self) -> UniquePtr<libcudf_sys::ffi::ColumnView> {
+        self.inner
+    }
+
     /// Convert an Arrow array to a cuDF column
     ///
     /// This transfers the Arrow array data to GPU memory for processing with cuDF.

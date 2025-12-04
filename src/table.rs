@@ -1,15 +1,13 @@
 use crate::cudf_array::is_cudf_array;
 use crate::table_view::CuDFTableView;
-use crate::CuDFError;
+use crate::{CuDFError};
 use arrow::array::{Array, ArrayData, StructArray};
-use arrow::datatypes::Schema;
-use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
+use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow::record_batch::RecordBatch;
 use arrow_schema::ArrowError;
 use cxx::UniquePtr;
 use libcudf_sys::{ffi, ArrowDeviceArray};
 use std::path::Path;
-use std::sync::Arc;
 
 /// A GPU-accelerated table (similar to a DataFrame)
 ///
@@ -53,6 +51,10 @@ impl CuDFTable {
     /// ```
     pub fn view(&self) -> CuDFTableView {
         CuDFTableView::new(self.inner.view())
+    }
+
+    pub fn from_ptr(inner: UniquePtr<ffi::Table>) -> Self {
+        Self { inner }
     }
 
     /// Read a table from a Parquet file
@@ -175,48 +177,6 @@ impl CuDFTable {
         let inner = unsafe { ffi::table_from_arrow_host(schema_ptr, device_array_ptr) }?;
 
         Ok(Self { inner })
-    }
-
-    /// Convert the CuDF table allocated on the GPU to an Arrow RecordBatch allocated on the host.
-    ///
-    /// This allows you to use cuDF for GPU-accelerated operations and then
-    /// return the results to arrow-rs for further processing or output.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The cuDF data cannot be converted to Arrow format
-    /// - There is insufficient memory
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use libcudf_rs::CuDFTable;
-    ///
-    /// let table = CuDFTable::from_parquet("data.parquet")?;
-    /// // Perform GPU operations...
-    ///
-    /// // Convert back to Arrow for further processing
-    /// let batch = table.to_arrow_host()?;
-    /// # Ok::<(), libcudf_rs::CuDFError>(())
-    /// ```
-    pub fn to_arrow_host(&self) -> Result<RecordBatch, CuDFError> {
-        let mut ffi_schema = FFI_ArrowSchema::empty();
-        let mut ffi_array = FFI_ArrowArray::empty();
-
-        unsafe {
-            let view = self.inner.view();
-            view.to_arrow_schema(&mut ffi_schema as *mut FFI_ArrowSchema as *mut u8);
-            view.to_arrow_array(&mut ffi_array as *mut FFI_ArrowArray as *mut u8);
-        }
-
-        let schema = Arc::new(Schema::try_from(&ffi_schema)?);
-        let array_data = unsafe { from_ffi(ffi_array, &ffi_schema)? };
-        let struct_array = StructArray::from(array_data);
-
-        let batch = RecordBatch::try_new(schema, struct_array.columns().to_vec())?;
-
-        Ok(batch)
     }
 
     /// Get the number of rows in the table
