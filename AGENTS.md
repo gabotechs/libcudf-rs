@@ -101,6 +101,10 @@ This is where you can:
 - Always make tests return `-> Result<(), Box<dyn std::error::Error>>` so that you can use the `?` operator.
 - There are test parquet files in `testdata/weather`, you can inspect their schema with
   `parquet-tools schema testdata/.../some-file.parquet`, and that can be used for writing tests.
+- This codebase uses https://github.com/mitsuhiko/insta for snapshot testing. Whenever a snapshot test fails, you
+  can use `cargo insta accept` to accept the changes to the snapshots. You can use the
+  `assert_snapshot!(my_value, @"");` snippet for adding snapshot tests. Remember to use the `assert_snapshot!`
+  macro from the test_utils/ folder.
 
 ## Compiling the project
 
