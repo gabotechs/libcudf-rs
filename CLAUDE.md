@@ -118,4 +118,6 @@ This is where you can:
     - `sccache` (optional): better intermediate results cache during compilation
 - Be careful of having multiple versions of the CUDA toolkit installed in the system
 - The first compilation needs to compile `libcudf` from source, this might take several hours on a powerful machine
+- There's no need for prefixing commands with LD_LIBRARY_PATH=/path/to/something. If the LD_LIBRARY_PATH is needed it
+  means there's something wrong with libcudf-sys/build.rs
 

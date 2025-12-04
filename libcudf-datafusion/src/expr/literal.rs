@@ -62,3 +62,47 @@ impl PhysicalExpr for CuDFLiteral {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::assert_snapshot;
+    use crate::test_utils::TestFramework;
+    use datafusion::common::assert_contains;
+
+    #[tokio::test]
+    async fn test_literal_in_expressions() -> Result<(), Box<dyn std::error::Error>> {
+        let tf = TestFramework::new().await;
+
+        let host_sql = r#"
+            SELECT
+                "MinTemp" + 10.0 as temp_plus_ten,
+                "MaxTemp" * 2 as temp_doubled,
+                "Rainfall" > 0.0 as has_rain
+            FROM weather
+            LIMIT 2
+        "#;
+        let cudf_sql = format!(
+            r#"
+            SET datafusion.execution.target_partitions=1;
+            SET cudf.enable=true;
+            {host_sql}
+        "#
+        );
+
+        let result = tf.execute(&cudf_sql).await?;
+        assert_contains!(result.plan, "CuDF");
+        assert_snapshot!(result.pretty_print, @r"
+        +---------------+--------------+----------+
+        | temp_plus_ten | temp_doubled | has_rain |
+        +---------------+--------------+----------+
+        | 16.6          | 26.2         | true     |
+        | 8.4           | 23.0         | false    |
+        +---------------+--------------+----------+
+        ");
+
+        let host_result = tf.execute(host_sql).await?;
+        assert_eq!(host_result.pretty_print, result.pretty_print);
+
+        Ok(())
+    }
+}

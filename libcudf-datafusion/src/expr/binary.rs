@@ -167,6 +167,7 @@ fn map_op(op: &Operator) -> Option<CuDFBinaryOp> {
 mod tests {
     use crate::assert_snapshot;
     use crate::test_utils::TestFramework;
+    use datafusion::common::assert_contains;
 
     #[tokio::test]
     async fn test_binary_operations() -> Result<(), Box<dyn std::error::Error>> {
@@ -197,6 +198,7 @@ mod tests {
         );
 
         let result = tf.execute(&cudf_sql).await?;
+        assert_contains!(result.plan, "CuDF");
         assert_snapshot!(result.pretty_print, @r"
         +----------+-------------+----------------+----------+--------+-------+-----------+-----------+--------------+------------+---------------+--------------+
         | addition | subtraction | multiplication | division | modulo | equal | not_equal | less_than | greater_than | less_equal | greater_equal | complex_expr |
