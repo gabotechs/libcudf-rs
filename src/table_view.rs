@@ -1,3 +1,8 @@
+use std::sync::Arc;
+use arrow::array::{RecordBatch, StructArray};
+use arrow::ffi::{from_ffi, FFI_ArrowArray};
+use arrow_schema::ffi::FFI_ArrowSchema;
+use arrow_schema::Schema;
 use crate::{CuDFColumnView, CuDFError, CuDFTable};
 use cxx::UniquePtr;
 use libcudf_sys::ffi;
@@ -14,6 +19,15 @@ impl CuDFTableView {
     /// Create a new table view from a raw FFI table view
     pub(crate) fn new(inner: UniquePtr<ffi::TableView>) -> Self {
         Self { inner }
+    }
+
+    pub(crate) fn inner(&self) -> &ffi::TableView {
+        &self.inner
+    }
+
+
+    pub fn into_inner(self) -> UniquePtr<ffi::TableView> {
+        self.inner
     }
 
     /// Create a table view from a slice of column view references
@@ -155,5 +169,48 @@ impl CuDFTableView {
     pub fn column(&self, index: i32) -> CuDFColumnView {
         let inner = self.inner.column(index);
         CuDFColumnView::new(inner)
+    }
+
+    /// Convert the CuDF table allocated on the GPU to an Arrow RecordBatch allocated on the host.
+    ///
+    /// This allows you to use cuDF for GPU-accelerated operations and then
+    /// return the results to arrow-rs for further processing or output.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The cuDF data cannot be converted to Arrow format
+    /// - There is insufficient memory
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use libcudf_rs::CuDFTable;
+    ///
+    /// let table = CuDFTable::from_parquet("data.parquet")?;
+    /// // Perform GPU operations...
+    ///
+    /// // Convert back to Arrow for further processing
+    /// let batch = table.to_arrow_host()?;
+    /// # Ok::<(), libcudf_rs::CuDFError>(())
+    /// ```
+    pub fn to_arrow_host(&self) -> Result<RecordBatch, CuDFError> {
+        let mut ffi_schema = FFI_ArrowSchema::empty();
+        let mut ffi_array = FFI_ArrowArray::empty();
+
+        unsafe {
+            self.inner
+                .to_arrow_schema(&mut ffi_schema as *mut FFI_ArrowSchema as *mut u8);
+            self.inner
+                .to_arrow_array(&mut ffi_array as *mut FFI_ArrowArray as *mut u8);
+        }
+
+        let schema = Arc::new(Schema::try_from(&ffi_schema)?);
+        let array_data = unsafe { from_ffi(ffi_array, &ffi_schema)? };
+        let struct_array = StructArray::from(array_data);
+
+        let batch = RecordBatch::try_new(schema, struct_array.columns().to_vec())?;
+
+        Ok(batch)
     }
 }

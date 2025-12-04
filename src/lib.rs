@@ -22,6 +22,7 @@ mod column_view;
 mod cudf_array;
 mod data_type;
 mod errors;
+mod group_by;
 mod scalar;
 mod table;
 mod table_view;
@@ -31,10 +32,11 @@ pub use column_view::CuDFColumnView;
 pub use cudf_array::{is_cudf_array, CuDFColumnViewOrScalar};
 pub use data_type::*;
 pub use errors::{CuDFError, Result};
+pub use group_by::*;
 pub use libcudf_sys::*;
 pub use scalar::CuDFScalar;
-pub use table::CuDFTable;
-pub use table_view::CuDFTableView;
+pub use table::*;
+pub use table_view::*;
 
 /// Get cuDF version information
 ///

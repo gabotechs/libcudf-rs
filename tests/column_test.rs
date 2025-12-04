@@ -46,8 +46,8 @@ mod tests {
     #[test]
     fn test_to_arrow_host_int32() {
         let original = Int32Array::from(vec![1, 2, 3, 4, 5]);
-        let column = CuDFColumnView::from_arrow(&original)
-            .expect("Failed to convert Arrow array to column");
+        let column =
+            CuDFColumnView::from_arrow(&original).expect("Failed to convert Arrow array to column");
 
         let result = column
             .to_arrow_host()
@@ -67,8 +67,8 @@ mod tests {
     #[test]
     fn test_to_arrow_host_int64() {
         let original = Int64Array::from(vec![100, 200, 300, 400, 500]);
-        let column = CuDFColumnView::from_arrow(&original)
-            .expect("Failed to convert Arrow array to column");
+        let column =
+            CuDFColumnView::from_arrow(&original).expect("Failed to convert Arrow array to column");
 
         let result = column
             .to_arrow_host()
@@ -88,8 +88,8 @@ mod tests {
     #[test]
     fn test_to_arrow_host_float64() {
         let original = Float64Array::from(vec![1.5, 2.5, 3.5, 4.5, 5.5]);
-        let column = CuDFColumnView::from_arrow(&original)
-            .expect("Failed to convert Arrow array to column");
+        let column =
+            CuDFColumnView::from_arrow(&original).expect("Failed to convert Arrow array to column");
 
         let result = column
             .to_arrow_host()
@@ -174,8 +174,8 @@ mod tests {
     #[test]
     fn test_to_arrow_host_roundtrip_preserves_data() {
         let original = Int32Array::from(vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
-        let column = CuDFColumnView::from_arrow(&original)
-            .expect("Failed to convert Arrow array to column");
+        let column =
+            CuDFColumnView::from_arrow(&original).expect("Failed to convert Arrow array to column");
 
         let result = column
             .to_arrow_host()
