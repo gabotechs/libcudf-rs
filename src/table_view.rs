@@ -16,6 +16,46 @@ impl CuDFTableView {
         Self { inner }
     }
 
+    /// Create a table view from a slice of column view references
+    ///
+    /// # Arguments
+    ///
+    /// * `column_views` - A slice of column view references to combine into a table view
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the FFI call fails
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use arrow::array::{Int32Array, RecordBatch};
+    /// use arrow::datatypes::{DataType, Field, Schema};
+    /// use libcudf_rs::{CuDFColumnView, CuDFTableView};
+    /// use std::sync::Arc;
+    ///
+    /// // Create column views
+    /// let col1 = Int32Array::from(vec![1, 2, 3]);
+    /// let col2 = Int32Array::from(vec![4, 5, 6]);
+    /// let view1 = CuDFColumnView::from_arrow(&col1)?;
+    /// let view2 = CuDFColumnView::from_arrow(&col2)?;
+    ///
+    /// // Create a table view from the column views
+    /// let table_view = CuDFTableView::from_column_views(&[&view1, &view2])?;
+    /// assert_eq!(table_view.num_columns(), 2);
+    /// assert_eq!(table_view.num_rows(), 3);
+    /// # Ok::<(), libcudf_rs::CuDFError>(())
+    /// ```
+    pub fn from_column_views(column_views: &[&CuDFColumnView]) -> Result<Self, CuDFError> {
+        let view_ptrs: Vec<*const ffi::ColumnView> = column_views
+            .iter()
+            .map(|view| view.inner().as_ref().unwrap() as *const ffi::ColumnView)
+            .collect();
+
+        let inner = ffi::create_table_view_from_column_views(&view_ptrs);
+        Ok(Self { inner })
+    }
+
     /// Filter the table using a boolean mask
     ///
     /// Returns a new table containing only the rows where the corresponding
@@ -105,5 +145,15 @@ impl CuDFTableView {
     /// ```
     pub fn is_empty(&self) -> bool {
         self.num_rows() == 0
+    }
+
+    /// Get a column view at the specified index
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The column index (0-based)
+    pub fn column(&self, index: i32) -> CuDFColumnView {
+        let inner = self.inner.column(index);
+        CuDFColumnView::new(inner)
     }
 }

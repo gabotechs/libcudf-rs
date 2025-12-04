@@ -216,6 +216,11 @@ pub mod ffi {
         /// Create a table from vertically concatenating ColumnView together
         fn concat_column_views(views: &[UniquePtr<ColumnView>]) -> UniquePtr<Column>;
 
+        /// Create a TableView from a set of ColumnView pointers (non-owning)
+        fn create_table_view_from_column_views(
+            column_views: &[*const ColumnView],
+        ) -> UniquePtr<TableView>;
+
         // Parquet I/O
 
         /// Read a Parquet file into a table

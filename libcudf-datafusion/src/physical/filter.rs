@@ -1,7 +1,8 @@
-use crate::expr::expr_to_cudf_expr;
-use arrow::array::RecordBatch;
-use arrow_schema::SchemaRef;
-use datafusion::common::Statistics;
+use crate::errors::cudf_to_df;
+use crate::expr::{columnar_value_to_cudf, expr_to_cudf_expr};
+use arrow::array::{Array, RecordBatch};
+use arrow_schema::{DataType, SchemaRef};
+use datafusion::common::{exec_err, internal_err, Statistics};
 use datafusion::config::ConfigOptions;
 use datafusion::error::DataFusionError;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
@@ -16,6 +17,7 @@ use datafusion_physical_plan::{
 };
 use delegate::delegate;
 use futures_util::{Stream, StreamExt};
+use libcudf_rs::{CuDFColumnViewOrScalar, CuDFTableView};
 use std::any::Any;
 use std::fmt::Formatter;
 use std::pin::Pin;
@@ -152,12 +154,64 @@ fn filter_and_project(
     projection: Option<&Vec<usize>>,
     output_schema: &SchemaRef,
 ) -> Result<RecordBatch, DataFusionError> {
-    predicate
-        .evaluate(batch)
-        .and_then(|v| v.into_array(batch.num_rows()))
-        .and_then(|array| {
-            todo!();
-        })
+    use libcudf_rs::{is_cudf_array, CuDFColumnView, CuDFTable};
+
+    // Evaluate the predicate to get a boolean mask (CuDF array on GPU)
+    let filter_array = predicate.evaluate(batch)?;
+    let CuDFColumnViewOrScalar::ColumnView(bool_mask) = columnar_value_to_cudf(filter_array)?
+    else {
+        return internal_err!("Expected a CuDFColumnView from predicate evaluation for filter");
+    };
+
+    // The predicate must evaluate to a boolean array, otherwise something is wrong
+    if bool_mask.data_type() != &DataType::Boolean {
+        return exec_err!(
+            "Expected CuDFColumnView predicate to evaluate to a boolean array, got: {}",
+            bool_mask.data_type()
+        );
+    }
+
+    // Check if the batch is already on GPU (all columns are CuDF arrays)
+    let mut column_views: Vec<&CuDFColumnView> = Vec::new();
+    for (i, col) in batch.columns().iter().enumerate() {
+        let Some(view) = col.as_any().downcast_ref::<CuDFColumnView>() else {
+            return internal_err!(
+                "Mixed GPU/host RecordBatch not supported: column {i} is not a CuDF array"
+            );
+        };
+        column_views.push(view);
+    }
+
+    let table_view = CuDFTableView::from_column_views(&column_views).map_err(cudf_to_df)?;
+
+    // Apply boolean mask using CuDF on GPU
+    let filtered_table = table_view
+        .apply_boolean_mask(&bool_mask)
+        .map_err(cudf_to_df)?;
+
+    // Keep data on GPU by wrapping table in an Arc and creating column views that reference it
+    let table_arc = Arc::new(filtered_table);
+    let num_cols = table_arc.num_columns();
+
+    let mut cudf_columns: Vec<Arc<dyn Array>> = Vec::with_capacity(num_cols);
+    for i in 0..num_cols {
+        let col_view = CuDFColumnView::from_table_column(Arc::clone(&table_arc), i as i32);
+        cudf_columns.push(Arc::new(col_view));
+    }
+
+    // Apply projection if needed
+    if let Some(projection) = projection {
+        let projected_columns: Vec<Arc<dyn Array>> = projection
+            .iter()
+            .map(|i| Arc::clone(&cudf_columns[*i]))
+            .collect();
+        Ok(RecordBatch::try_new(
+            Arc::clone(output_schema),
+            projected_columns,
+        )?)
+    } else {
+        Ok(RecordBatch::try_new(batch.schema(), cudf_columns)?)
+    }
 }
 
 // Implementation pretty much copied from `datafusion/core/src/physical_plan/filter.rs`
@@ -215,11 +269,6 @@ mod tests {
     use crate::test_utils::TestFramework;
 
     #[tokio::test]
-    #[ignore = "FilterExec execution fails because DataFusion cannot handle CuDF boolean arrays. \
-                CuDF boolean arrays have empty ArrayData which fails DataFusion's validation. \
-                The plan structure is correct (CuDFFilterExec is properly inserted), but execution \
-                requires either: (1) a custom FilterExec that works with CuDF arrays directly, or \
-                (2) converting boolean predicate results to host arrays before FilterExec uses them."]
     async fn test_basic_filter() -> Result<(), Box<dyn std::error::Error>> {
         let tf = TestFramework::new().await;
 
@@ -248,7 +297,15 @@ mod tests {
         ");
 
         let cudf_results = plan.execute().await?;
-        assert_snapshot!(cudf_results.pretty_print, @"");
+        assert_snapshot!(cudf_results.pretty_print, @r"
+        +---------+---------+
+        | MinTemp | MaxTemp |
+        +---------+---------+
+        | 14.0    | 26.9    |
+        | 13.7    | 23.4    |
+        | 13.3    | 15.5    |
+        +---------+---------+
+        ");
 
         let host_results = tf.execute(host_sql).await?;
         assert_eq!(host_results.pretty_print, cudf_results.pretty_print);

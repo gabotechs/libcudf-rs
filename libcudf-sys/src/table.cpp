@@ -83,4 +83,18 @@ namespace libcudf_bridge {
         *out_array = device_array_unique->array;
         device_array_unique.release();
     }
+
+    // TableView factory function
+    std::unique_ptr<TableView> create_table_view_from_column_views(rust::Slice<const ColumnView *const> column_views) {
+        std::vector<cudf::column_view> views;
+        views.reserve(column_views.size());
+
+        for (const auto* col_view_ptr : column_views) {
+            views.push_back(*col_view_ptr->inner);
+        }
+
+        auto result = std::make_unique<TableView>();
+        result->inner = std::make_unique<cudf::table_view>(views);
+        return result;
+    }
 } // namespace libcudf_bridge

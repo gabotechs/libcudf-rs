@@ -11,6 +11,8 @@ use std::sync::Arc;
 pub struct CuDFColumnView {
     // Keep the column alive so views remain valid
     _column: Option<Arc<UniquePtr<libcudf_sys::ffi::Column>>>,
+    // Keep the table alive so views remain valid
+    _table: Option<Arc<crate::CuDFTable>>,
     inner: UniquePtr<libcudf_sys::ffi::ColumnView>,
     dt: DataType,
 }
@@ -23,6 +25,7 @@ impl CuDFColumnView {
         let dt = dt.unwrap_or(DataType::Null);
         Self {
             _column: None,
+            _table: None,
             inner: view,
             dt,
         }
@@ -35,7 +38,26 @@ impl CuDFColumnView {
         let inner = col.view();
         Self {
             _column: Some(Arc::new(col)),
+            _table: None,
             inner,
+            dt,
+        }
+    }
+
+    /// Create a CuDFColumn view from a table column, keeping the table alive
+    pub fn from_table_column(
+        table: Arc<crate::CuDFTable>,
+        col_index: i32,
+    ) -> Self {
+        let view_ptr = table.view();
+        let col_view = view_ptr.column(col_index);
+        let cudf_dtype = col_view.inner.data_type();
+        let dt = cudf_type_to_arrow(cudf_dtype.id());
+        let dt = dt.unwrap_or(DataType::Null);
+        Self {
+            _column: None,
+            _table: Some(table),
+            inner: col_view.inner,
             dt,
         }
     }
@@ -87,6 +109,7 @@ impl CuDFColumnView {
 
         Ok(Self {
             _column: Some(Arc::new(column)),
+            _table: None,
             inner: view,
             dt,
         })
@@ -177,6 +200,7 @@ impl Clone for CuDFColumnView {
         let cloned_inner = self.inner.clone();
         Self {
             _column: self._column.clone(),
+            _table: self._table.clone(),
             inner: cloned_inner,
             dt: self.dt.clone(),
         }
