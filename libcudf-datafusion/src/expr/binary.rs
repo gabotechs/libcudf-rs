@@ -70,10 +70,8 @@ impl PhysicalExpr for CuDFBinaryExpr {
         let output_type = self.inner.data_type(batch.schema_ref())?;
 
         let lhs = self.left.evaluate(batch)?;
-        let lhs_dbg = format!("{:?}", self.left);
-        dbg!(lhs_dbg);
         let lhs = columnar_value_to_cudf(lhs)?;
-        let rhs = self.left.evaluate(batch)?;
+        let rhs = self.right.evaluate(batch)?;
         let rhs = columnar_value_to_cudf(rhs)?;
 
         let result = cudf_binary_op(lhs, rhs, self.op, &output_type).map_err(cudf_to_df)?;
@@ -162,5 +160,55 @@ fn map_op(op: &Operator) -> Option<CuDFBinaryOp> {
         Operator::Question => None,
         Operator::QuestionAnd => None,
         Operator::QuestionPipe => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::assert_snapshot;
+    use crate::test_utils::TestFramework;
+
+    #[tokio::test]
+    async fn test_binary_operations() -> Result<(), Box<dyn std::error::Error>> {
+        let tf = TestFramework::new().await;
+
+        let host_sql = r#"
+            SELECT
+                "MinTemp" + "MaxTemp" as addition,
+                "MaxTemp" - "MinTemp" as subtraction,
+                "MinTemp" * 2 as multiplication,
+                "MaxTemp" / 2 as division,
+                "Rainfall" % 10 as modulo,
+                "MinTemp" = 12.2 as equal,
+                "MinTemp" != 0.0 as not_equal,
+                "MinTemp" < 15.0 as less_than,
+                "MaxTemp" > 20.0 as greater_than,
+                "MinTemp" <= 12.2 as less_equal,
+                "MaxTemp" >= 24.3 as greater_equal,
+                ("MaxTemp" - "MinTemp") * 2 as complex_expr
+            FROM weather LIMIT 1
+        "#;
+        let cudf_sql = format!(
+            r#"
+            SET datafusion.execution.target_partitions=1;
+            SET cudf.enable=true;
+            {host_sql}
+        "#
+        );
+
+        let result = tf.execute(&cudf_sql).await?;
+        assert_snapshot!(result.pretty_print, @r"
+        +----------+-------------+----------------+----------+--------+-------+-----------+-----------+--------------+------------+---------------+--------------+
+        | addition | subtraction | multiplication | division | modulo | equal | not_equal | less_than | greater_than | less_equal | greater_equal | complex_expr |
+        +----------+-------------+----------------+----------+--------+-------+-----------+-----------+--------------+------------+---------------+--------------+
+        | 19.7     | 6.5         | 13.2           | 6.55     | 0.2    | false | true      | true      | false        | true       | false         | 13.0         |
+        +----------+-------------+----------------+----------+--------+-------+-----------+-----------+--------------+------------+---------------+--------------+
+        ");
+
+        // Verify against host execution
+        let host_result = tf.execute(host_sql).await?;
+        assert_eq!(host_result.pretty_print, result.pretty_print);
+
+        Ok(())
     }
 }
