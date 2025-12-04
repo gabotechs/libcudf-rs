@@ -1,4 +1,5 @@
 use crate::cudf_array::is_cudf_array;
+use crate::table_view::CuDFTableView;
 use crate::CuDFError;
 use arrow::array::{Array, ArrayData, StructArray};
 use arrow::datatypes::Schema;
@@ -18,6 +19,10 @@ pub struct CuDFTable {
 }
 
 impl CuDFTable {
+    /// Create a CuDFTable from a raw FFI table (internal use)
+    pub(crate) fn from_inner(inner: UniquePtr<ffi::Table>) -> Self {
+        Self { inner }
+    }
     /// Create an empty table
     ///
     /// # Examples
@@ -33,6 +38,21 @@ impl CuDFTable {
         Self {
             inner: ffi::create_empty_table(),
         }
+    }
+
+    /// Get a non-owning view of this table
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libcudf_rs::CuDFTable;
+    ///
+    /// let table = CuDFTable::new();
+    /// let view = table.view();
+    /// assert_eq!(view.num_rows(), 0);
+    /// ```
+    pub fn view(&self) -> CuDFTableView {
+        CuDFTableView::new(self.inner.view())
     }
 
     /// Read a table from a Parquet file
@@ -97,7 +117,8 @@ impl CuDFTable {
             )
         })?;
 
-        ffi::write_parquet(&self.inner, path_str)?;
+        let view = self.inner.view();
+        ffi::write_parquet(&view, path_str)?;
         Ok(())
     }
 

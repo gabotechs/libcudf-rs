@@ -15,12 +15,11 @@ namespace libcudf_bridge {
         return table;
     }
 
-    void write_parquet(const Table &table, const rust::Str filename) {
+    void write_parquet(const TableView &table, const rust::Str filename) {
         const std::string filename_str(filename.data(), filename.size());
-        const auto view = table.inner->view();
         auto options = cudf::io::parquet_writer_options::builder(
             cudf::io::sink_info{filename_str},
-            view
+            *table.inner
         );
         cudf::io::write_parquet(options.build());
     }

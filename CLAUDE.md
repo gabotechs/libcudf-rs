@@ -105,6 +105,8 @@ This is where you can:
   can use `cargo insta accept` to accept the changes to the snapshots. You can use the
   `assert_snapshot!(my_value, @"");` snippet for adding snapshot tests. Remember to use the `assert_snapshot!`
   macro from the test_utils/ folder.
+- If a test fails, do not make it pass by cheating in the test body, just #[ignore] it and add a comment stating why
+  it's failing
 
 ## Compiling the project
 

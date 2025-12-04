@@ -222,7 +222,7 @@ pub mod ffi {
         fn read_parquet(filename: &str) -> Result<UniquePtr<Table>>;
 
         /// Write a table to a Parquet file
-        fn write_parquet(table: &Table, filename: &str) -> Result<()>;
+        fn write_parquet(table: &TableView, filename: &str) -> Result<()>;
 
         // Direct cuDF operations
 
@@ -231,7 +231,10 @@ pub mod ffi {
         /// Given an input table and a mask column, an element `i` from each column of the input
         /// is copied to the corresponding output column if the corresponding element `i` in the
         /// mask is non-null and `true`. This operation is stable: the input order is preserved.
-        fn apply_boolean_mask(table: &Table, boolean_mask: &Column) -> Result<UniquePtr<Table>>;
+        fn apply_boolean_mask(
+            table: &TableView,
+            boolean_mask: &ColumnView,
+        ) -> Result<UniquePtr<Table>>;
 
         // Binary operations - direct cuDF mappings
 

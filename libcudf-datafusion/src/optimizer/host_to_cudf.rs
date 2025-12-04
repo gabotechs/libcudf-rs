@@ -26,9 +26,9 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
 
         let result = plan.transform_down(|plan| {
             if let Some(node) = plan.as_any().downcast_ref::<FilterExec>() {
-                return Ok(Transformed::yes(Arc::new(CuDFFilterExec::new(
+                return Ok(Transformed::yes(Arc::new(CuDFFilterExec::try_new(
                     node.clone(),
-                ))));
+                )?)));
             }
 
             if let Some(node) = plan.as_any().downcast_ref::<ProjectionExec>() {

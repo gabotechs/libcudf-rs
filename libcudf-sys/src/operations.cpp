@@ -5,6 +5,7 @@
 #include <cudf/column/column.hpp>
 #include <cudf/concatenate.hpp>
 #include <cudf/interop.hpp>
+#include <cudf/stream_compaction.hpp>
 #include <cudf/version_config.hpp>
 
 #include <nanoarrow/nanoarrow.h>
@@ -63,6 +64,12 @@ namespace libcudf_bridge {
     }
 
     // Direct cuDF operations - 1:1 mappings
+    std::unique_ptr<Table> apply_boolean_mask(const TableView &table, const ColumnView &boolean_mask) {
+        auto result = std::make_unique<Table>();
+        result->inner = cudf::apply_boolean_mask(*table.inner, *boolean_mask.inner);
+        return result;
+    }
+
     rust::String get_cudf_version() {
         std::ostringstream version;
         version << CUDF_VERSION_MAJOR << "."
