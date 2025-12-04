@@ -35,7 +35,7 @@ impl TestFramework {
         Self { ctx }
     }
 
-    pub async fn sql(&self, sql: &str) -> Result<TestPlan, DataFusionError> {
+    pub async fn plan(&self, sql: &str) -> Result<TestPlan, DataFusionError> {
         let mut prepare_statements = sql.split(";").collect::<Vec<_>>();
         let sql = prepare_statements.pop().unwrap();
         for sql in prepare_statements {
@@ -47,6 +47,10 @@ impl TestFramework {
             plan,
             ctx: self.ctx.task_ctx(),
         })
+    }
+
+    pub async fn execute(&self, sql: &str) -> Result<SqlResult, DataFusionError> {
+        self.plan(sql).await?.execute().await
     }
 }
 

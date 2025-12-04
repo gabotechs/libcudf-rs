@@ -106,7 +106,7 @@ mod tests {
         let tf = TestFramework::new().await;
 
         let plan = tf
-            .sql(
+            .plan(
                 r#"
             SET datafusion.execution.target_partitions=1;
             SET cudf.enable=true;
@@ -128,6 +128,10 @@ mod tests {
         | 13.2                       |
         +----------------------------+
         ");
+        let host_result = tf
+            .execute(r#"SELECT "MinTemp" + 1 FROM weather LIMIT 1"#)
+            .await?;
+        assert_eq!(host_result.pretty_print, result.pretty_print);
         Ok(())
     }
 }
