@@ -6,6 +6,7 @@ use libcudf_sys::ffi;
 use libcudf_sys::ffi::{
     aggregation_request_create, make_count_aggregation_groupby, make_max_aggregation_groupby,
     make_mean_aggregation_groupby, make_min_aggregation_groupby, make_sum_aggregation_groupby,
+    GroupByResult,
 };
 
 /// A GPU-accelerated table (similar to a DataFrame)
@@ -20,8 +21,18 @@ impl CuDFGroupByResult {
         CuDFTableView::new(self.inner.get_keys().view())
     }
 
-    pub fn column(&self, index: usize, column: usize) -> CuDFColumnView {
+    pub fn take_keys(&mut self) -> CuDFTable {
+        CuDFTable::from_ptr(self.inner.pin_mut().release_keys())
+    }
+
+    pub fn get_column(&self, index: usize, column: usize) -> CuDFColumnView {
         CuDFColumnView::new(self.inner.get(index).get(column).view())
+    }
+
+    pub fn take_column(&mut self, index: usize, column: usize) -> CuDFColumnView {
+        CuDFColumnView::from_column(
+            GroupByResult::get_mut(self.inner.pin_mut(), index).release(column),
+        )
     }
 
     pub fn results_len(&self) -> usize {

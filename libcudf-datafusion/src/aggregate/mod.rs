@@ -294,7 +294,7 @@ impl GpuAggregationOp for GpuSum {
 #[cfg(test)]
 mod test {
     use crate::aggregate::{GpuAggregateExec, GpuAggregateExpr, GpuSum};
-    use crate::physical::CuDFLoadExec;
+    use crate::physical::{CuDFLoadExec, CuDFUnloadExec};
     use arrow::array::record_batch;
     use datafusion::execution::TaskContext;
     use datafusion_physical_plan::aggregates::PhysicalGroupBy;
@@ -322,19 +322,20 @@ mod test {
             schema.clone(),
             None,
         )?;
-        let root = Arc::new(root);
-        let load = CuDFLoadExec::new(root);
-        let load = Arc::new(load);
+        let load = CuDFLoadExec::new(Arc::new(root));
 
         let group_by = PhysicalGroupBy::new_single(vec![(col("c", &schema)?, "c".to_string())]);
 
         let sum =
             GpuAggregateExpr::try_new(Arc::new(GpuSum::new()), vec![col("a", &schema)?], &schema)?;
 
-        let aggregate = GpuAggregateExec::try_new(load, group_by, vec![sum])?;
+        let aggregate = GpuAggregateExec::try_new(Arc::new(load), group_by, vec![sum])?;
+
+        let unload = CuDFUnloadExec::new(Arc::new(aggregate));
+
         let task = Arc::new(TaskContext::default());
 
-        let result = aggregate.execute(0, task)?;
+        let result = unload.execute(0, task)?;
         let records = result.try_collect::<Vec<_>>().await?;
 
         eprintln!("{:?}", records);

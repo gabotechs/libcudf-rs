@@ -1,6 +1,6 @@
 use crate::cudf_array::is_cudf_array;
 use crate::table_view::CuDFTableView;
-use crate::{CuDFError};
+use crate::{CuDFColumnView, CuDFError};
 use arrow::array::{Array, ArrayData, StructArray};
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow::record_batch::RecordBatch;
@@ -219,6 +219,28 @@ impl CuDFTable {
     /// ```
     pub fn is_empty(&self) -> bool {
         self.num_rows() == 0
+    }
+
+    pub fn take(&mut self) -> CuDFColumnCollection {
+        CuDFColumnCollection::new(self.inner.pin_mut().take())
+    }
+}
+
+pub struct CuDFColumnCollection {
+    inner: UniquePtr<ffi::ColumnCollection>,
+}
+
+impl CuDFColumnCollection {
+    pub fn new(inner: UniquePtr<ffi::ColumnCollection>) -> Self {
+        Self { inner }
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn release(&mut self, index: usize) -> CuDFColumnView {
+        CuDFColumnView::from_column(self.inner.pin_mut().release(index))
     }
 }
 
