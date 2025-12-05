@@ -1,15 +1,6 @@
-use crate::errors::cudf_to_df;
-use arrow_schema::{DataType, Field, FieldRef, Schema};
-use datafusion::common::exec_err;
-use datafusion::common::types::{
-    logical_float64, logical_int16, logical_int32, logical_int64, logical_int8, logical_uint16,
-    logical_uint32, logical_uint64, logical_uint8, NativeType,
-};
+use arrow_schema::{FieldRef, Schema};
 use datafusion::error::Result;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
-use datafusion::logical_expr::{
-    Coercion, Signature, TypeSignature, TypeSignatureClass, Volatility,
-};
 use datafusion::physical_expr::projection::ProjectionMapping;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion_expr::type_coercion::aggregates::check_arg_count;
@@ -17,12 +8,14 @@ use datafusion_physical_plan::aggregates::{AggregateExec, AggregateMode, Physica
 use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, InputOrderMode, PlanProperties,
 };
-use libcudf_rs::{AggregationOp, AggregationRequest, CuDFColumnView};
 use std::any::{type_name, Any};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
+mod op;
 mod stream;
+
+pub(crate) use op::{sum::CuDFSum, CuDFAggregationOp};
 
 #[derive(Debug)]
 pub struct CuDFAggregateExec {
@@ -197,177 +190,6 @@ impl CuDFAggregateExpr {
     }
 }
 
-/// GPU aggregation operation trait for two-phase aggregation.
-///
-/// This trait defines the contract for aggregation operations that can be executed
-/// on the GPU using cuDF's group-by functionality. Aggregations follow a two-phase
-/// pattern to support distributed and streaming execution:
-///
-/// 1. **Partial Phase**: Each input batch is aggregated independently, producing
-///    partial results (e.g., partial sums, counts).
-///
-/// 2. **Final Phase**: Partial results are concatenated and re-aggregated to produce
-///    the final output. The `merge` function combines the final aggregation results
-///    into a single column.
-///
-/// # Example
-///
-/// For SUM aggregation:
-/// - `partial_requests`: Returns a SUM aggregation request for the input column
-/// - `final_requests`: Returns a SUM aggregation request for the partial sums
-/// - `merge`: Returns the single summed column (identity operation for SUM)
-pub trait CuDFAggregationOp: Debug + Send + Sync {
-    /// Returns the name of this aggregation operation.
-    fn name(&self) -> &str;
-
-    /// Returns the function signature defining valid input types.
-    fn signature(&self) -> &Signature;
-
-    /// Returns the output data type for the given input types.
-    fn return_type(&self, args: &[DataType]) -> Result<DataType>;
-
-    /// Returns the output field for the given input fields.
-    fn return_field(&self, arg_fields: &[FieldRef]) -> Result<FieldRef> {
-        let arg_types: Vec<_> = arg_fields.iter().map(|f| f.data_type()).cloned().collect();
-        let data_type = self.return_type(&arg_types)?;
-
-        Ok(Arc::new(Field::new(
-            self.name(),
-            data_type,
-            self.is_nullable(),
-        )))
-    }
-
-    /// Returns whether the aggregation result can be null.
-    fn is_nullable(&self) -> bool {
-        true
-    }
-
-    /// Creates cuDF aggregation requests for the partial phase.
-    ///
-    /// Takes the input columns and returns aggregation requests to compute
-    /// partial results for each input batch.
-    fn partial_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>>;
-
-    /// Creates cuDF aggregation requests for the final phase.
-    ///
-    /// Takes the concatenated partial result columns and returns aggregation
-    /// requests to compute the final aggregation.
-    fn final_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>>;
-
-    /// Merges the final aggregation result columns into a single output column.
-    ///
-    /// For most aggregations this is an identity operation (returning the single
-    /// result column), but some aggregations may need to combine multiple columns.
-    fn merge(&self, args: &[CuDFColumnView]) -> Result<CuDFColumnView>;
-}
-
-#[derive(Debug)]
-struct CuDFSum {
-    signature: Signature,
-}
-
-impl CuDFSum {
-    pub fn new() -> Self {
-        Self {
-            // Refer to https://www.postgresql.org/docs/8.2/functions-aggregate.html doc
-            // smallint, int, bigint, real, double precision, decimal, or interval.
-            signature: Signature::one_of(
-                vec![
-                    TypeSignature::Coercible(vec![Coercion::new_exact(
-                        TypeSignatureClass::Decimal,
-                    )]),
-                    // Unsigned to u64
-                    TypeSignature::Coercible(vec![Coercion::new_implicit(
-                        TypeSignatureClass::Native(logical_uint64()),
-                        vec![
-                            TypeSignatureClass::Native(logical_uint8()),
-                            TypeSignatureClass::Native(logical_uint16()),
-                            TypeSignatureClass::Native(logical_uint32()),
-                        ],
-                        NativeType::UInt64,
-                    )]),
-                    // Signed to i64
-                    TypeSignature::Coercible(vec![Coercion::new_implicit(
-                        TypeSignatureClass::Native(logical_int64()),
-                        vec![
-                            TypeSignatureClass::Native(logical_int8()),
-                            TypeSignatureClass::Native(logical_int16()),
-                            TypeSignatureClass::Native(logical_int32()),
-                        ],
-                        NativeType::Int64,
-                    )]),
-                    // Floats to f64
-                    TypeSignature::Coercible(vec![Coercion::new_implicit(
-                        TypeSignatureClass::Native(logical_float64()),
-                        vec![TypeSignatureClass::Float],
-                        NativeType::Float64,
-                    )]),
-                    TypeSignature::Coercible(vec![Coercion::new_exact(
-                        TypeSignatureClass::Duration,
-                    )]),
-                ],
-                Volatility::Immutable,
-            ),
-        }
-    }
-}
-
-impl CuDFAggregationOp for CuDFSum {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
-    fn signature(&self) -> &Signature {
-        &self.signature
-    }
-
-    fn return_type(&self, args: &[DataType]) -> Result<DataType> {
-        if args.len() != 1 {
-            return exec_err!("SUM expects 1 argument, got {}", args.len());
-        }
-
-        // cuDF's SUM aggregation always returns signed types for integer inputs
-        match &args[0] {
-            DataType::UInt8
-            | DataType::UInt16
-            | DataType::UInt32
-            | DataType::UInt64
-            | DataType::Int8
-            | DataType::Int16
-            | DataType::Int32
-            | DataType::Int64 => Ok(DataType::Int64),
-            DataType::Float32 | DataType::Float64 => Ok(DataType::Float64),
-            dt @ DataType::Decimal128(_, _) | dt @ DataType::Decimal256(_, _) => Ok(dt.clone()),
-            dt @ (DataType::Duration(_) | DataType::Interval(_)) => Ok(dt.clone()),
-            dt => exec_err!("SUM does not support type {:?}", dt),
-        }
-    }
-
-    fn partial_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {
-        self.final_requests(args)
-    }
-
-    fn final_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {
-        if args.len() != 1 {
-            return exec_err!("SUM expects 1 argument, got {}", args.len());
-        }
-
-        let view = CuDFColumnView::from_arrow(&args[0]).map_err(cudf_to_df)?;
-        let mut request = AggregationRequest::new(&view);
-        request.add(AggregationOp::SUM.group_by());
-
-        Ok(vec![request])
-    }
-
-    fn merge(&self, args: &[CuDFColumnView]) -> Result<CuDFColumnView> {
-        if args.len() != 1 {
-            return exec_err!("SUM merge expects 1 argument, got {}", args.len());
-        }
-        Ok(args[0].clone())
-    }
-}
-
 #[cfg(test)]
 mod test {
     use crate::aggregate::{CuDFAggregateExec, CuDFAggregateExpr, CuDFSum};
@@ -421,14 +243,15 @@ mod test {
         let batches = result.try_collect::<Vec<_>>().await?;
 
         let output = pretty_format_batches(&batches)?.to_string();
+
         // Note: cuDF's SUM always returns Int64 for integer inputs
         assert_snapshot!(output, @r"
-        +-------+----------------------------------------+
-        | c     | libcudf_datafusion::aggregate::CuDFSum |
-        +-------+----------------------------------------+
-        | world | 9                                      |
-        | hello | 15                                     |
-        +-------+----------------------------------------+
+        +-------+--------------------------------------------------------+
+        | c     | libcudf_datafusion::aggregate::aggregation_op::CuDFSum |
+        +-------+--------------------------------------------------------+
+        | world | 9                                                      |
+        | hello | 15                                                     |
+        +-------+--------------------------------------------------------+
         ");
 
         Ok(())
