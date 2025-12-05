@@ -1,10 +1,10 @@
 use crate::errors::cudf_to_df;
 use arrow_schema::{DataType, Field, FieldRef, Schema};
+use datafusion::common::exec_err;
 use datafusion::common::types::{
     logical_float64, logical_int16, logical_int32, logical_int64, logical_int8, logical_uint16,
     logical_uint32, logical_uint64, logical_uint8, NativeType,
 };
-use datafusion::common::exec_err;
 use datafusion::error::Result;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::logical_expr::{
@@ -216,7 +216,7 @@ impl CuDFAggregateExpr {
 /// - `partial_requests`: Returns a SUM aggregation request for the input column
 /// - `final_requests`: Returns a SUM aggregation request for the partial sums
 /// - `merge`: Returns the single summed column (identity operation for SUM)
-trait CuDFAggregationOp: Debug + Send + Sync {
+pub trait CuDFAggregationOp: Debug + Send + Sync {
     /// Returns the name of this aggregation operation.
     fn name(&self) -> &str;
 
@@ -405,8 +405,11 @@ mod test {
 
         let group_by = PhysicalGroupBy::new_single(vec![(col("c", &schema)?, "c".to_string())]);
 
-        let sum =
-            CuDFAggregateExpr::try_new(Arc::new(CuDFSum::new()), vec![col("a", &schema)?], &schema)?;
+        let sum = CuDFAggregateExpr::try_new(
+            Arc::new(CuDFSum::new()),
+            vec![col("a", &schema)?],
+            &schema,
+        )?;
 
         let aggregate = CuDFAggregateExec::try_new(Arc::new(load), group_by, vec![sum])?;
 
