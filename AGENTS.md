@@ -113,13 +113,11 @@ This is where you can:
 - This project can only be compiled in Ubuntu 24.04. Any other system will not work.
 - The following tools are needed:
     - `rust`: a Rust toolchain
-    - `cmake`: version 3.30 or greater. Prefer cmake 4.2.0
-    - `gcc`: version 13.3.0 or greater
+    - `gcc`: version 13.3.0 or greater (C++20 support required)
     - `cuda-toolkit`: CUDA 13.0 or greater
-    - `ninja`   (optional): makes compilations faster
-    - `sccache` (optional): better intermediate results cache during compilation
+    - `curl`: for downloading dependencies
+    - `tar` and `unzip`: for extracting archives
 - Be careful of having multiple versions of the CUDA toolkit installed in the system
-- The first compilation needs to compile `libcudf` from source, this might take several hours on a powerful machine
 - There's no need for prefixing commands with LD_LIBRARY_PATH=/path/to/something. If the LD_LIBRARY_PATH is needed it
   means there's something wrong with libcudf-sys/build.rs
 

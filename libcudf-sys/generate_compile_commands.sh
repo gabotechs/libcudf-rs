@@ -13,42 +13,49 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Detect the cuDF build directory
-if [ -d "$PROJECT_ROOT/.cudf-build" ]; then
-    CUDF_BUILD=$(find "$PROJECT_ROOT/.cudf-build" -maxdepth 1 -type d -name "cudf-*" | sort -r | head -1)
-    if [ -n "$CUDF_BUILD" ]; then
-        CUDF_ROOT="$CUDF_BUILD"
-    else
-        CUDF_ROOT="${CUDF_ROOT:-$HOME/github/cudf}"
-    fi
-else
-    CUDF_ROOT="${CUDF_ROOT:-$HOME/github/cudf}"
+# Find the cxx generated headers
+CXX_BUILD_DIR=$(find "$PROJECT_ROOT/target/debug/build" -type d -name "out" -path "*/libcudf-sys-*/out" 2>/dev/null | sort -r | head -1)
+if [ -z "$CXX_BUILD_DIR" ]; then
+    echo "Error: Could not find cxx build output. Run 'cargo build' first."
+    exit 1
+fi
+
+# Detect prebuilt directory (should be in the OUT_DIR)
+PREBUILT_DIR="$CXX_BUILD_DIR/prebuilt"
+if [ ! -d "$PREBUILT_DIR" ]; then
+    echo "Error: Prebuilt directory not found at $PREBUILT_DIR"
+    echo "Run 'cargo build' first to download prebuilt libraries."
+    exit 1
+fi
+
+# Detect cuDF source headers
+CUDF_SRC_DIR=$(find "$CXX_BUILD_DIR" -maxdepth 1 -type d -name "cudf-*" 2>/dev/null | head -1)
+if [ -z "$CUDF_SRC_DIR" ]; then
+    echo "Error: cuDF source headers not found. Run 'cargo build' first."
+    exit 1
+fi
+
+# Detect nanoarrow
+NANOARROW_DIR="$CXX_BUILD_DIR/arrow-nanoarrow"
+if [ ! -d "$NANOARROW_DIR" ]; then
+    echo "Error: Nanoarrow headers not found. Run 'cargo build' first."
+    exit 1
 fi
 
 CUDA_ROOT="${CUDA_ROOT:-/usr/local/cuda}"
 
-# Find the cxx generated headers
-CXX_BUILD_DIR=$(find "$PROJECT_ROOT/target/debug/build" -type d -name "out" -path "*/libcudf-sys-*/out" 2>/dev/null | sort -r | head -1)
-if [ -z "$CXX_BUILD_DIR" ]; then
-    echo "Warning: Could not find cxx build output. Run 'cargo build' first."
-    CXX_INCLUDE=""
-    CXX_CRATE=""
-else
-    CXX_INCLUDE="-I $CXX_BUILD_DIR/cxxbridge/include"
-    CXX_CRATE="-I $CXX_BUILD_DIR/cxxbridge/crate"
-fi
-
 # Build the include paths
-INCLUDES="$CXX_INCLUDE $CXX_CRATE"
+INCLUDES=""
+INCLUDES="$INCLUDES -I $CXX_BUILD_DIR/cxxbridge/include"
+INCLUDES="$INCLUDES -I $CXX_BUILD_DIR/cxxbridge/crate"
 INCLUDES="$INCLUDES -I libcudf-sys/src"
-INCLUDES="$INCLUDES -I $CUDF_ROOT/cpp/include"
-INCLUDES="$INCLUDES -I $CUDF_ROOT/cpp/build/include"
-INCLUDES="$INCLUDES -I $CUDF_ROOT/cpp/build/build/_deps/rmm-src/include"
-INCLUDES="$INCLUDES -I $CUDF_ROOT/cpp/build/build/_deps/cccl-src/libcudacxx/include"
-INCLUDES="$INCLUDES -I $CUDF_ROOT/cpp/build/build/_deps/cccl-src/thrust"
-INCLUDES="$INCLUDES -I $CUDF_ROOT/cpp/build/build/_deps/cccl-src/cub"
-INCLUDES="$INCLUDES -I $CUDF_ROOT/cpp/build/build/_deps/nanoarrow-src/src"
-INCLUDES="$INCLUDES -I $CUDF_ROOT/cpp/build/build/_deps/nanoarrow-build/src"
+INCLUDES="$INCLUDES -I $PREBUILT_DIR/libcudf/include"
+INCLUDES="$INCLUDES -I $CUDF_SRC_DIR/cpp/include"
+INCLUDES="$INCLUDES -I $PREBUILT_DIR/libcudf/include/rapids"
+INCLUDES="$INCLUDES -I $PREBUILT_DIR/librmm/include"
+INCLUDES="$INCLUDES -I $PREBUILT_DIR/librmm/include/rapids"
+INCLUDES="$INCLUDES -I $PREBUILT_DIR/libkvikio/include"
+INCLUDES="$INCLUDES -I $NANOARROW_DIR/src"
 INCLUDES="$INCLUDES -I $CUDA_ROOT/include"
 
 DEFINES="-DLIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE"
@@ -122,7 +129,7 @@ cat >> "$PROJECT_ROOT/compile_commands.json" << 'EOF_END'
 EOF_END
 
 echo "Generated compile_commands.json in project root"
-if [ -n "$CXX_BUILD_DIR" ]; then
-    echo "Using cxx headers from: $CXX_BUILD_DIR"
-fi
-echo "Using cuDF from: $CUDF_ROOT"
+echo "Using cxx headers from: $CXX_BUILD_DIR"
+echo "Using prebuilt libraries from: $PREBUILT_DIR"
+echo "Using cuDF source headers from: $CUDF_SRC_DIR"
+echo "Using nanoarrow headers from: $NANOARROW_DIR"
