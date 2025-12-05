@@ -5,6 +5,7 @@ use datafusion::physical_expr::projection::ProjectionMapping;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion_expr::type_coercion::aggregates::check_arg_count;
 use datafusion_physical_plan::aggregates::{AggregateExec, AggregateMode, PhysicalGroupBy};
+use datafusion_physical_plan::udaf::AggregateFunctionExpr;
 use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, InputOrderMode, PlanProperties,
 };
@@ -21,7 +22,7 @@ pub(crate) use op::{sum::CuDFSum, CuDFAggregationOp};
 pub struct CuDFAggregateExec {
     input: Arc<dyn ExecutionPlan>,
     group_by: PhysicalGroupBy,
-    aggr_expr: Vec<CuDFAggregateExpr>,
+    aggr_expr: Vec<Arc<AggregateFunctionExpr>>,
 
     plan_properties: PlanProperties,
 }
@@ -30,7 +31,7 @@ impl CuDFAggregateExec {
     pub fn try_new(
         input: Arc<dyn ExecutionPlan>,
         group_by: PhysicalGroupBy,
-        aggr_expr: Vec<CuDFAggregateExpr>,
+        aggr_expr: Vec<Arc<AggregateFunctionExpr>>,
     ) -> Result<Self> {
         let input_schema = input.schema();
 
@@ -67,7 +68,7 @@ impl CuDFAggregateExec {
             &group_by_expr_mapping,
             &AggregateMode::Single,
             &InputOrderMode::Linear,
-            &[], // TODO?
+            &aggr_expr,
         )?;
 
         Ok(Self {
@@ -94,7 +95,7 @@ impl DisplayAs for CuDFAggregateExec {
             if i > 0 {
                 write!(f, ", ")?;
             }
-            write!(f, "{}", expr.name)?;
+            write!(f, "{}", expr.name())?;
         }
         write!(f, "]")
     }
@@ -145,62 +146,22 @@ impl ExecutionPlan for CuDFAggregateExec {
         Ok(Box::pin(stream))
     }
 }
-
-#[derive(Debug, Clone)]
-pub struct CuDFAggregateExpr {
-    op: Arc<dyn CuDFAggregationOp>,
-    arguments: Vec<Arc<dyn PhysicalExpr>>,
-    return_field: FieldRef,
-    name: String,
-}
-
-impl CuDFAggregateExpr {
-    pub fn try_new(
-        op: Arc<dyn CuDFAggregationOp>,
-        arguments: Vec<Arc<dyn PhysicalExpr>>,
-        schema: &Schema,
-    ) -> Result<Self> {
-        let input_exprs_fields = arguments
-            .iter()
-            .map(|arg| arg.return_field(schema))
-            .collect::<Result<Vec<_>>>()?;
-
-        check_arg_count(
-            op.name(),
-            &input_exprs_fields,
-            &op.signature().type_signature,
-        )?;
-
-        let return_field = op.return_field(&input_exprs_fields)?;
-
-        Ok(Self {
-            name: op.name().to_string(),
-            op,
-            arguments,
-            return_field,
-        })
-    }
-
-    pub fn field(&self) -> FieldRef {
-        self.return_field
-            .as_ref()
-            .clone()
-            .with_name(&self.name)
-            .into()
-    }
-}
-
 #[cfg(test)]
 mod test {
-    use crate::aggregate::{CuDFAggregateExec, CuDFAggregateExpr, CuDFSum};
+    use crate::aggregate::op::udf::CuDFAggregateUDF;
+    use crate::aggregate::{CuDFAggregateExec, CuDFSum};
     use crate::assert_snapshot;
     use crate::physical::{CuDFLoadExec, CuDFUnloadExec};
     use arrow::array::record_batch;
     use arrow::util::pretty::pretty_format_batches;
     use datafusion::execution::TaskContext;
+    use datafusion::functions_aggregate::sum::Sum;
+    use datafusion::physical_expr::aggregate::AggregateExprBuilder;
+    use datafusion_expr::AggregateUDF;
     use datafusion_physical_plan::aggregates::PhysicalGroupBy;
     use datafusion_physical_plan::expressions::col;
     use datafusion_physical_plan::test::TestMemoryExec;
+    use datafusion_physical_plan::udaf::AggregateFunctionExpr;
     use datafusion_physical_plan::ExecutionPlan;
     use futures_util::TryStreamExt;
     use std::error::Error;
@@ -209,7 +170,7 @@ mod test {
     #[tokio::test]
     async fn test_group_by_sum() -> Result<(), Box<dyn Error>> {
         let batch = record_batch!(
-            ("a", UInt32, [1, 4, 3]),
+            ("a", Int64, [1, 4, 3]),
             ("b", Float64, [Some(4.0), None, Some(5.0)]),
             ("c", Utf8, ["hello", "hello", "world"]),
             ("d", Float64, [4.0, 5.0, 5.0])
@@ -227,13 +188,15 @@ mod test {
 
         let group_by = PhysicalGroupBy::new_single(vec![(col("c", &schema)?, "c".to_string())]);
 
-        let sum = CuDFAggregateExpr::try_new(
-            Arc::new(CuDFSum::new()),
-            vec![col("a", &schema)?],
-            &schema,
-        )?;
+        let udf = CuDFAggregateUDF::new(Arc::new(Sum::new()), Arc::new(CuDFSum));
+        let aggregate = AggregateUDF::new_from_impl(udf);
 
-        let aggregate = CuDFAggregateExec::try_new(Arc::new(load), group_by, vec![sum])?;
+        let sum = AggregateExprBuilder::new(Arc::new(aggregate), vec![col("a", &schema)?])
+            .schema(schema)
+            .alias("SUM(a)")
+            .build()?;
+
+        let aggregate = CuDFAggregateExec::try_new(Arc::new(load), group_by, vec![Arc::new(sum)])?;
 
         let unload = CuDFUnloadExec::new(Arc::new(aggregate));
 
@@ -246,12 +209,12 @@ mod test {
 
         // Note: cuDF's SUM always returns Int64 for integer inputs
         assert_snapshot!(output, @r"
-        +-------+--------------------------------------------------------+
-        | c     | libcudf_datafusion::aggregate::aggregation_op::CuDFSum |
-        +-------+--------------------------------------------------------+
-        | world | 9                                                      |
-        | hello | 15                                                     |
-        +-------+--------------------------------------------------------+
+        +-------+--------+
+        | c     | SUM(a) |
+        +-------+--------+
+        | world | 9      |
+        | hello | 15     |
+        +-------+--------+
         ");
 
         Ok(())

@@ -1,4 +1,5 @@
-use crate::aggregate::CuDFAggregateExpr;
+use crate::aggregate::op::udf::CuDFAggregateUDF;
+use crate::aggregate::CuDFAggregationOp;
 use crate::errors::cudf_to_df;
 use arrow::array::{ArrayRef, RecordBatch};
 use arrow_schema::SchemaRef;
@@ -7,6 +8,7 @@ use datafusion::error::Result;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream};
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion_physical_plan::aggregates::{evaluate_group_by, evaluate_many, PhysicalGroupBy};
+use datafusion_physical_plan::udaf::AggregateFunctionExpr;
 use futures::{ready, StreamExt};
 use libcudf_rs::{ffi, CuDFColumnView, CuDFGroupBy, CuDFGroupByResult, CuDFTable, CuDFTableView};
 use std::pin::Pin;
@@ -24,8 +26,10 @@ pub struct Stream {
     output_schema: SchemaRef,
 
     group_by: PhysicalGroupBy,
-    aggr_expr: Vec<CuDFAggregateExpr>,
-    aggregate_arguments: Vec<Vec<Arc<dyn PhysicalExpr>>>,
+
+    aggregate_expr: Vec<Arc<AggregateFunctionExpr>>,
+    aggregate_args: Vec<Vec<Arc<dyn PhysicalExpr>>>,
+    aggregate_ops: Vec<Arc<dyn CuDFAggregationOp>>,
 
     state: State,
 
@@ -37,19 +41,33 @@ impl Stream {
         input: SendableRecordBatchStream,
         output_schema: SchemaRef,
         group_by: PhysicalGroupBy,
-        aggr_expr: Vec<CuDFAggregateExpr>,
+        aggregate_expr: Vec<Arc<AggregateFunctionExpr>>,
     ) -> Self {
-        let aggregate_arguments = aggr_expr
+        let aggregate_args = aggregate_expr
             .iter()
-            .map(|x| x.arguments.clone())
+            .map(|x| x.expressions())
+            .collect::<Vec<_>>();
+
+        let aggregate_ops = aggregate_expr
+            .iter()
+            .map(|x| {
+                x.fun()
+                    .inner()
+                    .as_any()
+                    .downcast_ref::<CuDFAggregateUDF>()
+                    .expect("aggregate expr should be CuDFAggregateUDF")
+                    .gpu()
+                    .clone()
+            })
             .collect::<Vec<_>>();
 
         Self {
             input,
             output_schema,
             group_by,
-            aggr_expr,
-            aggregate_arguments,
+            aggregate_expr,
+            aggregate_args,
+            aggregate_ops,
             state: State::ReceivingInput,
             results: vec![],
         }
@@ -104,16 +122,17 @@ impl Stream {
 
     fn build_final_batch(&mut self, mut result: CuDFGroupByResult) -> Result<RecordBatch> {
         let mut groups = result.take_keys().take();
-        let mut arrays: Vec<ArrayRef> = Vec::with_capacity(groups.len() + self.aggr_expr.len());
+        let mut arrays: Vec<ArrayRef> =
+            Vec::with_capacity(groups.len() + self.aggregate_expr.len());
         for i in 0..groups.len() {
             arrays.push(Arc::new(groups.release(i)))
         }
 
-        for (result_index, aggr) in self.aggr_expr.iter().enumerate() {
+        for (result_index, aggr) in self.aggregate_ops.iter().enumerate() {
             let args = (0..result.columns_len(result_index))
                 .map(|columns_index| result.take_column(result_index, columns_index))
                 .collect::<Vec<_>>();
-            let merged = aggr.op.merge(&args)?;
+            let merged = aggr.merge(&args)?;
             arrays.push(Arc::new(merged));
         }
 
@@ -152,8 +171,7 @@ impl futures::Stream for Stream {
                             let table_view = CuDFTableView::from_column_views(&column_views).map_err(cudf_to_df)?;
                             let group_by = CuDFGroupBy::from(&table_view);
 
-                            let evaluated_arguments =
-                                evaluate_many(&self.aggregate_arguments, &batch)?;
+                            let evaluated_arguments = evaluate_many(&self.aggregate_args, &batch)?;
                             let evaluated_views = evaluated_arguments
                                 .iter()
                                 .map(|args| {
@@ -166,8 +184,8 @@ impl futures::Stream for Stream {
                                 .collect::<Result<Vec<Vec<_>>>>()?;
 
                             let mut requests = Vec::with_capacity(evaluated_views.len());
-                            for (agg, args) in self.aggr_expr.iter().zip(evaluated_views) {
-                                requests.extend(agg.op.partial_requests(&args)?)
+                            for (agg, args) in self.aggregate_ops.iter().zip(evaluated_views) {
+                                requests.extend(agg.partial_requests(&args)?)
                             }
 
                             self.results
@@ -185,9 +203,9 @@ impl futures::Stream for Stream {
 
                     let concatenated_columns = self.concat_partial_results()?;
 
-                    let mut requests = Vec::with_capacity(self.aggr_expr.len());
-                    for (agg, args) in self.aggr_expr.iter().zip(concatenated_columns.iter()) {
-                        requests.extend(agg.op.final_requests(args)?);
+                    let mut requests = Vec::with_capacity(self.aggregate_expr.len());
+                    for (agg, args) in self.aggregate_ops.iter().zip(concatenated_columns.iter()) {
+                        requests.extend(agg.final_requests(args)?);
                     }
 
                     let result = group_by.aggregate(&requests).map_err(cudf_to_df)?;

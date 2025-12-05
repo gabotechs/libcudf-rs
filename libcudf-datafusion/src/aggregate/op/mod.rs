@@ -1,11 +1,9 @@
-use arrow_schema::{DataType, Field, FieldRef};
 use datafusion::error::Result;
-use datafusion::logical_expr::Signature;
 use libcudf_rs::{AggregationRequest, CuDFColumnView};
 use std::fmt::Debug;
-use std::sync::Arc;
 
 pub mod sum;
+pub mod udf;
 
 /// GPU aggregation operation trait for two-phase aggregation.
 ///
@@ -27,32 +25,6 @@ pub mod sum;
 /// - `final_requests`: Returns a SUM aggregation request for the partial sums
 /// - `merge`: Returns the single summed column (identity operation for SUM)
 pub trait CuDFAggregationOp: Debug + Send + Sync {
-    /// Returns the name of this aggregation operation.
-    fn name(&self) -> &str;
-
-    /// Returns the function signature defining valid input types.
-    fn signature(&self) -> &Signature;
-
-    /// Returns the output data type for the given input types.
-    fn return_type(&self, args: &[DataType]) -> Result<DataType>;
-
-    /// Returns the output field for the given input fields.
-    fn return_field(&self, arg_fields: &[FieldRef]) -> Result<FieldRef> {
-        let arg_types: Vec<_> = arg_fields.iter().map(|f| f.data_type()).cloned().collect();
-        let data_type = self.return_type(&arg_types)?;
-
-        Ok(Arc::new(Field::new(
-            self.name(),
-            data_type,
-            self.is_nullable(),
-        )))
-    }
-
-    /// Returns whether the aggregation result can be null.
-    fn is_nullable(&self) -> bool {
-        true
-    }
-
     /// Creates cuDF aggregation requests for the partial phase.
     ///
     /// Takes the input columns and returns aggregation requests to compute
