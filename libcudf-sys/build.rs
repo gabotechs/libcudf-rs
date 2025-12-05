@@ -3,6 +3,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+macro_rules! join {
+    ($handle:expr) => {
+        $handle
+            .join()
+            .expect(&format!("Failed to join {}", stringify!($handle)))
+    };
+}
+
 const CUDF_VERSION: &str = "25.10.00";
 const LIBCUDF_WHEEL: &str = "25.10.0";
 const LIBRRM_WHEEL: &str = "25.10.0";
@@ -18,22 +26,40 @@ fn main() {
     let project_root = manifest_dir.parent().unwrap();
 
     // Step 1: Download prebuilt libraries from PyPI
-    let prebuilt_dir = download_pypi_wheels(&out_dir);
+    let prebuilt_dir = {
+        let out_dir = out_dir.clone();
+        std::thread::spawn(move || download_pypi_wheels(&out_dir))
+    };
 
     // Step 2: Build rapids_logger (missing from PyPI wheels)
-    let rapids_logger_lib = build_rapids_logger(&out_dir);
+    let rapids_logger_lib = {
+        let out_dir = out_dir.clone();
+        std::thread::spawn(move || build_rapids_logger(&out_dir))
+    };
 
     // Step 3: Download header-only dependencies
-    let cudf_src_include = download_cudf_headers(&out_dir);
-    let nanoarrow_include = download_nanoarrow_headers(&out_dir);
+    let cudf_src_include = {
+        let out_dir = out_dir.clone();
+        std::thread::spawn(move || download_cudf_headers(&out_dir))
+    };
+    let nanoarrow_include = {
+        let out_dir = out_dir.clone();
+        std::thread::spawn(move || download_nanoarrow_headers(&out_dir))
+    };
 
     // Step 4: Set up include paths
-    let include_paths = setup_include_paths(&prebuilt_dir, &cudf_src_include, &nanoarrow_include);
+    let prebuilt_dir = &join!(prebuilt_dir);
+    let include_paths = setup_include_paths(
+        prebuilt_dir,
+        &join!(cudf_src_include),
+        &join!(nanoarrow_include),
+    );
 
     // Step 5: Build C++ bridge
     build_cxx_bridge(&manifest_dir, &include_paths);
 
     // Step 6: Configure library linking
+    let rapids_logger_lib = join!(rapids_logger_lib);
     let lib_dirs = vec![
         prebuilt_dir.join("libcudf").join("lib64"),
         prebuilt_dir.join("librmm").join("lib64"),
@@ -50,31 +76,53 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
     let prebuilt_dir = out_dir.join("prebuilt");
 
     // Download main libcudf wheel
-    download_wheel(
-        out_dir,
-        &prebuilt_dir,
-        "libcudf-cu12",
-        "libcudf",
-        &format!("libcudf_cu12-{LIBCUDF_WHEEL}-py3-none-manylinux_2_28_x86_64.whl"),
-    );
+    let one = {
+        let out_dir = out_dir.to_path_buf();
+        let prebuilt_dir = prebuilt_dir.clone();
+        std::thread::spawn(move || {
+            download_wheel(
+                &out_dir,
+                &prebuilt_dir,
+                "libcudf-cu12",
+                "libcudf",
+                &format!("libcudf_cu12-{LIBCUDF_WHEEL}-py3-none-manylinux_2_28_x86_64.whl"),
+            )
+        })
+    };
 
     // Download dependencies
-    download_wheel(
-        out_dir,
-        &prebuilt_dir,
-        "librmm-cu12",
-        "librmm",
-        &format!(
-            "librmm_cu12-{LIBRRM_WHEEL}-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl"
-        ),
-    );
-    download_wheel(
-        out_dir,
-        &prebuilt_dir,
-        "libkvikio-cu12",
-        "libkvikio",
-        &format!("libkvikio_cu12-{LIBIKIO_WHEEL}-py3-none-manylinux_2_28_x86_64.whl"),
-    );
+    let two = {
+        let out_dir = out_dir.to_path_buf();
+        let prebuilt_dir = prebuilt_dir.clone();
+        std::thread::spawn(move || {
+            download_wheel(
+                &out_dir,
+                &prebuilt_dir,
+                "librmm-cu12",
+                "librmm",
+                &format!(
+                    "librmm_cu12-{LIBRRM_WHEEL}-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl"
+                ),
+            )
+        })
+    };
+    let three = {
+        let out_dir = out_dir.to_path_buf();
+        let prebuilt_dir = prebuilt_dir.clone();
+        std::thread::spawn(move || {
+            download_wheel(
+                &out_dir,
+                &prebuilt_dir,
+                "libkvikio-cu12",
+                "libkvikio",
+                &format!("libkvikio_cu12-{LIBIKIO_WHEEL}-py3-none-manylinux_2_28_x86_64.whl"),
+            )
+        })
+    };
+
+    join!(one);
+    join!(two);
+    join!(three);
 
     prebuilt_dir
 }
