@@ -6,12 +6,18 @@ use cxx::UniquePtr;
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 
+/// A single value stored in GPU memory
+///
+/// CuDFScalar wraps a cuDF scalar and implements Arrow's Array trait with length 1.
+/// This allows scalar values to be used in contexts that expect arrays, enabling
+/// seamless integration with operations that work on both scalars and columns.
 pub struct CuDFScalar {
     inner: UniquePtr<libcudf_sys::ffi::Scalar>,
     dt: DataType,
 }
 
 impl CuDFScalar {
+    /// Create a CuDFScalar from an existing cuDF scalar
     pub fn new(inner: UniquePtr<libcudf_sys::ffi::Scalar>) -> Self {
         let cudf_dtype = inner.data_type();
         let dt = cudf_type_to_arrow(cudf_dtype.id());
@@ -19,6 +25,7 @@ impl CuDFScalar {
         Self { inner, dt }
     }
 
+    /// Get a reference to the underlying cuDF scalar
     pub fn inner(&self) -> &UniquePtr<libcudf_sys::ffi::Scalar> {
         &self.inner
     }

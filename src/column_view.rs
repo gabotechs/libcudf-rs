@@ -8,6 +8,14 @@ use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
+/// A view into a cuDF column stored in GPU memory
+///
+/// This type wraps a cuDF column_view and implements Arrow's Array trait,
+/// allowing cuDF columns to be used seamlessly with the Arrow ecosystem.
+///
+/// CuDFColumnView is a non-owning view that may optionally keep the underlying
+/// column alive. It can be created from Arrow arrays (copying to GPU) or from
+/// existing cuDF columns.
 pub struct CuDFColumnView {
     // Keep the column alive so views remain valid
     _column: Option<Arc<UniquePtr<libcudf_sys::ffi::Column>>>,
@@ -18,7 +26,10 @@ pub struct CuDFColumnView {
 }
 
 impl CuDFColumnView {
-    /// Create a CuDFColumn from an existing cuDF column view
+    /// Create a CuDFColumnView from an existing cuDF column view
+    ///
+    /// This creates a non-owning view. The caller must ensure the underlying
+    /// column data remains valid for the lifetime of this view.
     pub fn new(view: UniquePtr<libcudf_sys::ffi::ColumnView>) -> Self {
         let cudf_dtype = view.data_type();
         let dt = cudf_type_to_arrow(cudf_dtype.id());
@@ -31,6 +42,10 @@ impl CuDFColumnView {
         }
     }
 
+    /// Create a CuDFColumnView from an owned cuDF column
+    ///
+    /// This takes ownership of the column and creates a view into it.
+    /// The column will be kept alive as long as this view exists.
     pub fn from_column(col: UniquePtr<libcudf_sys::ffi::Column>) -> Self {
         let cudf_dtype = col.data_type();
         let dt = cudf_type_to_arrow(cudf_dtype.id());
@@ -44,6 +59,7 @@ impl CuDFColumnView {
         }
     }
 
+    /// Get a reference to the underlying cuDF column view
     /// Create a CuDFColumn view from a table column, keeping the table alive
     pub fn from_table_column(
         table: Arc<crate::CuDFTable>,
@@ -66,6 +82,7 @@ impl CuDFColumnView {
         &self.inner
     }
 
+    /// Consume this wrapper and return the underlying cuDF column view
     pub fn into_inner(self) -> UniquePtr<libcudf_sys::ffi::ColumnView> {
         self.inner
     }

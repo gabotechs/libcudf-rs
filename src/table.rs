@@ -38,21 +38,6 @@ impl CuDFTable {
         }
     }
 
-    /// Get a non-owning view of this table
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use libcudf_rs::CuDFTable;
-    ///
-    /// let table = CuDFTable::new();
-    /// let view = table.view();
-    /// assert_eq!(view.num_rows(), 0);
-    /// ```
-    pub fn view(&self) -> CuDFTableView {
-        CuDFTableView::new(self.inner.view())
-    }
-
     pub fn from_ptr(inner: UniquePtr<ffi::Table>) -> Self {
         Self { inner }
     }
@@ -221,24 +206,52 @@ impl CuDFTable {
         self.num_rows() == 0
     }
 
+    /// Get a non-owning view of this table
+    ///
+    /// The returned view borrows from this table and remains valid as long as
+    /// the table exists.
+    pub fn view(&self) -> CuDFTableView {
+        CuDFTableView {
+            inner: self.inner.view(),
+        }
+    }
+
+    /// Take ownership of the table's columns
+    ///
+    /// This consumes the table structure and returns its columns as a collection
+    /// that can be individually released.
     pub fn take(&mut self) -> CuDFColumnCollection {
         CuDFColumnCollection::new(self.inner.pin_mut().take())
     }
 }
 
+/// A collection of cuDF columns
+///
+/// This type holds multiple columns and allows releasing them individually.
+/// It's typically obtained by calling `take()` on a table.
 pub struct CuDFColumnCollection {
     inner: UniquePtr<ffi::ColumnCollection>,
 }
 
 impl CuDFColumnCollection {
+    /// Create a column collection from a cuDF ColumnCollection pointer
     pub fn new(inner: UniquePtr<ffi::ColumnCollection>) -> Self {
         Self { inner }
     }
 
+    /// Get the number of columns in this collection
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
+    /// Check if the collection is empty
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Release ownership of the column at the specified index
+    ///
+    /// This removes the column from the collection and returns it.
     pub fn release(&mut self, index: usize) -> CuDFColumnView {
         CuDFColumnView::from_column(self.inner.pin_mut().release(index))
     }
