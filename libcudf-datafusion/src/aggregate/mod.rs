@@ -1,10 +1,10 @@
 use crate::errors::cudf_to_df;
-use arrow::array::ArrayRef;
-use arrow_schema::{DataType, Field, FieldRef, Schema, SchemaRef};
+use arrow_schema::{DataType, Field, FieldRef, Schema};
 use datafusion::common::types::{
     logical_float64, logical_int16, logical_int32, logical_int64, logical_int8, logical_uint16,
     logical_uint32, logical_uint64, logical_uint8, NativeType,
 };
+use datafusion::common::exec_err;
 use datafusion::error::Result;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::logical_expr::{
@@ -25,19 +25,19 @@ use std::sync::Arc;
 mod stream;
 
 #[derive(Debug)]
-pub struct GpuAggregateExec {
+pub struct CuDFAggregateExec {
     input: Arc<dyn ExecutionPlan>,
     group_by: PhysicalGroupBy,
-    aggr_expr: Vec<GpuAggregateExpr>,
+    aggr_expr: Vec<CuDFAggregateExpr>,
 
     plan_properties: PlanProperties,
 }
 
-impl GpuAggregateExec {
+impl CuDFAggregateExec {
     pub fn try_new(
         input: Arc<dyn ExecutionPlan>,
         group_by: PhysicalGroupBy,
-        aggr_expr: Vec<GpuAggregateExpr>,
+        aggr_expr: Vec<CuDFAggregateExpr>,
     ) -> Result<Self> {
         let input_schema = input.schema();
 
@@ -86,13 +86,28 @@ impl GpuAggregateExec {
     }
 }
 
-impl DisplayAs for GpuAggregateExec {
+impl DisplayAs for CuDFAggregateExec {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt(f)
+        write!(f, "CuDFAggregateExec: ")?;
+        write!(f, "group_by=[")?;
+        for (i, (expr, alias)) in self.group_by.expr().iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}@{}", alias, expr)?;
+        }
+        write!(f, "], aggr_expr=[")?;
+        for (i, expr) in self.aggr_expr.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", expr.name)?;
+        }
+        write!(f, "]")
     }
 }
 
-impl ExecutionPlan for GpuAggregateExec {
+impl ExecutionPlan for CuDFAggregateExec {
     fn name(&self) -> &str {
         type_name::<Self>()
     }
@@ -139,16 +154,16 @@ impl ExecutionPlan for GpuAggregateExec {
 }
 
 #[derive(Debug, Clone)]
-pub struct GpuAggregateExpr {
-    op: Arc<dyn GpuAggregationOp>,
+pub struct CuDFAggregateExpr {
+    op: Arc<dyn CuDFAggregationOp>,
     arguments: Vec<Arc<dyn PhysicalExpr>>,
     return_field: FieldRef,
     name: String,
 }
 
-impl GpuAggregateExpr {
+impl CuDFAggregateExpr {
     pub fn try_new(
-        op: Arc<dyn GpuAggregationOp>,
+        op: Arc<dyn CuDFAggregationOp>,
         arguments: Vec<Arc<dyn PhysicalExpr>>,
         schema: &Schema,
     ) -> Result<Self> {
@@ -166,9 +181,7 @@ impl GpuAggregateExpr {
         let return_field = op.return_field(&input_exprs_fields)?;
 
         Ok(Self {
-            // TODO: temp
             name: op.name().to_string(),
-
             op,
             arguments,
             return_field,
@@ -184,10 +197,36 @@ impl GpuAggregateExpr {
     }
 }
 
-trait GpuAggregationOp: Debug + Send + Sync {
+/// GPU aggregation operation trait for two-phase aggregation.
+///
+/// This trait defines the contract for aggregation operations that can be executed
+/// on the GPU using cuDF's group-by functionality. Aggregations follow a two-phase
+/// pattern to support distributed and streaming execution:
+///
+/// 1. **Partial Phase**: Each input batch is aggregated independently, producing
+///    partial results (e.g., partial sums, counts).
+///
+/// 2. **Final Phase**: Partial results are concatenated and re-aggregated to produce
+///    the final output. The `merge` function combines the final aggregation results
+///    into a single column.
+///
+/// # Example
+///
+/// For SUM aggregation:
+/// - `partial_requests`: Returns a SUM aggregation request for the input column
+/// - `final_requests`: Returns a SUM aggregation request for the partial sums
+/// - `merge`: Returns the single summed column (identity operation for SUM)
+trait CuDFAggregationOp: Debug + Send + Sync {
+    /// Returns the name of this aggregation operation.
     fn name(&self) -> &str;
+
+    /// Returns the function signature defining valid input types.
     fn signature(&self) -> &Signature;
+
+    /// Returns the output data type for the given input types.
     fn return_type(&self, args: &[DataType]) -> Result<DataType>;
+
+    /// Returns the output field for the given input fields.
     fn return_field(&self, arg_fields: &[FieldRef]) -> Result<FieldRef> {
         let arg_types: Vec<_> = arg_fields.iter().map(|f| f.data_type()).cloned().collect();
         let data_type = self.return_type(&arg_types)?;
@@ -198,20 +237,37 @@ trait GpuAggregationOp: Debug + Send + Sync {
             self.is_nullable(),
         )))
     }
+
+    /// Returns whether the aggregation result can be null.
     fn is_nullable(&self) -> bool {
         true
     }
+
+    /// Creates cuDF aggregation requests for the partial phase.
+    ///
+    /// Takes the input columns and returns aggregation requests to compute
+    /// partial results for each input batch.
     fn partial_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>>;
+
+    /// Creates cuDF aggregation requests for the final phase.
+    ///
+    /// Takes the concatenated partial result columns and returns aggregation
+    /// requests to compute the final aggregation.
     fn final_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>>;
+
+    /// Merges the final aggregation result columns into a single output column.
+    ///
+    /// For most aggregations this is an identity operation (returning the single
+    /// result column), but some aggregations may need to combine multiple columns.
     fn merge(&self, args: &[CuDFColumnView]) -> Result<CuDFColumnView>;
 }
 
 #[derive(Debug)]
-struct GpuSum {
+struct CuDFSum {
     signature: Signature,
 }
 
-impl GpuSum {
+impl CuDFSum {
     pub fn new() -> Self {
         Self {
             // Refer to https://www.postgresql.org/docs/8.2/functions-aggregate.html doc
@@ -257,7 +313,7 @@ impl GpuSum {
     }
 }
 
-impl GpuAggregationOp for GpuSum {
+impl CuDFAggregationOp for CuDFSum {
     fn name(&self) -> &str {
         type_name::<Self>()
     }
@@ -267,8 +323,25 @@ impl GpuAggregationOp for GpuSum {
     }
 
     fn return_type(&self, args: &[DataType]) -> Result<DataType> {
-        assert_eq!(args.len(), 1);
-        Ok(DataType::Int64)
+        if args.len() != 1 {
+            return exec_err!("SUM expects 1 argument, got {}", args.len());
+        }
+
+        // cuDF's SUM aggregation always returns signed types for integer inputs
+        match &args[0] {
+            DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
+            | DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64 => Ok(DataType::Int64),
+            DataType::Float32 | DataType::Float64 => Ok(DataType::Float64),
+            dt @ DataType::Decimal128(_, _) | dt @ DataType::Decimal256(_, _) => Ok(dt.clone()),
+            dt @ (DataType::Duration(_) | DataType::Interval(_)) => Ok(dt.clone()),
+            dt => exec_err!("SUM does not support type {:?}", dt),
+        }
     }
 
     fn partial_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {
@@ -276,7 +349,9 @@ impl GpuAggregationOp for GpuSum {
     }
 
     fn final_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {
-        assert_eq!(args.len(), 1);
+        if args.len() != 1 {
+            return exec_err!("SUM expects 1 argument, got {}", args.len());
+        }
 
         let view = CuDFColumnView::from_arrow(&args[0]).map_err(cudf_to_df)?;
         let mut request = AggregationRequest::new(&view);
@@ -286,16 +361,20 @@ impl GpuAggregationOp for GpuSum {
     }
 
     fn merge(&self, args: &[CuDFColumnView]) -> Result<CuDFColumnView> {
-        assert_eq!(args.len(), 1);
+        if args.len() != 1 {
+            return exec_err!("SUM merge expects 1 argument, got {}", args.len());
+        }
         Ok(args[0].clone())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::aggregate::{GpuAggregateExec, GpuAggregateExpr, GpuSum};
+    use crate::aggregate::{CuDFAggregateExec, CuDFAggregateExpr, CuDFSum};
+    use crate::assert_snapshot;
     use crate::physical::{CuDFLoadExec, CuDFUnloadExec};
     use arrow::array::record_batch;
+    use arrow::util::pretty::pretty_format_batches;
     use datafusion::execution::TaskContext;
     use datafusion_physical_plan::aggregates::PhysicalGroupBy;
     use datafusion_physical_plan::expressions::col;
@@ -306,7 +385,7 @@ mod test {
     use std::sync::Arc;
 
     #[tokio::test]
-    async fn run() -> Result<(), Box<dyn Error>> {
+    async fn test_group_by_sum() -> Result<(), Box<dyn Error>> {
         let batch = record_batch!(
             ("a", UInt32, [1, 4, 3]),
             ("b", Float64, [Some(4.0), None, Some(5.0)]),
@@ -327,18 +406,27 @@ mod test {
         let group_by = PhysicalGroupBy::new_single(vec![(col("c", &schema)?, "c".to_string())]);
 
         let sum =
-            GpuAggregateExpr::try_new(Arc::new(GpuSum::new()), vec![col("a", &schema)?], &schema)?;
+            CuDFAggregateExpr::try_new(Arc::new(CuDFSum::new()), vec![col("a", &schema)?], &schema)?;
 
-        let aggregate = GpuAggregateExec::try_new(Arc::new(load), group_by, vec![sum])?;
+        let aggregate = CuDFAggregateExec::try_new(Arc::new(load), group_by, vec![sum])?;
 
         let unload = CuDFUnloadExec::new(Arc::new(aggregate));
 
         let task = Arc::new(TaskContext::default());
 
         let result = unload.execute(0, task)?;
-        let records = result.try_collect::<Vec<_>>().await?;
+        let batches = result.try_collect::<Vec<_>>().await?;
 
-        eprintln!("{:?}", records);
+        let output = pretty_format_batches(&batches)?.to_string();
+        // Note: cuDF's SUM always returns Int64 for integer inputs
+        assert_snapshot!(output, @r"
+        +-------+----------------------------------------+
+        | c     | libcudf_datafusion::aggregate::CuDFSum |
+        +-------+----------------------------------------+
+        | world | 9                                      |
+        | hello | 15                                     |
+        +-------+----------------------------------------+
+        ");
 
         Ok(())
     }
