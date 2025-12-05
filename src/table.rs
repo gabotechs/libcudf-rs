@@ -211,9 +211,7 @@ impl CuDFTable {
     /// The returned view borrows from this table and remains valid as long as
     /// the table exists.
     pub fn view(&self) -> CuDFTableView {
-        CuDFTableView {
-            inner: self.inner.view(),
-        }
+        CuDFTableView::new(self.inner.view())
     }
 
     /// Take ownership of the table's columns

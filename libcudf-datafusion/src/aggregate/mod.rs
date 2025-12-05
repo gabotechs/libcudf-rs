@@ -1,9 +1,7 @@
-use arrow_schema::{FieldRef, Schema};
+use arrow_schema::{Schema};
 use datafusion::error::Result;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::projection::ProjectionMapping;
-use datafusion::physical_expr::PhysicalExpr;
-use datafusion_expr::type_coercion::aggregates::check_arg_count;
 use datafusion_physical_plan::aggregates::{AggregateExec, AggregateMode, PhysicalGroupBy};
 use datafusion_physical_plan::udaf::AggregateFunctionExpr;
 use datafusion_physical_plan::{
@@ -162,10 +160,11 @@ mod test {
     use datafusion_physical_plan::expressions::col;
     use datafusion_physical_plan::test::TestMemoryExec;
     use datafusion_physical_plan::udaf::AggregateFunctionExpr;
-    use datafusion_physical_plan::ExecutionPlan;
+    use datafusion_physical_plan::{displayable, ExecutionPlan};
     use futures_util::TryStreamExt;
     use std::error::Error;
     use std::sync::Arc;
+    use crate::aggregate::op::sum::sum;
 
     #[tokio::test]
     async fn test_group_by_sum() -> Result<(), Box<dyn Error>> {
@@ -188,10 +187,7 @@ mod test {
 
         let group_by = PhysicalGroupBy::new_single(vec![(col("c", &schema)?, "c".to_string())]);
 
-        let udf = CuDFAggregateUDF::new(Arc::new(Sum::new()), Arc::new(CuDFSum));
-        let aggregate = AggregateUDF::new_from_impl(udf);
-
-        let sum = AggregateExprBuilder::new(Arc::new(aggregate), vec![col("a", &schema)?])
+        let sum = AggregateExprBuilder::new(sum(), vec![col("a", &schema)?])
             .schema(schema)
             .alias("SUM(a)")
             .build()?;
