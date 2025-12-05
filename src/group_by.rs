@@ -21,15 +21,15 @@ impl CuDFGroupByResult {
     }
 
     pub fn column(&self, index: usize, column: usize) -> CuDFColumnView {
-        CuDFColumnView::new(self.inner.get_result(index).get(column).view())
+        CuDFColumnView::new(self.inner.get(index).get(column).view())
     }
 
     pub fn results_len(&self) -> usize {
-        self.inner.results_size()
+        self.inner.len()
     }
 
     pub fn columns_len(&self, index: usize) -> usize {
-        self.inner.get_result(index).len()
+        self.inner.get(index).len()
     }
 }
 
@@ -44,9 +44,9 @@ impl CuDFGroupBy {
         }
     }
 
-    pub fn aggregate(&self, requests: Vec<AggregationRequest>) -> Result<CuDFGroupByResult> {
+    pub fn aggregate(&self, requests: &[AggregationRequest]) -> Result<CuDFGroupByResult> {
         let requests = requests
-            .into_iter()
+            .iter()
             .map(|x| x.inner.as_ptr())
             .collect::<Vec<_>>();
 

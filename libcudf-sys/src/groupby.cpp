@@ -6,9 +6,9 @@
 #include <cudf/aggregation.hpp>
 
 namespace libcudf_bridge {
-    // Helper function to create AggregationResult from cudf::groupby::aggregation_result
-    AggregationResult aggregation_result_from_cudf(cudf::groupby::aggregation_result cudf_result) {
-        AggregationResult ar;
+    // Helper function to create ColumnCollection from cudf::groupby::aggregation_result
+    ColumnCollection aggregation_result_from_cudf(cudf::groupby::aggregation_result cudf_result) {
+        ColumnCollection ar;
         for (auto &cudf_col: cudf_result.results) {
             auto col = column_from_unique_ptr(std::move(cudf_col));
             ar.results.emplace_back(std::move(col));
@@ -67,19 +67,6 @@ namespace libcudf_bridge {
         inner->aggregations.push_back(std::unique_ptr<cudf::groupby_aggregation>(groupby_agg));
     }
 
-    // AggregationResult implementation
-    AggregationResult::AggregationResult() = default;
-
-    AggregationResult::~AggregationResult() = default;
-
-    size_t AggregationResult::len() const {
-        return results.size();
-    }
-
-    const Column &AggregationResult::get(size_t index) const {
-        return results[index];
-    }
-
     // GroupByResult implementation
     GroupByResult::GroupByResult() = default;
 
@@ -89,15 +76,17 @@ namespace libcudf_bridge {
         return keys;
     }
 
-    size_t GroupByResult::results_size() const {
+    std::unique_ptr<Table> GroupByResult::release_keys() {
+        auto table = std::make_unique<Table>();
+        table->inner = std::move(keys.inner);
+        return table;
+    }
+
+    size_t GroupByResult::len() const {
         return results.size();
     }
 
-    const AggregationResult &GroupByResult::get_result(size_t index) const {
-        return results[index];
-    }
-
-    AggregationResult &GroupByResult::get_result_mut(size_t index) {
+    const ColumnCollection &GroupByResult::get(size_t index) const {
         return results[index];
     }
 } // namespace libcudf_bridge

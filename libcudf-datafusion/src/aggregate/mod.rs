@@ -1,10 +1,18 @@
 use crate::errors::cudf_to_df;
 use arrow::array::ArrayRef;
-use arrow_schema::{FieldRef, Schema};
+use arrow_schema::{DataType, Field, FieldRef, Schema, SchemaRef};
+use datafusion::common::types::{
+    logical_float64, logical_int16, logical_int32, logical_int64, logical_int8, logical_uint16,
+    logical_uint32, logical_uint64, logical_uint8, NativeType,
+};
 use datafusion::error::Result;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::logical_expr::{
+    Coercion, Signature, TypeSignature, TypeSignatureClass, Volatility,
+};
 use datafusion::physical_expr::projection::ProjectionMapping;
 use datafusion::physical_expr::PhysicalExpr;
+use datafusion_expr::type_coercion::aggregates::check_arg_count;
 use datafusion_physical_plan::aggregates::{AggregateExec, AggregateMode, PhysicalGroupBy};
 use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, InputOrderMode, PlanProperties,
@@ -20,7 +28,7 @@ mod stream;
 pub struct GpuAggregateExec {
     input: Arc<dyn ExecutionPlan>,
     group_by: PhysicalGroupBy,
-    aggr_expr: Vec<Arc<GpuAggregateExpr>>,
+    aggr_expr: Vec<GpuAggregateExpr>,
 
     plan_properties: PlanProperties,
 }
@@ -29,7 +37,7 @@ impl GpuAggregateExec {
     pub fn try_new(
         input: Arc<dyn ExecutionPlan>,
         group_by: PhysicalGroupBy,
-        aggr_expr: Vec<Arc<GpuAggregateExpr>>,
+        aggr_expr: Vec<GpuAggregateExpr>,
     ) -> Result<Self> {
         let input_schema = input.schema();
 
@@ -130,7 +138,7 @@ impl ExecutionPlan for GpuAggregateExec {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GpuAggregateExpr {
     op: Arc<dyn GpuAggregationOp>,
     arguments: Vec<Arc<dyn PhysicalExpr>>,
@@ -139,6 +147,34 @@ pub struct GpuAggregateExpr {
 }
 
 impl GpuAggregateExpr {
+    pub fn try_new(
+        op: Arc<dyn GpuAggregationOp>,
+        arguments: Vec<Arc<dyn PhysicalExpr>>,
+        schema: &Schema,
+    ) -> Result<Self> {
+        let input_exprs_fields = arguments
+            .iter()
+            .map(|arg| arg.return_field(schema))
+            .collect::<Result<Vec<_>>>()?;
+
+        check_arg_count(
+            op.name(),
+            &input_exprs_fields,
+            &op.signature().type_signature,
+        )?;
+
+        let return_field = op.return_field(&input_exprs_fields)?;
+
+        Ok(Self {
+            // TODO: temp
+            name: op.name().to_string(),
+
+            op,
+            arguments,
+            return_field,
+        })
+    }
+
     pub fn field(&self) -> FieldRef {
         self.return_field
             .as_ref()
@@ -149,19 +185,97 @@ impl GpuAggregateExpr {
 }
 
 trait GpuAggregationOp: Debug + Send + Sync {
-    fn partial_requests(&self, args: &[ArrayRef]) -> Result<Vec<AggregationRequest>>;
-    fn final_requests(&self, args: &[ArrayRef]) -> Result<Vec<AggregationRequest>>;
+    fn name(&self) -> &str;
+    fn signature(&self) -> &Signature;
+    fn return_type(&self, args: &[DataType]) -> Result<DataType>;
+    fn return_field(&self, arg_fields: &[FieldRef]) -> Result<FieldRef> {
+        let arg_types: Vec<_> = arg_fields.iter().map(|f| f.data_type()).cloned().collect();
+        let data_type = self.return_type(&arg_types)?;
+
+        Ok(Arc::new(Field::new(
+            self.name(),
+            data_type,
+            self.is_nullable(),
+        )))
+    }
+    fn is_nullable(&self) -> bool {
+        true
+    }
+    fn partial_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>>;
+    fn final_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>>;
+    fn merge(&self, args: &[CuDFColumnView]) -> Result<CuDFColumnView>;
 }
 
 #[derive(Debug)]
-struct GpuSum;
+struct GpuSum {
+    signature: Signature,
+}
+
+impl GpuSum {
+    pub fn new() -> Self {
+        Self {
+            // Refer to https://www.postgresql.org/docs/8.2/functions-aggregate.html doc
+            // smallint, int, bigint, real, double precision, decimal, or interval.
+            signature: Signature::one_of(
+                vec![
+                    TypeSignature::Coercible(vec![Coercion::new_exact(
+                        TypeSignatureClass::Decimal,
+                    )]),
+                    // Unsigned to u64
+                    TypeSignature::Coercible(vec![Coercion::new_implicit(
+                        TypeSignatureClass::Native(logical_uint64()),
+                        vec![
+                            TypeSignatureClass::Native(logical_uint8()),
+                            TypeSignatureClass::Native(logical_uint16()),
+                            TypeSignatureClass::Native(logical_uint32()),
+                        ],
+                        NativeType::UInt64,
+                    )]),
+                    // Signed to i64
+                    TypeSignature::Coercible(vec![Coercion::new_implicit(
+                        TypeSignatureClass::Native(logical_int64()),
+                        vec![
+                            TypeSignatureClass::Native(logical_int8()),
+                            TypeSignatureClass::Native(logical_int16()),
+                            TypeSignatureClass::Native(logical_int32()),
+                        ],
+                        NativeType::Int64,
+                    )]),
+                    // Floats to f64
+                    TypeSignature::Coercible(vec![Coercion::new_implicit(
+                        TypeSignatureClass::Native(logical_float64()),
+                        vec![TypeSignatureClass::Float],
+                        NativeType::Float64,
+                    )]),
+                    TypeSignature::Coercible(vec![Coercion::new_exact(
+                        TypeSignatureClass::Duration,
+                    )]),
+                ],
+                Volatility::Immutable,
+            ),
+        }
+    }
+}
 
 impl GpuAggregationOp for GpuSum {
-    fn partial_requests(&self, args: &[ArrayRef]) -> Result<Vec<AggregationRequest>> {
+    fn name(&self) -> &str {
+        type_name::<Self>()
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, args: &[DataType]) -> Result<DataType> {
+        assert_eq!(args.len(), 1);
+        Ok(DataType::Int64)
+    }
+
+    fn partial_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {
         self.final_requests(args)
     }
 
-    fn final_requests(&self, args: &[ArrayRef]) -> Result<Vec<AggregationRequest>> {
+    fn final_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {
         assert_eq!(args.len(), 1);
 
         let view = CuDFColumnView::from_arrow(&args[0]).map_err(cudf_to_df)?;
@@ -170,11 +284,16 @@ impl GpuAggregationOp for GpuSum {
 
         Ok(vec![request])
     }
+
+    fn merge(&self, args: &[CuDFColumnView]) -> Result<CuDFColumnView> {
+        assert_eq!(args.len(), 1);
+        Ok(args[0].clone())
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::aggregate::GpuAggregateExec;
+    use crate::aggregate::{GpuAggregateExec, GpuAggregateExpr, GpuSum};
     use crate::physical::CuDFLoadExec;
     use arrow::array::record_batch;
     use datafusion::execution::TaskContext;
@@ -189,7 +308,7 @@ mod test {
     #[tokio::test]
     async fn run() -> Result<(), Box<dyn Error>> {
         let batch = record_batch!(
-            ("a", Int32, [1, 2, 3]),
+            ("a", UInt32, [1, 4, 3]),
             ("b", Float64, [Some(4.0), None, Some(5.0)]),
             ("c", Utf8, ["hello", "hello", "world"]),
             ("d", Float64, [4.0, 5.0, 5.0])
@@ -209,7 +328,10 @@ mod test {
 
         let group_by = PhysicalGroupBy::new_single(vec![(col("c", &schema)?, "c".to_string())]);
 
-        let aggregate = GpuAggregateExec::try_new(load, group_by, vec![])?;
+        let sum =
+            GpuAggregateExpr::try_new(Arc::new(GpuSum::new()), vec![col("a", &schema)?], &schema)?;
+
+        let aggregate = GpuAggregateExec::try_new(load, group_by, vec![sum])?;
         let task = Arc::new(TaskContext::default());
 
         let result = aggregate.execute(0, task)?;

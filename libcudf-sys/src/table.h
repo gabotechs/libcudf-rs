@@ -12,6 +12,24 @@ namespace cudf {
 }
 
 namespace libcudf_bridge {
+    // Direct exposure of cuDF's aggregation_result
+    struct ColumnCollection {
+        std::vector<Column> results;
+
+        ColumnCollection();
+        ~ColumnCollection();
+
+        // Delete copy, allow move
+        ColumnCollection(const ColumnCollection &) = delete;
+        ColumnCollection &operator=(const ColumnCollection &) = delete;
+        ColumnCollection(ColumnCollection &&) = default;
+        ColumnCollection &operator=(ColumnCollection &&) = default;
+
+        // Accessors for the results vector
+        [[nodiscard]] size_t len() const;
+        [[nodiscard]] const Column &get(size_t index) const;
+        [[nodiscard]] std::unique_ptr<Column> release(size_t index);
+    };
 
     // Opaque wrapper for cuDF table_view
     struct TableView {
@@ -54,6 +72,8 @@ namespace libcudf_bridge {
 
         // Get a view of this table
         [[nodiscard]] std::unique_ptr<TableView> view() const;
+
+        [[nodiscard]] std::unique_ptr<ColumnCollection> take() const;
     };
 
     // Table factory functions

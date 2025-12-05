@@ -17,37 +17,19 @@ namespace cudf {
 
 namespace libcudf_bridge {
 
-    // Direct exposure of cuDF's aggregation_result
-    struct AggregationResult {
-        std::vector<Column> results;
-
-        AggregationResult();
-        ~AggregationResult();
-
-        // Delete copy, allow move
-        AggregationResult(const AggregationResult &) = delete;
-        AggregationResult &operator=(const AggregationResult &) = delete;
-        AggregationResult(AggregationResult &&) = default;
-        AggregationResult &operator=(AggregationResult &&) = default;
-
-        // Accessors for the results vector
-        [[nodiscard]] size_t len() const;
-        [[nodiscard]] const Column &get(size_t index) const;
-    };
-
     // Direct exposure of cuDF's groupby aggregate() return type
     struct GroupByResult {
         Table keys;
-        std::vector<AggregationResult> results;
+        std::vector<ColumnCollection> results;
 
         GroupByResult();
         ~GroupByResult();
 
         // Field accessors as methods
         [[nodiscard]] const Table &get_keys() const;
-        [[nodiscard]] size_t results_size() const;
-        [[nodiscard]] const AggregationResult &get_result(size_t index) const;
-        AggregationResult &get_result_mut(size_t index);
+        [[nodiscard]] std::unique_ptr<Table> release_keys();
+        [[nodiscard]] size_t len() const;
+        [[nodiscard]] const ColumnCollection &get(size_t index) const;
     };
 
     // Opaque wrapper for cuDF aggregation_request

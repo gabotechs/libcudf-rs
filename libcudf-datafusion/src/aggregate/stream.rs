@@ -1,8 +1,7 @@
 use crate::aggregate::GpuAggregateExpr;
 use crate::errors::cudf_to_df;
-use arrow::array::{Array, RecordBatch};
+use arrow::array::RecordBatch;
 use arrow_schema::SchemaRef;
-use datafusion::common::exec_datafusion_err;
 use datafusion::error::Result;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream};
 use datafusion_physical_plan::aggregates::{evaluate_group_by, evaluate_many, PhysicalGroupBy};
@@ -23,7 +22,7 @@ pub struct Stream {
     output_schema: SchemaRef,
 
     group_by: PhysicalGroupBy,
-    aggr_expr: Vec<Arc<GpuAggregateExpr>>,
+    aggr_expr: Vec<GpuAggregateExpr>,
 
     state: State,
 
@@ -35,7 +34,7 @@ impl Stream {
         input: SendableRecordBatchStream,
         output_schema: SchemaRef,
         group_by: PhysicalGroupBy,
-        aggr_expr: Vec<Arc<GpuAggregateExpr>>,
+        aggr_expr: Vec<GpuAggregateExpr>,
     ) -> Self {
         Self {
             input,
@@ -81,19 +80,32 @@ impl futures::Stream for Stream {
                             let group_by = CuDFGroupBy::from(&table_view);
 
                             let evaluated_arguments = evaluate_many(&aggregate_arguments, &batch)?;
+                            let evaluated_views = evaluated_arguments
+                                .iter()
+                                .map(|args| {
+                                    args.iter()
+                                        .map(|arg| {
+                                            CuDFColumnView::from_arrow(&arg).map_err(cudf_to_df)
+                                        })
+                                        .collect()
+                                })
+                                .collect::<Result<Vec<Vec<_>>>>()?;
 
-                            let mut requests = Vec::with_capacity(evaluated_arguments.len());
-                            for (agg, args) in self.aggr_expr.iter().zip(evaluated_arguments) {
-                                requests.extend(agg.op.partial_requests(&args)?);
+                            let mut requests = Vec::with_capacity(evaluated_views.len());
+                            for (agg, args) in self.aggr_expr.iter().zip(evaluated_views) {
+                                requests.extend(agg.op.partial_requests(&args)?)
                             }
 
                             self.results
-                                .push(group_by.aggregate(requests).map_err(cudf_to_df)?);
+                                .push(group_by.aggregate(&requests).map_err(cudf_to_df)?);
                         }
                     }
                 }
                 State::Final => {
-                    // Final aggregation
+                    if self.results.len() == 0 {
+                        return Poll::Ready(None);
+                    }
+
                     let mut keys = Vec::with_capacity(self.results.len());
 
                     for result in &self.results {
@@ -104,11 +116,62 @@ impl futures::Stream for Stream {
                     let groups = CuDFTable::from_ptr(ffi::concat_table_views(&keys_views));
                     let group_by = CuDFGroupBy::from(&groups.view());
 
-                    let result = group_by.aggregate(vec![]).map_err(cudf_to_df)?;
+                    let first = self.results.first().expect("results should be > 1");
+                    let mut views = Vec::with_capacity(first.results_len());
+                    for index in 0..first.results_len() {
+                        let columns_len = first.columns_len(index);
+                        views.push(vec![Vec::with_capacity(self.results.len()); columns_len])
+                    }
+
+                    for result in &self.results {
+                        for result_index in 0..first.results_len() {
+                            for column_index in 0..first.columns_len(result_index) {
+                                views[result_index][column_index]
+                                    .push(result.column(result_index, column_index))
+                            }
+                        }
+                    }
+
+                    let columns = views
+                        .into_iter()
+                        .map(|views| {
+                            views
+                                .into_iter()
+                                .map(|views| {
+                                    let views = views
+                                        .into_iter()
+                                        .map(|x| x.into_inner())
+                                        .collect::<Vec<_>>();
+                                    CuDFColumnView::from_column(ffi::concat_column_views(&views))
+                                })
+                                .collect()
+                        })
+                        .collect::<Vec<Vec<_>>>();
+
+                    let mut requests = Vec::with_capacity(self.aggr_expr.len()); // lower bound
+                    for (agg, args) in self.aggr_expr.iter().zip(columns.iter()) {
+                        requests.extend(agg.op.final_requests(args)?);
+                    }
+
+                    let result = group_by.aggregate(&requests).map_err(cudf_to_df)?;
+
                     let groups = result.keys().to_arrow_host().map_err(cudf_to_df)?;
 
+                    let mut arrays = groups.columns().to_vec();
+                    arrays.reserve(self.aggr_expr.len());
+
+                    for (result_index, aggr) in self.aggr_expr.iter().enumerate() {
+                        let args = (0..result.columns_len(result_index))
+                            .map(|columns_index| result.column(result_index, columns_index))
+                            .collect::<Vec<_>>();
+                        let merged = aggr.op.merge(&args)?;
+                        arrays.push(Arc::new(merged));
+                    }
+
+                    let output = RecordBatch::try_new(self.output_schema.clone(), arrays)?;
+
                     self.state = State::Done;
-                    return Poll::Ready(Some(Ok(groups)));
+                    return Poll::Ready(Some(Ok(output)));
                 }
                 State::Done => return Poll::Ready(None),
             }
