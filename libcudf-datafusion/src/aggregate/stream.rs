@@ -104,8 +104,7 @@ impl Stream {
 
     fn build_final_batch(&mut self, mut result: CuDFGroupByResult) -> Result<RecordBatch> {
         let mut groups = result.take_keys().take();
-        let mut arrays: Vec<ArrayRef> =
-            Vec::with_capacity(groups.len() + self.aggr_expr.len());
+        let mut arrays: Vec<ArrayRef> = Vec::with_capacity(groups.len() + self.aggr_expr.len());
         for i in 0..groups.len() {
             arrays.push(Arc::new(groups.release(i)))
         }
@@ -153,7 +152,8 @@ impl futures::Stream for Stream {
                             let table_view = CuDFTableView::from_column_views(&column_views).map_err(cudf_to_df)?;
                             let group_by = CuDFGroupBy::from(&table_view);
 
-                            let evaluated_arguments = evaluate_many(&self.aggregate_arguments, &batch)?;
+                            let evaluated_arguments =
+                                evaluate_many(&self.aggregate_arguments, &batch)?;
                             let evaluated_views = evaluated_arguments
                                 .iter()
                                 .map(|args| {
