@@ -41,7 +41,7 @@ impl CuDFScalar {
     /// use libcudf_rs::CuDFScalar;
     ///
     /// let array = Int32Array::from(vec![42]);
-    /// let scalar = Scalar::new(&array, 0);
+    /// let scalar = Scalar::new(&array);
     /// let cudf_scalar = CuDFScalar::from_arrow_host(scalar)?;
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
@@ -88,7 +88,7 @@ impl Array for CuDFScalar {
         &self.dt
     }
 
-    fn slice(&self, offset: usize, length: usize) -> ArrayRef {
+    fn slice(&self, _offset: usize, _length: usize) -> ArrayRef {
         todo!()
     }
 
