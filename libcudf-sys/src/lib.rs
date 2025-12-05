@@ -125,6 +125,9 @@ pub mod ffi {
         /// Get an immutable reference to the aggregation result at the specified index
         fn get(self: &GroupByResult, index: usize) -> &ColumnCollection;
 
+        /// Get an immutable reference to the aggregation result at the specified index
+        fn get_mut(self: Pin<&mut GroupByResult>, index: usize) -> Pin<&mut ColumnCollection>;
+
         // Table methods
         /// Get the number of columns in the table
         fn num_columns(self: &Table) -> usize;

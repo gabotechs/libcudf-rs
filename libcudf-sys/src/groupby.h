@@ -30,6 +30,7 @@ namespace libcudf_bridge {
         [[nodiscard]] std::unique_ptr<Table> release_keys();
         [[nodiscard]] size_t len() const;
         [[nodiscard]] const ColumnCollection &get(size_t index) const;
+        [[nodiscard]] ColumnCollection &get_mut(size_t index);
     };
 
     // Opaque wrapper for cuDF aggregation_request

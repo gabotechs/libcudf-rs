@@ -89,4 +89,8 @@ namespace libcudf_bridge {
     const ColumnCollection &GroupByResult::get(size_t index) const {
         return results[index];
     }
+
+    ColumnCollection &GroupByResult::get_mut(size_t index) {
+        return results[index];
+    }
 } // namespace libcudf_bridge

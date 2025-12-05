@@ -1,6 +1,6 @@
 use crate::aggregate::GpuAggregateExpr;
 use crate::errors::cudf_to_df;
-use arrow::array::RecordBatch;
+use arrow::array::{ArrayRef, RecordBatch};
 use arrow_schema::SchemaRef;
 use datafusion::error::Result;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream};
@@ -127,7 +127,7 @@ impl futures::Stream for Stream {
                         for result_index in 0..first.results_len() {
                             for column_index in 0..first.columns_len(result_index) {
                                 views[result_index][column_index]
-                                    .push(result.column(result_index, column_index))
+                                    .push(result.get_column(result_index, column_index))
                             }
                         }
                     }
@@ -153,16 +153,18 @@ impl futures::Stream for Stream {
                         requests.extend(agg.op.final_requests(args)?);
                     }
 
-                    let result = group_by.aggregate(&requests).map_err(cudf_to_df)?;
+                    let mut result = group_by.aggregate(&requests).map_err(cudf_to_df)?;
 
-                    let groups = result.keys().to_arrow_host().map_err(cudf_to_df)?;
-
-                    let mut arrays = groups.columns().to_vec();
-                    arrays.reserve(self.aggr_expr.len());
+                    let mut groups = result.take_keys().take();
+                    let mut arrays: Vec<ArrayRef> =
+                        Vec::with_capacity(groups.len() + self.aggr_expr.len());
+                    for i in 0..groups.len() {
+                        arrays.push(Arc::new(groups.release(i)))
+                    }
 
                     for (result_index, aggr) in self.aggr_expr.iter().enumerate() {
                         let args = (0..result.columns_len(result_index))
-                            .map(|columns_index| result.column(result_index, columns_index))
+                            .map(|columns_index| result.take_column(result_index, columns_index))
                             .collect::<Vec<_>>();
                         let merged = aggr.op.merge(&args)?;
                         arrays.push(Arc::new(merged));
