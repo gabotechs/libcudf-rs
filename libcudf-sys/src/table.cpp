@@ -36,6 +36,18 @@ namespace libcudf_bridge {
         return result;
     }
 
+    [[nodiscard]] std::unique_ptr<ColumnCollection> Table::take() const {
+        auto columns = this->inner->release();
+        auto collection = std::make_unique<ColumnCollection>();
+        collection->results.reserve(columns.size());
+        for (auto &cudf_col : columns) {
+            auto col = column_from_unique_ptr(std::move(cudf_col));
+            collection->results.emplace_back(std::move(col));
+        }
+
+        return collection;
+    }
+
     // TableView implementation
     TableView::TableView() : inner(nullptr) {
     }
@@ -96,5 +108,24 @@ namespace libcudf_bridge {
         auto result = std::make_unique<TableView>();
         result->inner = std::make_unique<cudf::table_view>(views);
         return result;
+    }
+
+    // ColumnCollection implementation
+    ColumnCollection::ColumnCollection() = default;
+
+    ColumnCollection::~ColumnCollection() = default;
+
+    size_t ColumnCollection::len() const {
+        return results.size();
+    }
+
+    const Column &ColumnCollection::get(size_t index) const {
+        return results[index];
+    }
+
+    std::unique_ptr<Column> ColumnCollection::release(size_t index) {
+        auto column = std::make_unique<Column>();
+        column->inner = std::move(results.at(index).inner);
+        return column;
     }
 } // namespace libcudf_bridge

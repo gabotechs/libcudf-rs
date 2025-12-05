@@ -89,21 +89,19 @@ pub mod ffi {
         /// Add an aggregation to this request
         fn add(self: &AggregationRequest, agg: UniquePtr<Aggregation>);
 
-        /// The result(s) of an aggregation_request
-        ///
-        /// For every aggregation_request given to groupby::aggregate, an aggregation_result
-        /// will be returned. The aggregation_result holds the resulting column(s) for each
-        /// requested aggregation on the request's values.
-        ///
         /// Note: Due to cxx limitations, the internal rust::Vec<Column> cannot be exposed
         /// directly. Use len() and index access via [] to work with results.
-        type AggregationResult;
+        type ColumnCollection;
 
         /// Get the number of result columns
-        fn len(self: &AggregationResult) -> usize;
+        fn len(self: &ColumnCollection) -> usize;
 
         /// Get a reference to the column at the specified index
-        fn get(self: &AggregationResult, index: usize) -> &Column;
+        fn get(self: &ColumnCollection, index: usize) -> &Column;
+
+        /// Take the group labels for each group. Can be done only once and will make all other
+        /// keys method fail.
+        fn release(self: Pin<&mut ColumnCollection>, index: usize) -> UniquePtr<Column>;
 
         /// Result pair from a groupby aggregation operation
         ///
@@ -117,17 +115,15 @@ pub mod ffi {
         /// Get the group labels for each group
         fn get_keys(self: &GroupByResult) -> &Table;
 
+        /// Take the group labels for each group. Can be done only once and will make all other
+        /// keys method fail.
+        fn release_keys(self: Pin<&mut GroupByResult>) -> UniquePtr<Table>;
+
         /// Get the number of aggregation requests
-        fn results_size(self: &GroupByResult) -> usize;
+        fn len(self: &GroupByResult) -> usize;
 
         /// Get an immutable reference to the aggregation result at the specified index
-        fn get_result(self: &GroupByResult, index: usize) -> &AggregationResult;
-
-        /// Get a mutable reference to the aggregation result at the specified index
-        fn get_result_mut(
-            self: Pin<&mut GroupByResult>,
-            index: usize,
-        ) -> Pin<&mut AggregationResult>;
+        fn get(self: &GroupByResult, index: usize) -> &ColumnCollection;
 
         // Table methods
         /// Get the number of columns in the table
@@ -138,6 +134,9 @@ pub mod ffi {
 
         /// Get a view of this table
         fn view(self: &Table) -> UniquePtr<TableView>;
+
+        /// Get a view of this table
+        fn take(self: &Table) -> UniquePtr<ColumnCollection>;
 
         // TableView methods
         /// Get the number of columns in the table view
@@ -660,11 +659,11 @@ unsafe impl Send for ffi::AggregationRequest {}
 /// SAFETY: AggregationRequest configuration can be accessed from multiple threads.
 unsafe impl Sync for ffi::AggregationRequest {}
 
-/// SAFETY: AggregationResult contains GPU data that can be sent between threads.
-unsafe impl Send for ffi::AggregationResult {}
+/// SAFETY: ColumnCollection contains GPU data that can be sent between threads.
+unsafe impl Send for ffi::ColumnCollection {}
 
-/// SAFETY: AggregationResult can be accessed from multiple threads.
-unsafe impl Sync for ffi::AggregationResult {}
+/// SAFETY: ColumnCollection can be accessed from multiple threads.
+unsafe impl Sync for ffi::ColumnCollection {}
 
 /// SAFETY: GroupByResult contains GPU data that can be sent between threads.
 unsafe impl Send for ffi::GroupByResult {}

@@ -1,0 +1,9 @@
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+    "-C", "link-arg=-Wl,-rpath,/home/ubuntu/github/libcudf-rs/.cudf-build/cudf-25.10.00/cpp/build/lib",
+    "-C", "link-arg=-Wl,-rpath,/home/ubuntu/github/libcudf-rs/.cudf-build/cudf-25.10.00/cpp/build/build/_deps/rmm-build",
+    "-C", "link-arg=-Wl,-rpath,/usr/local/cuda/lib64",
+]
+
+[env]
+LD_LIBRARY_PATH = "/home/ubuntu/github/libcudf-rs/.cudf-build/cudf-25.10.00/cpp/build/lib:/home/ubuntu/github/libcudf-rs/.cudf-build/cudf-25.10.00/cpp/build/build/_deps/rmm-build:/usr/local/cuda/lib64:$LD_LIBRARY_PATH"

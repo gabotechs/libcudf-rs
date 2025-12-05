@@ -160,7 +160,10 @@ mod tests {
             .expect("Failed to read parquet");
 
         // Convert to Arrow
-        let batch = table.view().to_arrow_host().expect("Failed to convert to Arrow");
+        let batch = table
+            .view()
+            .to_arrow_host()
+            .expect("Failed to convert to Arrow");
 
         let original_rows = batch.num_rows();
         let original_cols = batch.num_columns();
