@@ -30,20 +30,24 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let project_root = manifest_dir.parent().unwrap();
 
+    // Use a shared directory at project root for downloaded artifacts
+    let shared_dir = project_root.join("target").join("libcudf-rs");
+    fs::create_dir_all(&shared_dir).expect("Failed to create shared directory");
+
     // Step 1: Download prebuilt libraries from PyPI
     let prebuilt_dir = {
-        let out_dir = out_dir.clone();
-        std::thread::spawn(move || download_pypi_wheels(&out_dir))
+        let shared_dir = shared_dir.clone();
+        std::thread::spawn(move || download_pypi_wheels(&shared_dir))
     };
 
     // Step 2: Download header-only dependencies
     let cudf_src_include = {
-        let out_dir = out_dir.clone();
-        std::thread::spawn(move || download_cudf_headers(&out_dir))
+        let shared_dir = shared_dir.clone();
+        std::thread::spawn(move || download_cudf_headers(&shared_dir))
     };
     let nanoarrow_include = {
-        let out_dir = out_dir.clone();
-        std::thread::spawn(move || download_nanoarrow_headers(&out_dir))
+        let shared_dir = shared_dir.clone();
+        std::thread::spawn(move || download_nanoarrow_headers(&shared_dir))
     };
 
     // Step 3: Build the C++ bridge
@@ -82,40 +86,40 @@ fn main() {
     setup_rerun_triggers(&manifest_dir);
 }
 
-fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
-    let prebuilt_dir = out_dir.join("prebuilt");
+fn download_pypi_wheels(shared_dir: &Path) -> PathBuf {
+    let prebuilt_dir = shared_dir.join("prebuilt");
 
     // Download main libcudf wheel
     let libcudf_wheel = {
-        let out_dir = out_dir.to_path_buf();
+        let shared_dir = shared_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
             let wheel_file =
                 format!("libcudf_cu12-{LIBCUDF_WHEEL}-py3-none-manylinux_2_28_{ARCH}.whl");
             let wheel_url = format!("https://pypi.nvidia.com/libcudf-cu12/{wheel_file}");
-            download_wheel(&out_dir, &prebuilt_dir, "libcudf", &wheel_file, &wheel_url)
+            download_wheel(&shared_dir, &prebuilt_dir, "libcudf", &wheel_file, &wheel_url)
         })
     };
 
     // Download dependencies
     let librmm_wheel = {
-        let out_dir = out_dir.to_path_buf();
+        let shared_dir = shared_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
             let wheel_file = format!("librmm_cu12-{LIBRMM_WHEEL}-py3-none-manylinux_2_24_{ARCH}.manylinux_2_28_{ARCH}.whl");
             let wheel_url = format!("https://pypi.nvidia.com/librmm-cu12/{wheel_file}");
-            download_wheel(&out_dir, &prebuilt_dir, "librmm", &wheel_file, &wheel_url)
+            download_wheel(&shared_dir, &prebuilt_dir, "librmm", &wheel_file, &wheel_url)
         })
     };
     let libkvikio_wheel = {
-        let out_dir = out_dir.to_path_buf();
+        let shared_dir = shared_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
             let wheel_file =
                 format!("libkvikio_cu12-{LIBKVIKIO_WHEEL}-py3-none-manylinux_2_28_{ARCH}.whl");
             let wheel_url = format!("https://pypi.nvidia.com/libkvikio-cu12/{wheel_file}");
             download_wheel(
-                &out_dir,
+                &shared_dir,
                 &prebuilt_dir,
                 "libkvikio",
                 &wheel_file,
@@ -124,7 +128,7 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
         })
     };
     let rapids_logger_wheel = {
-        let out_dir = out_dir.to_path_buf();
+        let shared_dir = shared_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
             // PyPI uses content-addressed storage, so each architecture has a different hash-based URL path.
@@ -139,7 +143,7 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
                 (file, url)
             };
             download_wheel(
-                &out_dir,
+                &shared_dir,
                 &prebuilt_dir,
                 "rapids_logger",
                 &wheel_file,
@@ -157,7 +161,7 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
 }
 
 fn download_wheel(
-    out_dir: &Path,
+    shared_dir: &Path,
     prebuilt_dir: &Path,
     lib_name: &str,
     wheel_file: &str,
@@ -175,7 +179,7 @@ fn download_wheel(
 
     println!("cargo:warning=Downloading prebuilt {lib_name}...");
 
-    let wheel_path = out_dir.join(wheel_file);
+    let wheel_path = shared_dir.join(wheel_file);
 
     run_command(
         Command::new("curl")
@@ -200,8 +204,8 @@ fn download_wheel(
     let _ = fs::remove_file(&wheel_path);
 }
 
-fn download_cudf_headers(out_dir: &Path) -> PathBuf {
-    let cudf_src_dir = out_dir.join(format!("cudf-{CUDF_VERSION}"));
+fn download_cudf_headers(shared_dir: &Path) -> PathBuf {
+    let cudf_src_dir = shared_dir.join(format!("cudf-{CUDF_VERSION}"));
 
     if cudf_src_dir.exists() {
         println!("cargo:warning=Using cached cuDF source headers");
@@ -211,7 +215,7 @@ fn download_cudf_headers(out_dir: &Path) -> PathBuf {
     println!("cargo:warning=Downloading cuDF {CUDF_VERSION} source for additional headers...");
 
     download_tarball(
-        out_dir,
+        shared_dir,
         &format!("cudf-{CUDF_VERSION}"),
         &format!("https://github.com/rapidsai/cudf/archive/refs/tags/v{CUDF_VERSION}.tar.gz"),
         &format!("cudf-{CUDF_VERSION}"),
@@ -220,8 +224,8 @@ fn download_cudf_headers(out_dir: &Path) -> PathBuf {
     cudf_src_dir.join("cpp").join("include")
 }
 
-fn download_nanoarrow_headers(out_dir: &Path) -> PathBuf {
-    let nanoarrow_dir = out_dir.join("arrow-nanoarrow");
+fn download_nanoarrow_headers(shared_dir: &Path) -> PathBuf {
+    let nanoarrow_dir = shared_dir.join("arrow-nanoarrow");
 
     if nanoarrow_dir.exists() {
         println!("cargo:warning=Using cached nanoarrow headers");
@@ -231,7 +235,7 @@ fn download_nanoarrow_headers(out_dir: &Path) -> PathBuf {
     println!("cargo:warning=Downloading nanoarrow headers...");
 
     download_tarball(
-        out_dir,
+        shared_dir,
         "arrow-nanoarrow",
         &format!("https://github.com/apache/arrow-nanoarrow/archive/{NANOARROW_COMMIT}.tar.gz"),
         &format!("arrow-nanoarrow-{NANOARROW_COMMIT}"),
@@ -246,7 +250,7 @@ fn download_nanoarrow_headers(out_dir: &Path) -> PathBuf {
 
 fn setup_library_paths(lib_dirs: &[PathBuf], project_root: &Path) {
     let cuda_root = cuda_root_lookup();
-    let cuda_lib = PathBuf::from(&cuda_root)
+    let cuda_lib = cuda_root
         .join("lib64")
         .canonicalize()
         .unwrap_or_else(|_| PathBuf::from(&cuda_root).join("targets/x86_64-linux/lib"));
@@ -298,8 +302,8 @@ fn setup_rerun_triggers(manifest_dir: &Path) {
 
 // Helper functions
 
-fn download_tarball(out_dir: &Path, name: &str, url: &str, extracted_name: &str) -> PathBuf {
-    let target_dir = out_dir.join(name);
+fn download_tarball(shared_dir: &Path, name: &str, url: &str, extracted_name: &str) -> PathBuf {
+    let target_dir = shared_dir.join(name);
 
     if target_dir.exists() {
         println!("cargo:warning=Using cached {name}");
@@ -308,7 +312,7 @@ fn download_tarball(out_dir: &Path, name: &str, url: &str, extracted_name: &str)
 
     println!("cargo:warning=Downloading {name}...");
 
-    let tarball_path = out_dir.join(format!("{name}.tar.gz"));
+    let tarball_path = shared_dir.join(format!("{name}.tar.gz"));
     run_command(
         Command::new("curl")
             .args(["-L", "-f", "-o"])
@@ -322,11 +326,11 @@ fn download_tarball(out_dir: &Path, name: &str, url: &str, extracted_name: &str)
             .args(["-xzf"])
             .arg(&tarball_path)
             .arg("-C")
-            .arg(out_dir),
+            .arg(shared_dir),
         &format!("extract {name}"),
     );
 
-    let extracted_dir = out_dir.join(extracted_name);
+    let extracted_dir = shared_dir.join(extracted_name);
     fs::rename(&extracted_dir, &target_dir).expect(&format!("Failed to rename {name} directory"));
 
     let _ = fs::remove_file(&tarball_path);
