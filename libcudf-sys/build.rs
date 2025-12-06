@@ -13,7 +13,7 @@ macro_rules! join {
 
 const CUDF_VERSION: &str = "25.10.00";
 const LIBCUDF_WHEEL: &str = "25.10.0";
-const LIBRRM_WHEEL: &str = "25.10.0";
+const LIBRMM_WHEEL: &str = "25.10.0";
 const LIBIKIO_WHEEL: &str = "25.10.0";
 const RAPIDS_LOGGER_WHEEL: &str = "0.1.19";
 const NANOARROW_COMMIT: &str = "4bf5a9322626e95e3717e43de7616c0a256179eb";
@@ -55,7 +55,7 @@ fn main() {
         &join!(nanoarrow_include),
     );
 
-    // Step 5: Build C++ bridge
+    // Step 5: Build the C++ bridge
     build_cxx_bridge(&manifest_dir, &include_paths);
 
     // Step 6: Configure library linking
@@ -76,7 +76,7 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
     let prebuilt_dir = out_dir.join("prebuilt");
 
     // Download main libcudf wheel
-    let one = {
+    let libcudf_wheel = {
         let out_dir = out_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
@@ -91,7 +91,7 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
     };
 
     // Download dependencies
-    let two = {
+    let librmm_wheel = {
         let out_dir = out_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
@@ -101,12 +101,12 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
                 "librmm-cu12",
                 "librmm",
                 &format!(
-                    "librmm_cu12-{LIBRRM_WHEEL}-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl"
+                    "librmm_cu12-{LIBRMM_WHEEL}-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl"
                 ),
             )
         })
     };
-    let three = {
+    let libkvikio_wheel = {
         let out_dir = out_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
@@ -120,9 +120,9 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
         })
     };
 
-    join!(one);
-    join!(two);
-    join!(three);
+    join!(libcudf_wheel);
+    join!(librmm_wheel);
+    join!(libkvikio_wheel);
 
     prebuilt_dir
 }
