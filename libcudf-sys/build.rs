@@ -11,6 +11,11 @@ macro_rules! join_thread {
     };
 }
 
+#[cfg(target_arch = "x86_64")]
+const ARCH: &str = "x86_64";
+#[cfg(target_arch = "aarch64")]
+const ARCH: &str = "aarch64";
+
 const CUDF_VERSION: &str = "25.10.00";
 const LIBCUDF_WHEEL: &str = "25.10.0";
 const LIBRMM_WHEEL: &str = "25.10.0";
@@ -86,7 +91,7 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
             let wheel_file =
-                format!("libcudf_cu12-{LIBCUDF_WHEEL}-py3-none-manylinux_2_28_x86_64.whl");
+                format!("libcudf_cu12-{LIBCUDF_WHEEL}-py3-none-manylinux_2_28_{ARCH}.whl");
             let wheel_url = format!("https://pypi.nvidia.com/libcudf-cu12/{wheel_file}");
             download_wheel(&out_dir, &prebuilt_dir, "libcudf", &wheel_file, &wheel_url)
         })
@@ -97,7 +102,7 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
         let out_dir = out_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
-            let wheel_file = format!("librmm_cu12-{LIBRMM_WHEEL}-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl");
+            let wheel_file = format!("librmm_cu12-{LIBRMM_WHEEL}-py3-none-manylinux_2_24_{ARCH}.manylinux_2_28_{ARCH}.whl");
             let wheel_url = format!("https://pypi.nvidia.com/librmm-cu12/{wheel_file}");
             download_wheel(&out_dir, &prebuilt_dir, "librmm", &wheel_file, &wheel_url)
         })
@@ -107,7 +112,7 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
             let wheel_file =
-                format!("libkvikio_cu12-{LIBKVIKIO_WHEEL}-py3-none-manylinux_2_28_x86_64.whl");
+                format!("libkvikio_cu12-{LIBKVIKIO_WHEEL}-py3-none-manylinux_2_28_{ARCH}.whl");
             let wheel_url = format!("https://pypi.nvidia.com/libkvikio-cu12/{wheel_file}");
             download_wheel(
                 &out_dir,
@@ -122,8 +127,17 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
         let out_dir = out_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
-            let wheel_file = format!("rapids_logger-{RAPIDS_LOGGER_WHEEL}-py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl");
-            let wheel_url = format!("https://files.pythonhosted.org/packages/bf/0e/093fe9791b6b11f7d6d36b604d285b0018512cbdb6b1ce67a128795b7543/{wheel_file}");
+            // PyPI uses content-addressed storage, so each architecture has a different hash-based URL path.
+            // To find the correct URL for a new version, visit: https://pypi.org/project/rapids-logger/#files
+            let (wheel_file, wheel_url) = if ARCH == "aarch64" {
+                let file = format!("rapids_logger-{RAPIDS_LOGGER_WHEEL}-py3-none-manylinux_2_26_{ARCH}.manylinux_2_28_{ARCH}.whl");
+                let url = format!("https://files.pythonhosted.org/packages/0e/b9/5b4158deb206019427867e1ee1729fda85268bdecd9ec116cc611ee75345/{file}");
+                (file, url)
+            } else {
+                let file = format!("rapids_logger-{RAPIDS_LOGGER_WHEEL}-py3-none-manylinux_2_27_{ARCH}.manylinux_2_28_{ARCH}.whl");
+                let url = format!("https://files.pythonhosted.org/packages/bf/0e/093fe9791b6b11f7d6d36b604d285b0018512cbdb6b1ce67a128795b7543/{file}");
+                (file, url)
+            };
             download_wheel(
                 &out_dir,
                 &prebuilt_dir,
