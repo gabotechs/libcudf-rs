@@ -14,7 +14,7 @@ macro_rules! join {
 const CUDF_VERSION: &str = "25.10.00";
 const LIBCUDF_WHEEL: &str = "25.10.0";
 const LIBRMM_WHEEL: &str = "25.10.0";
-const LIBIKIO_WHEEL: &str = "25.10.0";
+const LIBKVIKIO_WHEEL: &str = "25.10.0";
 const RAPIDS_LOGGER_WHEEL: &str = "0.1.19";
 const NANOARROW_COMMIT: &str = "4bf5a9322626e95e3717e43de7616c0a256179eb";
 
@@ -73,7 +73,8 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
         let out_dir = out_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
-            let wheel_file = format!("libcudf_cu12-{LIBCUDF_WHEEL}-py3-none-manylinux_2_28_x86_64.whl");
+            let wheel_file =
+                format!("libcudf_cu12-{LIBCUDF_WHEEL}-py3-none-manylinux_2_28_x86_64.whl");
             let wheel_url = format!("https://pypi.nvidia.com/libcudf-cu12/{wheel_file}");
             download_wheel(&out_dir, &prebuilt_dir, "libcudf", &wheel_file, &wheel_url)
         })
@@ -93,9 +94,16 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
         let out_dir = out_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
-            let wheel_file = format!("libkvikio_cu12-{LIBIKIO_WHEEL}-py3-none-manylinux_2_28_x86_64.whl");
+            let wheel_file =
+                format!("libkvikio_cu12-{LIBKVIKIO_WHEEL}-py3-none-manylinux_2_28_x86_64.whl");
             let wheel_url = format!("https://pypi.nvidia.com/libkvikio-cu12/{wheel_file}");
-            download_wheel(&out_dir, &prebuilt_dir, "libkvikio", &wheel_file, &wheel_url)
+            download_wheel(
+                &out_dir,
+                &prebuilt_dir,
+                "libkvikio",
+                &wheel_file,
+                &wheel_url,
+            )
         })
     };
     let rapids_logger_wheel = {
@@ -104,7 +112,13 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
         std::thread::spawn(move || {
             let wheel_file = format!("rapids_logger-{RAPIDS_LOGGER_WHEEL}-py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl");
             let wheel_url = format!("https://files.pythonhosted.org/packages/bf/0e/093fe9791b6b11f7d6d36b604d285b0018512cbdb6b1ce67a128795b7543/{wheel_file}");
-            download_wheel(&out_dir, &prebuilt_dir, "rapids_logger", &wheel_file, &wheel_url)
+            download_wheel(
+                &out_dir,
+                &prebuilt_dir,
+                "rapids_logger",
+                &wheel_file,
+                &wheel_url,
+            )
         })
     };
 
@@ -159,7 +173,6 @@ fn download_wheel(
 
     let _ = fs::remove_file(&wheel_path);
 }
-
 
 fn download_cudf_headers(out_dir: &Path) -> PathBuf {
     let cudf_src_dir = out_dir.join(format!("cudf-{CUDF_VERSION}"));
