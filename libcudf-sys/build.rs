@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-macro_rules! join {
+macro_rules! join_thread {
     ($handle:expr) => {
         $handle
             .join()
@@ -41,16 +41,28 @@ fn main() {
         std::thread::spawn(move || download_nanoarrow_headers(&out_dir))
     };
 
-    // Step 3: Set up include paths
-    let prebuilt_dir = &join!(prebuilt_dir);
-    let include_paths = setup_include_paths(
-        prebuilt_dir,
-        &join!(cudf_src_include),
-        &join!(nanoarrow_include),
-    );
+    // Step 3: Build the C++ bridge
+    let prebuilt_dir = &join_thread!(prebuilt_dir);
 
-    // Step 4: Build the C++ bridge
-    build_cxx_bridge(&manifest_dir, &include_paths);
+    cxx_build::bridge("src/lib.rs")
+        .files(find_files_by_extension(&manifest_dir.join("src"), "cpp"))
+        .std("c++20")
+        .include("src")
+        // Include headers from downloaded sources
+        .include(join_thread!(cudf_src_include))
+        .include(join_thread!(nanoarrow_include))
+        // Include shared libraries downloaded from PyPI
+        .include(prebuilt_dir.join("libcudf").join("include"))
+        .include(prebuilt_dir.join("libcudf").join("include").join("rapids"))
+        .include(prebuilt_dir.join("librmm").join("include"))
+        .include(prebuilt_dir.join("librmm").join("include").join("rapids"))
+        .include(prebuilt_dir.join("libkvikio").join("include"))
+        // Include shared libraries from the CUDA installation present in the system
+        .include(cuda_root_lookup().join("include"))
+        .define("LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE", None)
+        .flag_if_supported("-Wno-unused-parameter")
+        .flag_if_supported("-Wno-deprecated-declarations")
+        .compile("libcudf-bridge");
 
     // Step 5: Configure library linking
     let lib_dirs = vec![
@@ -122,10 +134,10 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
         })
     };
 
-    join!(libcudf_wheel);
-    join!(librmm_wheel);
-    join!(libkvikio_wheel);
-    join!(rapids_logger_wheel);
+    join_thread!(libcudf_wheel);
+    join_thread!(librmm_wheel);
+    join_thread!(libkvikio_wheel);
+    join_thread!(rapids_logger_wheel);
 
     prebuilt_dir
 }
@@ -218,59 +230,8 @@ fn download_nanoarrow_headers(out_dir: &Path) -> PathBuf {
     nanoarrow_dir.join("src")
 }
 
-fn setup_include_paths(
-    prebuilt_dir: &Path,
-    cudf_src_include: &Path,
-    nanoarrow_include: &Path,
-) -> IncludePaths {
-    let cudf_include = prebuilt_dir.join("libcudf").join("include");
-    let rmm_include = prebuilt_dir.join("librmm").join("include");
-    let kvikio_include = prebuilt_dir.join("libkvikio").join("include");
-
-    let cuda_root = env::var("CUDA_ROOT")
-        .or_else(|_| env::var("CUDA_HOME"))
-        .unwrap_or_else(|_| "/usr/local/cuda".to_string());
-    let cuda_include = PathBuf::from(&cuda_root).join("include");
-
-    IncludePaths {
-        cudf: cudf_include.clone(),
-        cudf_src: cudf_src_include.to_path_buf(),
-        cudf_rapids: cudf_include.join("rapids"),
-        rmm: rmm_include.clone(),
-        rmm_rapids: rmm_include.join("rapids"),
-        kvikio: kvikio_include,
-        nanoarrow: nanoarrow_include.to_path_buf(),
-        cuda: cuda_include,
-    }
-}
-
-fn build_cxx_bridge(manifest_dir: &Path, includes: &IncludePaths) {
-    let src_dir = manifest_dir.join("src");
-    let cpp_files = find_files_by_extension(&src_dir, "cpp");
-
-    cxx_build::bridge("src/lib.rs")
-        .files(&cpp_files)
-        .std("c++20")
-        .include("src")
-        .include(&includes.cudf)
-        .include(&includes.cudf_src)
-        .include(&includes.cudf_rapids)
-        .include(&includes.rmm)
-        .include(&includes.rmm_rapids)
-        .include(&includes.kvikio)
-        .include(&includes.nanoarrow)
-        .include(&includes.cuda)
-        .define("LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE", None)
-        .flag_if_supported("-Wno-unused-parameter")
-        .flag_if_supported("-Wno-deprecated-declarations")
-        .compile("libcudf-bridge");
-}
-
 fn setup_library_paths(lib_dirs: &[PathBuf], project_root: &Path) {
-    let cuda_root = env::var("CUDA_ROOT")
-        .or_else(|_| env::var("CUDA_HOME"))
-        .unwrap_or_else(|_| "/usr/local/cuda".to_string());
-
+    let cuda_root = cuda_root_lookup();
     let cuda_lib = PathBuf::from(&cuda_root)
         .join("lib64")
         .canonicalize()
@@ -298,6 +259,13 @@ fn setup_library_paths(lib_dirs: &[PathBuf], project_root: &Path) {
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
     }
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", cuda_lib.display());
+}
+
+fn cuda_root_lookup() -> PathBuf {
+    let cuda_root = env::var("CUDA_ROOT")
+        .or_else(|_| env::var("CUDA_HOME"))
+        .unwrap_or_else(|_| "/usr/local/cuda".to_string());
+    PathBuf::from(&cuda_root)
 }
 
 fn setup_rerun_triggers(manifest_dir: &Path) {
@@ -398,17 +366,9 @@ fn create_library_symlinks(lib_dirs: &[PathBuf], project_root: &Path) {
     }
 }
 
-struct IncludePaths {
-    cudf: PathBuf,
-    cudf_src: PathBuf,
-    cudf_rapids: PathBuf,
-    rmm: PathBuf,
-    rmm_rapids: PathBuf,
-    kvikio: PathBuf,
-    nanoarrow: PathBuf,
-    cuda: PathBuf,
-}
-
+// nanoarrow_config.h is normally generated by CMake from nanoarrow_config.h.in.
+// Since we download nanoarrow headers directly without running CMake, we provide
+// a pre-configured version with default values (no custom namespace, version 0.7.0).
 const NANOARROW_CONFIG_H: &str = r#"// Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
