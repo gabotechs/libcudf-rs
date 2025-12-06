@@ -31,13 +31,7 @@ fn main() {
         std::thread::spawn(move || download_pypi_wheels(&out_dir))
     };
 
-    // Step 2: Download rapids_logger (from PyPI)
-    let rapids_logger_lib = {
-        let out_dir = out_dir.clone();
-        std::thread::spawn(move || download_rapids_logger(&out_dir))
-    };
-
-    // Step 3: Download header-only dependencies
+    // Step 2: Download header-only dependencies
     let cudf_src_include = {
         let out_dir = out_dir.clone();
         std::thread::spawn(move || download_cudf_headers(&out_dir))
@@ -47,7 +41,7 @@ fn main() {
         std::thread::spawn(move || download_nanoarrow_headers(&out_dir))
     };
 
-    // Step 4: Set up include paths
+    // Step 3: Set up include paths
     let prebuilt_dir = &join!(prebuilt_dir);
     let include_paths = setup_include_paths(
         prebuilt_dir,
@@ -55,20 +49,19 @@ fn main() {
         &join!(nanoarrow_include),
     );
 
-    // Step 5: Build the C++ bridge
+    // Step 4: Build the C++ bridge
     build_cxx_bridge(&manifest_dir, &include_paths);
 
-    // Step 6: Configure library linking
-    let rapids_logger_lib = join!(rapids_logger_lib);
+    // Step 5: Configure library linking
     let lib_dirs = vec![
         prebuilt_dir.join("libcudf").join("lib64"),
         prebuilt_dir.join("librmm").join("lib64"),
         prebuilt_dir.join("libkvikio").join("lib64"),
-        rapids_logger_lib,
+        prebuilt_dir.join("rapids_logger").join("lib64"),
     ];
     setup_library_paths(&lib_dirs, project_root);
 
-    // Step 7: Set up rerun triggers
+    // Step 6: Set up rerun triggers
     setup_rerun_triggers(&manifest_dir);
 }
 
@@ -80,13 +73,9 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
         let out_dir = out_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
-            download_wheel(
-                &out_dir,
-                &prebuilt_dir,
-                "libcudf-cu12",
-                "libcudf",
-                &format!("libcudf_cu12-{LIBCUDF_WHEEL}-py3-none-manylinux_2_28_x86_64.whl"),
-            )
+            let wheel_file = format!("libcudf_cu12-{LIBCUDF_WHEEL}-py3-none-manylinux_2_28_x86_64.whl");
+            let wheel_url = format!("https://pypi.nvidia.com/libcudf-cu12/{wheel_file}");
+            download_wheel(&out_dir, &prebuilt_dir, "libcudf", &wheel_file, &wheel_url)
         })
     };
 
@@ -95,34 +84,34 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
         let out_dir = out_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
-            download_wheel(
-                &out_dir,
-                &prebuilt_dir,
-                "librmm-cu12",
-                "librmm",
-                &format!(
-                    "librmm_cu12-{LIBRMM_WHEEL}-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl"
-                ),
-            )
+            let wheel_file = format!("librmm_cu12-{LIBRMM_WHEEL}-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl");
+            let wheel_url = format!("https://pypi.nvidia.com/librmm-cu12/{wheel_file}");
+            download_wheel(&out_dir, &prebuilt_dir, "librmm", &wheel_file, &wheel_url)
         })
     };
     let libkvikio_wheel = {
         let out_dir = out_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
         std::thread::spawn(move || {
-            download_wheel(
-                &out_dir,
-                &prebuilt_dir,
-                "libkvikio-cu12",
-                "libkvikio",
-                &format!("libkvikio_cu12-{LIBIKIO_WHEEL}-py3-none-manylinux_2_28_x86_64.whl"),
-            )
+            let wheel_file = format!("libkvikio_cu12-{LIBIKIO_WHEEL}-py3-none-manylinux_2_28_x86_64.whl");
+            let wheel_url = format!("https://pypi.nvidia.com/libkvikio-cu12/{wheel_file}");
+            download_wheel(&out_dir, &prebuilt_dir, "libkvikio", &wheel_file, &wheel_url)
+        })
+    };
+    let rapids_logger_wheel = {
+        let out_dir = out_dir.to_path_buf();
+        let prebuilt_dir = prebuilt_dir.clone();
+        std::thread::spawn(move || {
+            let wheel_file = format!("rapids_logger-{RAPIDS_LOGGER_WHEEL}-py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl");
+            let wheel_url = format!("https://files.pythonhosted.org/packages/bf/0e/093fe9791b6b11f7d6d36b604d285b0018512cbdb6b1ce67a128795b7543/{wheel_file}");
+            download_wheel(&out_dir, &prebuilt_dir, "rapids_logger", &wheel_file, &wheel_url)
         })
     };
 
     join!(libcudf_wheel);
     join!(librmm_wheel);
     join!(libkvikio_wheel);
+    join!(rapids_logger_wheel);
 
     prebuilt_dir
 }
@@ -130,9 +119,9 @@ fn download_pypi_wheels(out_dir: &Path) -> PathBuf {
 fn download_wheel(
     out_dir: &Path,
     prebuilt_dir: &Path,
-    pkg_name: &str,
     lib_name: &str,
     wheel_file: &str,
+    wheel_url: &str,
 ) {
     let lib_check = prebuilt_dir
         .join(lib_name)
@@ -144,16 +133,15 @@ fn download_wheel(
         return;
     }
 
-    println!("cargo:warning=Downloading prebuilt {lib_name} from NVIDIA PyPI...");
+    println!("cargo:warning=Downloading prebuilt {lib_name}...");
 
-    let wheel_url = format!("https://pypi.nvidia.com/{pkg_name}/{wheel_file}");
     let wheel_path = out_dir.join(wheel_file);
 
     run_command(
         Command::new("curl")
             .args(["-L", "-f", "-o"])
             .arg(&wheel_path)
-            .arg(&wheel_url),
+            .arg(wheel_url),
         &format!("download {lib_name} wheel"),
     );
 
@@ -172,46 +160,6 @@ fn download_wheel(
     let _ = fs::remove_file(&wheel_path);
 }
 
-fn download_rapids_logger(out_dir: &Path) -> PathBuf {
-    let prebuilt_dir = out_dir.join("prebuilt");
-    let rapids_logger_lib = prebuilt_dir.join("rapids_logger").join("lib64");
-
-    let lib_path = rapids_logger_lib.join("librapids_logger.so");
-    if lib_path.exists() {
-        println!("cargo:warning=Using cached prebuilt rapids_logger");
-        return rapids_logger_lib;
-    }
-
-    println!("cargo:warning=Downloading prebuilt rapids_logger from PyPI...");
-
-    let wheel_file = format!("rapids_logger-{RAPIDS_LOGGER_WHEEL}-py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl");
-    let wheel_url = format!("https://files.pythonhosted.org/packages/bf/0e/093fe9791b6b11f7d6d36b604d285b0018512cbdb6b1ce67a128795b7543/{wheel_file}");
-    let wheel_path = out_dir.join(&wheel_file);
-
-    run_command(
-        Command::new("curl")
-            .args(["-L", "-f", "-o"])
-            .arg(&wheel_path)
-            .arg(&wheel_url),
-        "download rapids_logger wheel",
-    );
-
-    println!("cargo:warning=Extracting rapids_logger wheel...");
-    fs::create_dir_all(&prebuilt_dir).expect("Failed to create prebuilt directory");
-
-    run_command(
-        Command::new("unzip")
-            .args(["-q", "-o"])
-            .arg(&wheel_path)
-            .arg("-d")
-            .arg(&prebuilt_dir),
-        "extract rapids_logger wheel",
-    );
-
-    let _ = fs::remove_file(&wheel_path);
-
-    rapids_logger_lib
-}
 
 fn download_cudf_headers(out_dir: &Path) -> PathBuf {
     let cudf_src_dir = out_dir.join(format!("cudf-{CUDF_VERSION}"));
