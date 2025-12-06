@@ -35,7 +35,7 @@ fn main() {
     fs::create_dir_all(&shared_dir).expect("Failed to create shared directory");
 
     // Step 1: Download prebuilt libraries from PyPI
-    let prebuilt_dir = {
+    let lib_dir = {
         let shared_dir = shared_dir.clone();
         std::thread::spawn(move || download_pypi_wheels(&shared_dir))
     };
@@ -51,7 +51,8 @@ fn main() {
     };
 
     // Step 3: Build the C++ bridge
-    let prebuilt_dir = &join_thread!(prebuilt_dir);
+    let lib_dir = &join_thread!(lib_dir);
+    let prebuilt_dir = shared_dir.join("prebuilt");
 
     cxx_build::bridge("src/lib.rs")
         .files(find_files_by_extension(&manifest_dir.join("src"), "cpp"))
@@ -74,13 +75,8 @@ fn main() {
         .compile("libcudf-bridge");
 
     // Step 5: Configure library linking
-    let lib_dirs = vec![
-        prebuilt_dir.join("libcudf").join("lib64"),
-        prebuilt_dir.join("librmm").join("lib64"),
-        prebuilt_dir.join("libkvikio").join("lib64"),
-        prebuilt_dir.join("rapids_logger").join("lib64"),
-    ];
-    setup_library_paths(&lib_dirs, project_root);
+    // All .so files are now in the lib_dir directly
+    setup_library_paths(lib_dir, project_root);
 
     // Step 6: Set up rerun triggers
     setup_rerun_triggers(&manifest_dir);
@@ -88,16 +84,18 @@ fn main() {
 
 fn download_pypi_wheels(shared_dir: &Path) -> PathBuf {
     let prebuilt_dir = shared_dir.join("prebuilt");
+    let lib_dir = shared_dir.to_path_buf();
 
     // Download main libcudf wheel
     let libcudf_wheel = {
         let shared_dir = shared_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
+        let lib_dir = lib_dir.clone();
         std::thread::spawn(move || {
             let wheel_file =
                 format!("libcudf_cu12-{LIBCUDF_WHEEL}-py3-none-manylinux_2_28_{ARCH}.whl");
             let wheel_url = format!("https://pypi.nvidia.com/libcudf-cu12/{wheel_file}");
-            download_wheel(&shared_dir, &prebuilt_dir, "libcudf", &wheel_file, &wheel_url)
+            download_wheel(&shared_dir, &prebuilt_dir, &lib_dir, "libcudf", &wheel_file, &wheel_url)
         })
     };
 
@@ -105,15 +103,17 @@ fn download_pypi_wheels(shared_dir: &Path) -> PathBuf {
     let librmm_wheel = {
         let shared_dir = shared_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
+        let lib_dir = lib_dir.clone();
         std::thread::spawn(move || {
             let wheel_file = format!("librmm_cu12-{LIBRMM_WHEEL}-py3-none-manylinux_2_24_{ARCH}.manylinux_2_28_{ARCH}.whl");
             let wheel_url = format!("https://pypi.nvidia.com/librmm-cu12/{wheel_file}");
-            download_wheel(&shared_dir, &prebuilt_dir, "librmm", &wheel_file, &wheel_url)
+            download_wheel(&shared_dir, &prebuilt_dir, &lib_dir, "librmm", &wheel_file, &wheel_url)
         })
     };
     let libkvikio_wheel = {
         let shared_dir = shared_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
+        let lib_dir = lib_dir.clone();
         std::thread::spawn(move || {
             let wheel_file =
                 format!("libkvikio_cu12-{LIBKVIKIO_WHEEL}-py3-none-manylinux_2_28_{ARCH}.whl");
@@ -121,6 +121,7 @@ fn download_pypi_wheels(shared_dir: &Path) -> PathBuf {
             download_wheel(
                 &shared_dir,
                 &prebuilt_dir,
+                &lib_dir,
                 "libkvikio",
                 &wheel_file,
                 &wheel_url,
@@ -130,6 +131,7 @@ fn download_pypi_wheels(shared_dir: &Path) -> PathBuf {
     let rapids_logger_wheel = {
         let shared_dir = shared_dir.to_path_buf();
         let prebuilt_dir = prebuilt_dir.clone();
+        let lib_dir = lib_dir.clone();
         std::thread::spawn(move || {
             // PyPI uses content-addressed storage, so each architecture has a different hash-based URL path.
             // To find the correct URL for a new version, visit: https://pypi.org/project/rapids-logger/#files
@@ -145,6 +147,7 @@ fn download_pypi_wheels(shared_dir: &Path) -> PathBuf {
             download_wheel(
                 &shared_dir,
                 &prebuilt_dir,
+                &lib_dir,
                 "rapids_logger",
                 &wheel_file,
                 &wheel_url,
@@ -157,12 +160,13 @@ fn download_pypi_wheels(shared_dir: &Path) -> PathBuf {
     join_thread!(libkvikio_wheel);
     join_thread!(rapids_logger_wheel);
 
-    prebuilt_dir
+    lib_dir
 }
 
 fn download_wheel(
     shared_dir: &Path,
     prebuilt_dir: &Path,
+    lib_dir: &Path,
     lib_name: &str,
     wheel_file: &str,
     wheel_url: &str,
@@ -174,6 +178,7 @@ fn download_wheel(
 
     if lib_check.exists() {
         println!("cargo:warning=Using cached prebuilt {lib_name}");
+        copy_so_files_to_lib_dir(&prebuilt_dir.join(lib_name).join("lib64"), lib_dir);
         return;
     }
 
@@ -202,6 +207,9 @@ fn download_wheel(
     );
 
     let _ = fs::remove_file(&wheel_path);
+
+    // Copy all .so files to lib_dir
+    copy_so_files_to_lib_dir(&prebuilt_dir.join(lib_name).join("lib64"), lib_dir);
 }
 
 fn download_cudf_headers(shared_dir: &Path) -> PathBuf {
@@ -248,7 +256,7 @@ fn download_nanoarrow_headers(shared_dir: &Path) -> PathBuf {
     nanoarrow_dir.join("src")
 }
 
-fn setup_library_paths(lib_dirs: &[PathBuf], project_root: &Path) {
+fn setup_library_paths(lib_dir: &Path, project_root: &Path) {
     let cuda_root = cuda_root_lookup();
     let cuda_lib = cuda_root
         .join("lib64")
@@ -256,12 +264,10 @@ fn setup_library_paths(lib_dirs: &[PathBuf], project_root: &Path) {
         .unwrap_or_else(|_| PathBuf::from(&cuda_root).join("targets/x86_64-linux/lib"));
 
     // Create symbolic links in target/debug/deps for tests
-    create_library_symlinks(lib_dirs, project_root);
+    create_library_symlinks(lib_dir, project_root);
 
     // Add library search paths
-    for lib_dir in lib_dirs {
-        println!("cargo:rustc-link-search=native={}", lib_dir.display());
-    }
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-link-search=native={}", cuda_lib.display());
 
     // Link libraries
@@ -273,9 +279,7 @@ fn setup_library_paths(lib_dirs: &[PathBuf], project_root: &Path) {
     // Set rpath
     println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
     println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/deps");
-    for lib_dir in lib_dirs {
-        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
-    }
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", cuda_lib.display());
 }
 
@@ -301,6 +305,25 @@ fn setup_rerun_triggers(manifest_dir: &Path) {
 }
 
 // Helper functions
+
+fn copy_so_files_to_lib_dir(src_lib_dir: &Path, dest_dir: &Path) {
+    if !src_lib_dir.exists() {
+        return;
+    }
+
+    if let Ok(entries) = fs::read_dir(src_lib_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(filename) = path.file_name() {
+                let filename_str = filename.to_string_lossy();
+                if filename_str.ends_with(".so") || filename_str.contains(".so.") {
+                    let dest = dest_dir.join(filename);
+                    let _ = fs::copy(&path, &dest);
+                }
+            }
+        }
+    }
+}
 
 fn download_tarball(shared_dir: &Path, name: &str, url: &str, extracted_name: &str) -> PathBuf {
     let target_dir = shared_dir.join(name);
@@ -363,19 +386,17 @@ fn find_files_by_extension(dir: &Path, ext: &str) -> Vec<PathBuf> {
         .collect()
 }
 
-fn create_library_symlinks(lib_dirs: &[PathBuf], project_root: &Path) {
+fn create_library_symlinks(lib_dir: &Path, project_root: &Path) {
     if let Ok(profile) = env::var("PROFILE") {
         let target_dir = project_root.join("target").join(profile).join("deps");
         if target_dir.exists() || fs::create_dir_all(&target_dir).is_ok() {
-            for lib_dir in lib_dirs {
-                if let Ok(entries) = fs::read_dir(lib_dir) {
-                    for entry in entries.flatten() {
-                        if let Some(filename) = entry.file_name().to_str() {
-                            if filename.ends_with(".so") || filename.contains(".so.") {
-                                let target = target_dir.join(filename);
-                                let _ = fs::remove_file(&target);
-                                let _ = std::os::unix::fs::symlink(entry.path(), target);
-                            }
+            if let Ok(entries) = fs::read_dir(lib_dir) {
+                for entry in entries.flatten() {
+                    if let Some(filename) = entry.file_name().to_str() {
+                        if filename.ends_with(".so") || filename.contains(".so.") {
+                            let target = target_dir.join(filename);
+                            let _ = fs::remove_file(&target);
+                            let _ = std::os::unix::fs::symlink(entry.path(), target);
                         }
                     }
                 }
