@@ -15,7 +15,7 @@ const CUDF_VERSION: &str = "25.10.00";
 const LIBCUDF_WHEEL: &str = "25.10.0";
 const LIBRRM_WHEEL: &str = "25.10.0";
 const LIBIKIO_WHEEL: &str = "25.10.0";
-const SPDLOG_VERSION: &str = "1.14.1";
+const RAPIDS_LOGGER_WHEEL: &str = "0.1.19";
 const NANOARROW_COMMIT: &str = "4bf5a9322626e95e3717e43de7616c0a256179eb";
 
 fn main() {
@@ -31,10 +31,10 @@ fn main() {
         std::thread::spawn(move || download_pypi_wheels(&out_dir))
     };
 
-    // Step 2: Build rapids_logger (missing from PyPI wheels)
+    // Step 2: Download rapids_logger (from PyPI)
     let rapids_logger_lib = {
         let out_dir = out_dir.clone();
-        std::thread::spawn(move || build_rapids_logger(&out_dir))
+        std::thread::spawn(move || download_rapids_logger(&out_dir))
     };
 
     // Step 3: Download header-only dependencies
@@ -172,52 +172,43 @@ fn download_wheel(
     let _ = fs::remove_file(&wheel_path);
 }
 
-fn build_rapids_logger(out_dir: &Path) -> PathBuf {
-    let rapids_logger_lib = out_dir.join("rapids_logger");
-    fs::create_dir_all(&rapids_logger_lib).expect("Failed to create rapids_logger directory");
-    let lib_path = rapids_logger_lib.join("librapids_logger.so");
+fn download_rapids_logger(out_dir: &Path) -> PathBuf {
+    let prebuilt_dir = out_dir.join("prebuilt");
+    let rapids_logger_lib = prebuilt_dir.join("rapids_logger").join("lib64");
 
+    let lib_path = rapids_logger_lib.join("librapids_logger.so");
     if lib_path.exists() {
+        println!("cargo:warning=Using cached prebuilt rapids_logger");
         return rapids_logger_lib;
     }
 
-    // Download rapids-logger and spdlog sources
-    let rapids_logger_dir = download_tarball(
-        out_dir,
-        "rapids-logger",
-        "https://github.com/rapidsai/rapids-logger/archive/refs/heads/main.tar.gz",
-        "rapids-logger-main",
-    );
+    println!("cargo:warning=Downloading prebuilt rapids_logger from PyPI...");
 
-    let spdlog_dir = download_tarball(
-        out_dir,
-        "spdlog",
-        &format!("https://github.com/gabime/spdlog/archive/refs/tags/v{SPDLOG_VERSION}.tar.gz"),
-        &format!("spdlog-{SPDLOG_VERSION}"),
-    );
-
-    // Compile rapids_logger
-    println!("cargo:warning=Compiling rapids_logger...");
-    let logger_cpp = rapids_logger_dir.join("src/logger.cpp");
-    let spdlog_include = spdlog_dir.join("include");
-    let rapids_logger_include = rapids_logger_dir.join("include");
+    let wheel_file = format!("rapids_logger-{RAPIDS_LOGGER_WHEEL}-py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl");
+    let wheel_url = format!("https://files.pythonhosted.org/packages/bf/0e/093fe9791b6b11f7d6d36b604d285b0018512cbdb6b1ce67a128795b7543/{wheel_file}");
+    let wheel_path = out_dir.join(&wheel_file);
 
     run_command(
-        Command::new("c++")
-            .args([
-                "-std=c++20",
-                "-shared",
-                "-fPIC",
-                "-fvisibility=hidden",
-                "-DSPDLOG_USE_STD_FORMAT",
-                "-o",
-            ])
-            .arg(&lib_path)
-            .arg(&logger_cpp)
-            .arg(format!("-I{}", rapids_logger_include.display()))
-            .arg(format!("-I{}", spdlog_include.display())),
-        "compile rapids_logger",
+        Command::new("curl")
+            .args(["-L", "-f", "-o"])
+            .arg(&wheel_path)
+            .arg(&wheel_url),
+        "download rapids_logger wheel",
     );
+
+    println!("cargo:warning=Extracting rapids_logger wheel...");
+    fs::create_dir_all(&prebuilt_dir).expect("Failed to create prebuilt directory");
+
+    run_command(
+        Command::new("unzip")
+            .args(["-q", "-o"])
+            .arg(&wheel_path)
+            .arg("-d")
+            .arg(&prebuilt_dir),
+        "extract rapids_logger wheel",
+    );
+
+    let _ = fs::remove_file(&wheel_path);
 
     rapids_logger_lib
 }
