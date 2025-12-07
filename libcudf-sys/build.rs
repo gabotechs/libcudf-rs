@@ -27,12 +27,11 @@ const NANOARROW_COMMIT: &str = "4bf5a9322626e95e3717e43de7616c0a256179eb";
 
 static OUT_DIR: LazyLock<PathBuf> = LazyLock::new(out_dir_lookup);
 static CUDA_ROOT: LazyLock<PathBuf> = LazyLock::new(cuda_root_lookup);
+static MANIFEST_DIR: LazyLock<PathBuf> = LazyLock::new(manifest_dir_lookup);
+static PROJECT_ROOT: LazyLock<PathBuf> = LazyLock::new(project_root_lookup);
 
 fn main() {
     println!("cargo:warning=Using prebuilt libcudf from PyPI");
-
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let project_root = manifest_dir.parent().unwrap();
 
     // Step 1: Download prebuilt libraries from PyPI
     let download_pypi_wheels = std::thread::spawn(download_pypi_wheels);
@@ -43,8 +42,9 @@ fn main() {
 
     // Step 3: Build the C++ bridge
     join_thread!(download_pypi_wheels);
-    cxx_build::bridge("src/lib.rs")
-        .files(find_files_by_extension(&manifest_dir.join("src"), "cpp"))
+    let mut build = cxx_build::bridge("src/lib.rs");
+    build
+        .files(find_files_by_extension(&MANIFEST_DIR.join("src"), "cpp"))
         .std("c++20")
         .include("src")
         // Include headers from downloaded sources
@@ -60,14 +60,22 @@ fn main() {
         .include(CUDA_ROOT.join("include"))
         .define("LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE", None)
         .flag_if_supported("-Wno-unused-parameter")
-        .flag_if_supported("-Wno-deprecated-declarations")
-        .compile("libcudf-bridge");
+        .flag_if_supported("-Wno-deprecated-declarations");
+
+    // Use sccache if available
+    if which::which("sccache").is_ok() {
+        env::set_var("CXX", "sccache c++");
+        env::set_var("CC", "sccache cc");
+        println!("cargo:warning=Using sccache for C++ compilation");
+    }
+
+    build.compile("libcudf-bridge");
 
     // Step 4: Configure library linking
-    setup_library_paths(&OUT_DIR, project_root);
+    setup_library_paths(&OUT_DIR, &PROJECT_ROOT);
 
     // Step 5: Set up rerun triggers
-    setup_rerun_triggers(&manifest_dir);
+    setup_rerun_triggers(&MANIFEST_DIR);
 }
 
 fn download_pypi_wheels() {
@@ -252,6 +260,17 @@ fn cuda_root_lookup() -> PathBuf {
 
 fn out_dir_lookup() -> PathBuf {
     PathBuf::from(env::var("OUT_DIR").unwrap())
+}
+
+fn project_root_lookup() -> PathBuf {
+    PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
+        .parent()
+        .unwrap()
+        .to_path_buf()
+}
+
+fn manifest_dir_lookup() -> PathBuf {
+    PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
 }
 
 fn setup_rerun_triggers(manifest_dir: &Path) {
