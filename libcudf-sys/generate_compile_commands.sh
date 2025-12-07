@@ -13,17 +13,31 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Find the cxx generated headers
-CXX_BUILD_DIR=$(find "$PROJECT_ROOT/target/debug/build" -type d -name "out" -path "*/libcudf-sys-*/out" 2>/dev/null | sort -r | head -1)
+# Find the most recently modified cxx build directory
+CXX_BUILD_DIR=$(find "$PROJECT_ROOT/target/debug/build" -type d -name "out" -path "*/libcudf-sys-*/out" 2>/dev/null -printf '%T@ %p\n' | sort -rn | head -1 | cut -d' ' -f2-)
 if [ -z "$CXX_BUILD_DIR" ]; then
     echo "Error: Could not find cxx build output. Run 'cargo build' first."
     exit 1
 fi
 
-# Detect prebuilt directory (should be in the OUT_DIR)
-PREBUILT_DIR="$CXX_BUILD_DIR/prebuilt"
-if [ ! -d "$PREBUILT_DIR" ]; then
-    echo "Error: Prebuilt directory not found at $PREBUILT_DIR"
+# Prebuilt libraries are now directly in OUT_DIR
+LIBCUDF_DIR="$CXX_BUILD_DIR/libcudf"
+if [ ! -d "$LIBCUDF_DIR" ]; then
+    echo "Error: libcudf directory not found at $LIBCUDF_DIR"
+    echo "Run 'cargo build' first to download prebuilt libraries."
+    exit 1
+fi
+
+LIBRMM_DIR="$CXX_BUILD_DIR/librmm"
+if [ ! -d "$LIBRMM_DIR" ]; then
+    echo "Error: librmm directory not found at $LIBRMM_DIR"
+    echo "Run 'cargo build' first to download prebuilt libraries."
+    exit 1
+fi
+
+LIBKVIKIO_DIR="$CXX_BUILD_DIR/libkvikio"
+if [ ! -d "$LIBKVIKIO_DIR" ]; then
+    echo "Error: libkvikio directory not found at $LIBKVIKIO_DIR"
     echo "Run 'cargo build' first to download prebuilt libraries."
     exit 1
 fi
@@ -49,12 +63,12 @@ INCLUDES=""
 INCLUDES="$INCLUDES -I $CXX_BUILD_DIR/cxxbridge/include"
 INCLUDES="$INCLUDES -I $CXX_BUILD_DIR/cxxbridge/crate"
 INCLUDES="$INCLUDES -I libcudf-sys/src"
-INCLUDES="$INCLUDES -I $PREBUILT_DIR/libcudf/include"
+INCLUDES="$INCLUDES -I $LIBCUDF_DIR/include"
 INCLUDES="$INCLUDES -I $CUDF_SRC_DIR/cpp/include"
-INCLUDES="$INCLUDES -I $PREBUILT_DIR/libcudf/include/rapids"
-INCLUDES="$INCLUDES -I $PREBUILT_DIR/librmm/include"
-INCLUDES="$INCLUDES -I $PREBUILT_DIR/librmm/include/rapids"
-INCLUDES="$INCLUDES -I $PREBUILT_DIR/libkvikio/include"
+INCLUDES="$INCLUDES -I $LIBCUDF_DIR/include/rapids"
+INCLUDES="$INCLUDES -I $LIBRMM_DIR/include"
+INCLUDES="$INCLUDES -I $LIBRMM_DIR/include/rapids"
+INCLUDES="$INCLUDES -I $LIBKVIKIO_DIR/include"
 INCLUDES="$INCLUDES -I $NANOARROW_DIR/src"
 INCLUDES="$INCLUDES -I $CUDA_ROOT/include"
 
@@ -130,6 +144,8 @@ EOF_END
 
 echo "Generated compile_commands.json in project root"
 echo "Using cxx headers from: $CXX_BUILD_DIR"
-echo "Using prebuilt libraries from: $PREBUILT_DIR"
+echo "Using libcudf from: $LIBCUDF_DIR"
+echo "Using librmm from: $LIBRMM_DIR"
+echo "Using libkvikio from: $LIBKVIKIO_DIR"
 echo "Using cuDF source headers from: $CUDF_SRC_DIR"
 echo "Using nanoarrow headers from: $NANOARROW_DIR"
