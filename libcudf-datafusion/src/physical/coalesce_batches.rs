@@ -16,7 +16,7 @@ use datafusion_physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use delegate::delegate;
 use futures_util::{ready, Stream, StreamExt};
-use libcudf_rs::{is_cudf_array, is_cudf_record_batch, CuDFColumnView, CuDFTable, CuDFTableView};
+use libcudf_rs::{is_cudf_array, is_cudf_record_batch, CuDFTable, CuDFTableView};
 use std::any::Any;
 use std::fmt::Formatter;
 use std::pin::Pin;
@@ -446,5 +446,68 @@ impl CuDFBatchCoalescer {
         } else {
             Some(self.completed.remove(0))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::optimizer::CuDFBoundariesRule;
+    use crate::physical::CuDFCoalesceBatchesExec;
+    use crate::test_utils::TestFramework;
+    use arrow::util::pretty::pretty_format_batches;
+    use datafusion::physical_optimizer::PhysicalOptimizerRule;
+    use datafusion_physical_plan::coalesce_batches::CoalesceBatchesExec;
+    use datafusion_physical_plan::{execute_stream, ExecutionPlan};
+    use futures_util::TryStreamExt;
+    use std::error::Error;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_coalesce_batches() -> Result<(), Box<dyn Error>> {
+        let tf = TestFramework::new().await;
+
+        let plan = tf.plan("SELECT * FROM weather LIMIT 20").await?;
+        let host_plan = host_coalesce(Arc::clone(&plan.plan), 10, None);
+        let cudf_plan = cudf_coalesce(Arc::clone(&plan.plan), 10, None);
+        exact_same_batches(&tf, host_plan, cudf_plan).await
+    }
+
+    fn host_coalesce(
+        plan: Arc<dyn ExecutionPlan>,
+        size: usize,
+        fetch: Option<usize>,
+    ) -> Arc<dyn ExecutionPlan> {
+        Arc::new(CoalesceBatchesExec::new(plan, size).with_fetch(fetch))
+    }
+
+    fn cudf_coalesce(
+        plan: Arc<dyn ExecutionPlan>,
+        size: usize,
+        fetch: Option<usize>,
+    ) -> Arc<dyn ExecutionPlan> {
+        let inner = CoalesceBatchesExec::new(plan, size).with_fetch(fetch);
+        Arc::new(CuDFCoalesceBatchesExec::new(inner))
+    }
+
+    async fn exact_same_batches(
+        tf: &TestFramework,
+        host: Arc<dyn ExecutionPlan>,
+        cudf: Arc<dyn ExecutionPlan>,
+    ) -> Result<(), Box<dyn Error>> {
+        let host_stream = execute_stream(host, tf.task_ctx())?;
+        let host_batches = host_stream.try_collect::<Vec<_>>().await?;
+
+        let cudf = CuDFBoundariesRule.optimize(cudf, &Default::default())?;
+        let cudf_stream = execute_stream(cudf, tf.task_ctx())?;
+        let cudf_batches = cudf_stream.try_collect::<Vec<_>>().await?;
+
+        for (host, cudf) in host_batches.into_iter().zip(cudf_batches.into_iter()) {
+            assert_eq!(
+                pretty_format_batches(&[host])?.to_string(),
+                pretty_format_batches(&[cudf])?.to_string()
+            );
+        }
+
+        Ok(())
     }
 }

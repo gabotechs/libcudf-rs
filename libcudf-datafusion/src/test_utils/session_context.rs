@@ -52,6 +52,10 @@ impl TestFramework {
     pub async fn execute(&self, sql: &str) -> Result<SqlResult, DataFusionError> {
         self.plan(sql).await?.execute().await
     }
+
+    pub fn task_ctx(&self) -> Arc<TaskContext> {
+        self.ctx.task_ctx()
+    }
 }
 
 pub struct TestPlan {
