@@ -114,9 +114,7 @@ This is where you can:
 - The following tools are needed:
     - `rust`: a Rust toolchain
     - `gcc`: version 13.3.0 or greater (C++20 support required)
-    - `cuda-toolkit`: CUDA 13.0 or greater
-    - `curl`: for downloading dependencies
-    - `tar` and `unzip`: for extracting archives
+    - `cuda-toolkit`: CUDA 12 or greater
 - Be careful of having multiple versions of the CUDA toolkit installed in the system
 - There's no need for prefixing commands with LD_LIBRARY_PATH=/path/to/something. If the LD_LIBRARY_PATH is needed it
   means there's something wrong with libcudf-sys/build.rs
