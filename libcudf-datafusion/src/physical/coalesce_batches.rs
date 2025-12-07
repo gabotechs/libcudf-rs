@@ -472,6 +472,56 @@ mod tests {
         exact_same_batches(&tf, host_plan, cudf_plan).await
     }
 
+    #[tokio::test]
+    async fn test_coalesce_with_fetch() -> Result<(), Box<dyn Error>> {
+        let tf = TestFramework::new().await;
+
+        let plan = tf.plan("SELECT * FROM weather LIMIT 50").await?;
+        let host_plan = host_coalesce(Arc::clone(&plan.plan), 10, Some(25));
+        let cudf_plan = cudf_coalesce(Arc::clone(&plan.plan), 10, Some(25));
+        exact_same_batches(&tf, host_plan, cudf_plan).await
+    }
+
+    #[tokio::test]
+    async fn test_coalesce_large_target() -> Result<(), Box<dyn Error>> {
+        let tf = TestFramework::new().await;
+
+        let plan = tf.plan("SELECT * FROM weather LIMIT 100").await?;
+        let host_plan = host_coalesce(Arc::clone(&plan.plan), 50, None);
+        let cudf_plan = cudf_coalesce(Arc::clone(&plan.plan), 50, None);
+        exact_same_batches(&tf, host_plan, cudf_plan).await
+    }
+
+    #[tokio::test]
+    async fn test_coalesce_small_batches() -> Result<(), Box<dyn Error>> {
+        let tf = TestFramework::new().await;
+
+        let plan = tf.plan("SELECT * FROM weather LIMIT 30").await?;
+        let host_plan = host_coalesce(Arc::clone(&plan.plan), 5, None);
+        let cudf_plan = cudf_coalesce(Arc::clone(&plan.plan), 5, None);
+        exact_same_batches(&tf, host_plan, cudf_plan).await
+    }
+
+    #[tokio::test]
+    async fn test_coalesce_very_small_target() -> Result<(), Box<dyn Error>> {
+        let tf = TestFramework::new().await;
+
+        let plan = tf.plan("SELECT * FROM weather LIMIT 15").await?;
+        let host_plan = host_coalesce(Arc::clone(&plan.plan), 3, None);
+        let cudf_plan = cudf_coalesce(Arc::clone(&plan.plan), 3, None);
+        exact_same_batches(&tf, host_plan, cudf_plan).await
+    }
+
+    #[tokio::test]
+    async fn test_coalesce_fetch_less_than_target() -> Result<(), Box<dyn Error>> {
+        let tf = TestFramework::new().await;
+
+        let plan = tf.plan("SELECT * FROM weather LIMIT 50").await?;
+        let host_plan = host_coalesce(Arc::clone(&plan.plan), 20, Some(15));
+        let cudf_plan = cudf_coalesce(Arc::clone(&plan.plan), 20, Some(15));
+        exact_same_batches(&tf, host_plan, cudf_plan).await
+    }
+
     fn host_coalesce(
         plan: Arc<dyn ExecutionPlan>,
         size: usize,
