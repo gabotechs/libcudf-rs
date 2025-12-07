@@ -10,3 +10,5 @@ mod optimizer;
 mod physical;
 #[cfg(test)]
 mod test_utils;
+
+pub use optimizer::{CuDFBoundariesRule, CuDFConfig, HostToCuDFRule};
