@@ -21,3 +21,7 @@ insta = "1"
 cxx-build = "1.0"
 cmake = "0.1"
 num_cpus = "1.0"
+reqwest = { version = "0.12", features = ["blocking"] }
+zip = "6.0"
+flate2 = "1.1"
+tar = "0.4"

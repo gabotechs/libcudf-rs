@@ -1,7 +1,9 @@
+#![allow(clippy::expect_fun_call)]
 use std::env;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::sync::LazyLock;
 
 macro_rules! join_thread {
     ($handle:expr) => {
@@ -23,37 +25,24 @@ const LIBKVIKIO_WHEEL: &str = "25.10.0";
 const RAPIDS_LOGGER_WHEEL: &str = "0.1.19";
 const NANOARROW_COMMIT: &str = "4bf5a9322626e95e3717e43de7616c0a256179eb";
 
+static OUT_DIR: LazyLock<PathBuf> = LazyLock::new(out_dir_lookup);
+static CUDA_ROOT: LazyLock<PathBuf> = LazyLock::new(cuda_root_lookup);
+
 fn main() {
     println!("cargo:warning=Using prebuilt libcudf from PyPI");
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let project_root = manifest_dir.parent().unwrap();
 
-    // Use a shared directory at project root for downloaded artifacts
-    let shared_dir = project_root.join("target").join("libcudf-rs");
-    fs::create_dir_all(&shared_dir).expect("Failed to create shared directory");
-
     // Step 1: Download prebuilt libraries from PyPI
-    let lib_dir = {
-        let shared_dir = shared_dir.clone();
-        std::thread::spawn(move || download_pypi_wheels(&shared_dir))
-    };
+    let download_pypi_wheels = std::thread::spawn(download_pypi_wheels);
 
     // Step 2: Download header-only dependencies
-    let cudf_src_include = {
-        let shared_dir = shared_dir.clone();
-        std::thread::spawn(move || download_cudf_headers(&shared_dir))
-    };
-    let nanoarrow_include = {
-        let shared_dir = shared_dir.clone();
-        std::thread::spawn(move || download_nanoarrow_headers(&shared_dir))
-    };
+    let cudf_src_include = std::thread::spawn(download_cudf_headers);
+    let nanoarrow_include = std::thread::spawn(download_nanoarrow_headers);
 
     // Step 3: Build the C++ bridge
-    let lib_dir = &join_thread!(lib_dir);
-    let prebuilt_dir = shared_dir.join("prebuilt");
-
+    join_thread!(download_pypi_wheels);
     cxx_build::bridge("src/lib.rs")
         .files(find_files_by_extension(&manifest_dir.join("src"), "cpp"))
         .std("c++20")
@@ -62,158 +51,129 @@ fn main() {
         .include(join_thread!(cudf_src_include))
         .include(join_thread!(nanoarrow_include))
         // Include shared libraries downloaded from PyPI
-        .include(prebuilt_dir.join("libcudf").join("include"))
-        .include(prebuilt_dir.join("libcudf").join("include").join("rapids"))
-        .include(prebuilt_dir.join("librmm").join("include"))
-        .include(prebuilt_dir.join("librmm").join("include").join("rapids"))
-        .include(prebuilt_dir.join("libkvikio").join("include"))
+        .include(OUT_DIR.join("libcudf").join("include"))
+        .include(OUT_DIR.join("libcudf").join("include").join("rapids"))
+        .include(OUT_DIR.join("librmm").join("include"))
+        .include(OUT_DIR.join("librmm").join("include").join("rapids"))
+        .include(OUT_DIR.join("libkvikio").join("include"))
         // Include shared libraries from the CUDA installation present in the system
-        .include(cuda_root_lookup().join("include"))
+        .include(CUDA_ROOT.join("include"))
         .define("LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE", None)
         .flag_if_supported("-Wno-unused-parameter")
         .flag_if_supported("-Wno-deprecated-declarations")
         .compile("libcudf-bridge");
 
-    // Step 5: Configure library linking
-    // All .so files are now in the lib_dir directly
-    setup_library_paths(lib_dir, project_root);
+    // Step 4: Configure library linking
+    setup_library_paths(&OUT_DIR, project_root);
 
-    // Step 6: Set up rerun triggers
+    // Step 5: Set up rerun triggers
     setup_rerun_triggers(&manifest_dir);
 }
 
-fn download_pypi_wheels(shared_dir: &Path) -> PathBuf {
-    let prebuilt_dir = shared_dir.join("prebuilt");
-    let lib_dir = shared_dir.to_path_buf();
-
+fn download_pypi_wheels() {
     // Download main libcudf wheel
-    let libcudf_wheel = {
-        let shared_dir = shared_dir.to_path_buf();
-        let prebuilt_dir = prebuilt_dir.clone();
-        let lib_dir = lib_dir.clone();
-        std::thread::spawn(move || {
-            let wheel_file =
-                format!("libcudf_cu12-{LIBCUDF_WHEEL}-py3-none-manylinux_2_28_{ARCH}.whl");
-            let wheel_url = format!("https://pypi.nvidia.com/libcudf-cu12/{wheel_file}");
-            download_wheel(&shared_dir, &prebuilt_dir, &lib_dir, "libcudf", &wheel_file, &wheel_url)
-        })
-    };
+    let libcudf_wheel = std::thread::spawn(move || {
+        download_wheel(
+            "libcudf",
+            &format!("https://pypi.nvidia.com/libcudf-cu12/libcudf_cu12-{LIBCUDF_WHEEL}-py3-none-manylinux_2_28_{ARCH}.whl"),
+        )
+    });
 
     // Download dependencies
-    let librmm_wheel = {
-        let shared_dir = shared_dir.to_path_buf();
-        let prebuilt_dir = prebuilt_dir.clone();
-        let lib_dir = lib_dir.clone();
-        std::thread::spawn(move || {
-            let wheel_file = format!("librmm_cu12-{LIBRMM_WHEEL}-py3-none-manylinux_2_24_{ARCH}.manylinux_2_28_{ARCH}.whl");
-            let wheel_url = format!("https://pypi.nvidia.com/librmm-cu12/{wheel_file}");
-            download_wheel(&shared_dir, &prebuilt_dir, &lib_dir, "librmm", &wheel_file, &wheel_url)
-        })
-    };
-    let libkvikio_wheel = {
-        let shared_dir = shared_dir.to_path_buf();
-        let prebuilt_dir = prebuilt_dir.clone();
-        let lib_dir = lib_dir.clone();
-        std::thread::spawn(move || {
-            let wheel_file =
-                format!("libkvikio_cu12-{LIBKVIKIO_WHEEL}-py3-none-manylinux_2_28_{ARCH}.whl");
-            let wheel_url = format!("https://pypi.nvidia.com/libkvikio-cu12/{wheel_file}");
+    let librmm_wheel = std::thread::spawn(move || {
+        download_wheel(
+            "librmm",
+            &format!("https://pypi.nvidia.com/librmm-cu12/librmm_cu12-{LIBRMM_WHEEL}-py3-none-manylinux_2_24_{ARCH}.manylinux_2_28_{ARCH}.whl"),
+        )
+    });
+    let libkvikio_wheel = std::thread::spawn(move || {
+        download_wheel(
+            "libkvikio",
+            &format!("https://pypi.nvidia.com/libkvikio-cu12/libkvikio_cu12-{LIBKVIKIO_WHEEL}-py3-none-manylinux_2_28_{ARCH}.whl"),
+        )
+    });
+    let rapids_logger_wheel = std::thread::spawn(move || {
+        // PyPI uses content-addressed storage, so each architecture has a different hash-based URL path.
+        // To find the correct URL for a new version, visit: https://pypi.org/project/rapids-logger/#files
+        if ARCH == "aarch64" {
             download_wheel(
-                &shared_dir,
-                &prebuilt_dir,
-                &lib_dir,
-                "libkvikio",
-                &wheel_file,
-                &wheel_url,
-            )
-        })
-    };
-    let rapids_logger_wheel = {
-        let shared_dir = shared_dir.to_path_buf();
-        let prebuilt_dir = prebuilt_dir.clone();
-        let lib_dir = lib_dir.clone();
-        std::thread::spawn(move || {
-            // PyPI uses content-addressed storage, so each architecture has a different hash-based URL path.
-            // To find the correct URL for a new version, visit: https://pypi.org/project/rapids-logger/#files
-            let (wheel_file, wheel_url) = if ARCH == "aarch64" {
-                let file = format!("rapids_logger-{RAPIDS_LOGGER_WHEEL}-py3-none-manylinux_2_26_{ARCH}.manylinux_2_28_{ARCH}.whl");
-                let url = format!("https://files.pythonhosted.org/packages/0e/b9/5b4158deb206019427867e1ee1729fda85268bdecd9ec116cc611ee75345/{file}");
-                (file, url)
-            } else {
-                let file = format!("rapids_logger-{RAPIDS_LOGGER_WHEEL}-py3-none-manylinux_2_27_{ARCH}.manylinux_2_28_{ARCH}.whl");
-                let url = format!("https://files.pythonhosted.org/packages/bf/0e/093fe9791b6b11f7d6d36b604d285b0018512cbdb6b1ce67a128795b7543/{file}");
-                (file, url)
-            };
-            download_wheel(
-                &shared_dir,
-                &prebuilt_dir,
-                &lib_dir,
                 "rapids_logger",
-                &wheel_file,
-                &wheel_url,
+                &format!("https://files.pythonhosted.org/packages/0e/b9/5b4158deb206019427867e1ee1729fda85268bdecd9ec116cc611ee75345/rapids_logger-{RAPIDS_LOGGER_WHEEL}-py3-none-manylinux_2_26_{ARCH}.manylinux_2_28_{ARCH}.whl"),
             )
-        })
-    };
+        } else {
+            download_wheel(
+                "rapids_logger",
+                &format!("https://files.pythonhosted.org/packages/bf/0e/093fe9791b6b11f7d6d36b604d285b0018512cbdb6b1ce67a128795b7543/rapids_logger-{RAPIDS_LOGGER_WHEEL}-py3-none-manylinux_2_27_{ARCH}.manylinux_2_28_{ARCH}.whl"),
+            )
+        }
+    });
 
     join_thread!(libcudf_wheel);
     join_thread!(librmm_wheel);
     join_thread!(libkvikio_wheel);
     join_thread!(rapids_logger_wheel);
-
-    lib_dir
 }
 
-fn download_wheel(
-    shared_dir: &Path,
-    prebuilt_dir: &Path,
-    lib_dir: &Path,
-    lib_name: &str,
-    wheel_file: &str,
-    wheel_url: &str,
-) {
-    let lib_check = prebuilt_dir
+fn download_wheel(lib_name: &str, wheel_url: &str) {
+    let lib_check = OUT_DIR
         .join(lib_name)
         .join("lib64")
         .join(format!("{lib_name}.so"));
 
     if lib_check.exists() {
         println!("cargo:warning=Using cached prebuilt {lib_name}");
-        copy_so_files_to_lib_dir(&prebuilt_dir.join(lib_name).join("lib64"), lib_dir);
+        copy_so_files_to_lib_dir(&OUT_DIR.join(lib_name).join("lib64"), &OUT_DIR);
         return;
     }
+    let wheel_file = wheel_url.split('/').next_back().unwrap();
 
     println!("cargo:warning=Downloading prebuilt {lib_name}...");
 
-    let wheel_path = shared_dir.join(wheel_file);
+    let wheel_path = OUT_DIR.join(wheel_file);
 
-    run_command(
-        Command::new("curl")
-            .args(["-L", "-f", "-o"])
-            .arg(&wheel_path)
-            .arg(wheel_url),
-        &format!("download {lib_name} wheel"),
-    );
+    // Download using reqwest
+    let response =
+        reqwest::blocking::get(wheel_url).expect(&format!("Failed to download {lib_name} wheel"));
+    let mut file = fs::File::create(&wheel_path)
+        .expect(&format!("Failed to create wheel file for {lib_name}"));
+    io::copy(
+        &mut response.bytes().expect("Failed to read response").as_ref(),
+        &mut file,
+    )
+    .expect(&format!("Failed to write wheel file for {lib_name}"));
 
     println!("cargo:warning=Extracting {lib_name} wheel...");
-    fs::create_dir_all(prebuilt_dir).expect("Failed to create prebuilt directory");
+    // Extract using zip crate
+    let file =
+        fs::File::open(&wheel_path).expect(&format!("Failed to open wheel file for {lib_name}"));
+    let mut archive =
+        zip::ZipArchive::new(file).expect(&format!("Failed to read zip archive for {lib_name}"));
 
-    run_command(
-        Command::new("unzip")
-            .args(["-q", "-o"])
-            .arg(&wheel_path)
-            .arg("-d")
-            .arg(prebuilt_dir),
-        &format!("extract {lib_name} wheel"),
-    );
+    for i in 0..archive.len() {
+        let mut file = archive
+            .by_index(i)
+            .expect(&format!("Failed to read file from archive for {lib_name}"));
+        let out_path = OUT_DIR.join(file.mangled_name());
+
+        if file.is_dir() {
+            fs::create_dir_all(&out_path).expect("Failed to create directory");
+        } else {
+            if let Some(parent) = out_path.parent() {
+                fs::create_dir_all(parent).expect("Failed to create parent directory");
+            }
+            let mut outfile = fs::File::create(&out_path).expect("Failed to create extracted file");
+            io::copy(&mut file, &mut outfile).expect("Failed to extract file");
+        }
+    }
 
     let _ = fs::remove_file(&wheel_path);
 
     // Copy all .so files to lib_dir
-    copy_so_files_to_lib_dir(&prebuilt_dir.join(lib_name).join("lib64"), lib_dir);
+    copy_so_files_to_lib_dir(&OUT_DIR.join(lib_name).join("lib64"), &OUT_DIR);
 }
 
-fn download_cudf_headers(shared_dir: &Path) -> PathBuf {
-    let cudf_src_dir = shared_dir.join(format!("cudf-{CUDF_VERSION}"));
+fn download_cudf_headers() -> PathBuf {
+    let cudf_src_dir = OUT_DIR.join(format!("cudf-{CUDF_VERSION}"));
 
     if cudf_src_dir.exists() {
         println!("cargo:warning=Using cached cuDF source headers");
@@ -223,7 +183,7 @@ fn download_cudf_headers(shared_dir: &Path) -> PathBuf {
     println!("cargo:warning=Downloading cuDF {CUDF_VERSION} source for additional headers...");
 
     download_tarball(
-        shared_dir,
+        &OUT_DIR,
         &format!("cudf-{CUDF_VERSION}"),
         &format!("https://github.com/rapidsai/cudf/archive/refs/tags/v{CUDF_VERSION}.tar.gz"),
         &format!("cudf-{CUDF_VERSION}"),
@@ -232,8 +192,8 @@ fn download_cudf_headers(shared_dir: &Path) -> PathBuf {
     cudf_src_dir.join("cpp").join("include")
 }
 
-fn download_nanoarrow_headers(shared_dir: &Path) -> PathBuf {
-    let nanoarrow_dir = shared_dir.join("arrow-nanoarrow");
+fn download_nanoarrow_headers() -> PathBuf {
+    let nanoarrow_dir = OUT_DIR.join("arrow-nanoarrow");
 
     if nanoarrow_dir.exists() {
         println!("cargo:warning=Using cached nanoarrow headers");
@@ -243,7 +203,7 @@ fn download_nanoarrow_headers(shared_dir: &Path) -> PathBuf {
     println!("cargo:warning=Downloading nanoarrow headers...");
 
     download_tarball(
-        shared_dir,
+        &OUT_DIR,
         "arrow-nanoarrow",
         &format!("https://github.com/apache/arrow-nanoarrow/archive/{NANOARROW_COMMIT}.tar.gz"),
         &format!("arrow-nanoarrow-{NANOARROW_COMMIT}"),
@@ -288,6 +248,10 @@ fn cuda_root_lookup() -> PathBuf {
         .or_else(|_| env::var("CUDA_HOME"))
         .unwrap_or_else(|_| "/usr/local/cuda".to_string());
     PathBuf::from(&cuda_root)
+}
+
+fn out_dir_lookup() -> PathBuf {
+    PathBuf::from(env::var("OUT_DIR").unwrap())
 }
 
 fn setup_rerun_triggers(manifest_dir: &Path) {
@@ -336,22 +300,25 @@ fn download_tarball(shared_dir: &Path, name: &str, url: &str, extracted_name: &s
     println!("cargo:warning=Downloading {name}...");
 
     let tarball_path = shared_dir.join(format!("{name}.tar.gz"));
-    run_command(
-        Command::new("curl")
-            .args(["-L", "-f", "-o"])
-            .arg(&tarball_path)
-            .arg(url),
-        &format!("download {name}"),
-    );
 
-    run_command(
-        Command::new("tar")
-            .args(["-xzf"])
-            .arg(&tarball_path)
-            .arg("-C")
-            .arg(shared_dir),
-        &format!("extract {name}"),
-    );
+    // Download using reqwest
+    let response = reqwest::blocking::get(url).expect(&format!("Failed to download {name}"));
+    let mut file = fs::File::create(&tarball_path)
+        .expect(&format!("Failed to create tarball file for {name}"));
+    io::copy(
+        &mut response.bytes().expect("Failed to read response").as_ref(),
+        &mut file,
+    )
+    .expect(&format!("Failed to write tarball file for {name}"));
+
+    // Extract using tar and flate2
+    let tar_gz =
+        fs::File::open(&tarball_path).expect(&format!("Failed to open tarball for {name}"));
+    let tar = flate2::read::GzDecoder::new(tar_gz);
+    let mut archive = tar::Archive::new(tar);
+    archive
+        .unpack(shared_dir)
+        .expect(&format!("Failed to extract {name}"));
 
     let extracted_dir = shared_dir.join(extracted_name);
     fs::rename(&extracted_dir, &target_dir).expect(&format!("Failed to rename {name} directory"));
@@ -359,15 +326,6 @@ fn download_tarball(shared_dir: &Path, name: &str, url: &str, extracted_name: &s
     let _ = fs::remove_file(&tarball_path);
 
     target_dir
-}
-
-fn run_command(cmd: &mut Command, action: &str) {
-    let status = cmd
-        .status()
-        .expect(&format!("Failed to execute command for: {action}"));
-    if !status.success() {
-        panic!("Failed to {action}");
-    }
 }
 
 fn find_files_by_extension(dir: &Path, ext: &str) -> Vec<PathBuf> {
