@@ -1,11 +1,13 @@
 use crate::aggregate::CuDFAggregateExec;
 use datafusion_physical_plan::ExecutionPlan;
 
+mod coalesce_batches;
 mod cudf_load;
 mod cudf_unload;
 mod filter;
 mod projection;
 
+pub use coalesce_batches::CuDFCoalesceBatchesExec;
 pub use cudf_load::CuDFLoadExec;
 pub use cudf_unload::CuDFUnloadExec;
 pub use filter::CuDFFilterExec;
@@ -18,4 +20,5 @@ pub fn is_cudf_plan(plan: &dyn ExecutionPlan) -> bool {
         || any.is::<CuDFLoadExec>()
         || any.is::<CuDFUnloadExec>()
         || any.is::<CuDFProjectionExec>()
+        || any.is::<CuDFCoalesceBatchesExec>()
 }

@@ -1,8 +1,9 @@
 use crate::optimizer::CuDFConfig;
-use crate::physical::{CuDFFilterExec, CuDFProjectionExec};
+use crate::physical::{is_cudf_plan, CuDFCoalesceBatchesExec, CuDFFilterExec, CuDFProjectionExec};
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::config::ConfigOptions;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
+use datafusion_physical_plan::coalesce_batches::CoalesceBatchesExec;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::projection::ProjectionExec;
 use datafusion_physical_plan::ExecutionPlan;
@@ -24,7 +25,7 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
             return Ok(plan);
         }
 
-        let result = plan.transform_down(|plan| {
+        let result = plan.transform_up(|plan| {
             if let Some(node) = plan.as_any().downcast_ref::<FilterExec>() {
                 return Ok(Transformed::yes(Arc::new(CuDFFilterExec::try_new(
                     node.clone(),
@@ -35,6 +36,14 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
                 return Ok(Transformed::yes(Arc::new(CuDFProjectionExec::try_new(
                     node.clone(),
                 )?)));
+            }
+
+            if let Some(node) = plan.as_any().downcast_ref::<CoalesceBatchesExec>() {
+                if is_cudf_plan(node.input().as_ref()) {
+                    return Ok(Transformed::yes(Arc::new(CuDFCoalesceBatchesExec::new(
+                        node.clone(),
+                    ))));
+                }
             }
 
             Ok(Transformed::no(plan))
