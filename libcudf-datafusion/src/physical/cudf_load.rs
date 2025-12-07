@@ -5,7 +5,7 @@ use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures_util::stream::StreamExt;
-use libcudf_rs::{is_cudf_array, CuDFColumnView};
+use libcudf_rs::{is_cudf_array, CuDFColumn};
 use std::any::Any;
 use std::fmt::Formatter;
 use std::sync::Arc;
@@ -79,7 +79,8 @@ impl ExecutionPlan for CuDFLoadExec {
                         "Cannot move RecordBatch from host to CuDF: a column is already a CuDF array"
                     );
                 }
-                cudf_cols.push(Arc::new(CuDFColumnView::from_arrow(original_col).map_err(cudf_to_df)?))
+                let col = CuDFColumn::from_arrow_host(original_col).map_err(cudf_to_df)?;
+                cudf_cols.push(Arc::new(col.into_view()));
             }
 
             Ok(RecordBatch::try_new(batch.schema(), cudf_cols)?)

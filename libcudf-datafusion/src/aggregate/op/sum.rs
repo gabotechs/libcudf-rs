@@ -1,19 +1,18 @@
+use crate::aggregate::op::udf::CuDFAggregateUDF;
 use crate::aggregate::CuDFAggregationOp;
 use crate::errors::cudf_to_df;
 use datafusion::common::exec_err;
 use datafusion::error::Result;
+use datafusion::functions_aggregate::sum::{sum_udaf, Sum};
+use datafusion_expr::AggregateUDF;
 use libcudf_rs::{AggregationOp, AggregationRequest, CuDFColumnView};
 use std::fmt::Debug;
 use std::sync::Arc;
-use datafusion::functions_aggregate::sum::{sum_udaf, Sum};
-use datafusion_expr::AggregateUDF;
-use crate::aggregate::op::udf::CuDFAggregateUDF;
 
 pub fn sum() -> Arc<AggregateUDF> {
     let udf = CuDFAggregateUDF::new(Arc::new(Sum::default()), Arc::new(CuDFSum));
     Arc::new(AggregateUDF::new_from_impl(udf))
 }
-
 
 #[derive(Debug, Default)]
 pub struct CuDFSum;
@@ -28,8 +27,7 @@ impl CuDFAggregationOp for CuDFSum {
             return exec_err!("SUM expects 1 argument, got {}", args.len());
         }
 
-        let view = CuDFColumnView::from_arrow(&args[0]).map_err(cudf_to_df)?;
-        let mut request = AggregationRequest::new(&view);
+        let mut request = AggregationRequest::new(&args[0]);
         request.add(AggregationOp::SUM.group_by());
 
         Ok(vec![request])

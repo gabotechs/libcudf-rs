@@ -1,12 +1,12 @@
 use crate::errors::Result;
 use crate::table_view::CuDFTableView;
-use crate::{CuDFColumnView, CuDFTable};
+use crate::{CuDFColumn, CuDFColumnView, CuDFTable};
 use cxx::UniquePtr;
 use libcudf_sys::ffi;
 use libcudf_sys::ffi::{
     aggregation_request_create, make_count_aggregation_groupby, make_max_aggregation_groupby,
     make_mean_aggregation_groupby, make_min_aggregation_groupby, make_sum_aggregation_groupby,
-    GroupByResult,
+    Column, GroupByResult,
 };
 
 /// Result of a group-by aggregation operation
@@ -52,9 +52,9 @@ impl CuDFGroupByResult {
     /// * `index` - The aggregation request index
     /// * `column` - The column index within that aggregation result
     pub fn take_column(&mut self, index: usize, column: usize) -> CuDFColumnView {
-        CuDFColumnView::from_column(
-            GroupByResult::get_mut(self.inner.pin_mut(), index).release(column),
-        )
+        let col = GroupByResult::get_mut(self.inner.pin_mut(), index).release(column);
+        let col = CuDFColumn::new(col);
+        col.into_view()
     }
 
     /// Get the number of aggregation results

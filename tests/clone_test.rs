@@ -1,13 +1,14 @@
 #[cfg(test)]
 mod tests {
     use arrow::array::{Array, Int32Array};
-    use libcudf_rs::CuDFColumnView;
+    use libcudf_rs::{CuDFColumn, CuDFColumnView};
 
     #[test]
     fn test_column_view_clone() {
         let array = Int32Array::from(vec![1, 2, 3, 4, 5]);
-        let column =
-            CuDFColumnView::from_arrow(&array).expect("Failed to convert Arrow array to column");
+        let column = CuDFColumn::from_arrow_host(&array)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
 
         // Clone the column view
         let cloned = column.clone();
@@ -33,8 +34,9 @@ mod tests {
     #[test]
     fn test_multiple_clones() {
         let array = Int32Array::from(vec![10, 20, 30]);
-        let column =
-            CuDFColumnView::from_arrow(&array).expect("Failed to convert Arrow array to column");
+        let column = CuDFColumn::from_arrow_host(&array)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
 
         // Create multiple clones
         let clone1 = column.clone();

@@ -1,13 +1,14 @@
 use arrow::array::{Array, Int32Array};
-use libcudf_rs::CuDFColumnView;
+use libcudf_rs::{CuDFColumn, CuDFColumnView};
 
 #[test]
 fn test_column_view_operations() {
     // This test verifies that column views work correctly
     // The actual cloning is tested at the FFI level
     let array = Int32Array::from(vec![1, 2, 3, 4, 5]);
-    let column =
-        CuDFColumnView::from_arrow(&array).expect("Failed to convert Arrow array to column");
+    let column = CuDFColumn::from_arrow_host(&array)
+        .expect("Failed to convert Arrow array to column")
+        .into_view();
 
     // Get pointer from column view
     let ptr = unsafe { column.data_ptr() };

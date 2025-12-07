@@ -3,14 +3,16 @@ use crate::aggregate::CuDFAggregationOp;
 use crate::errors::cudf_to_df;
 use arrow::array::{ArrayRef, RecordBatch};
 use arrow_schema::SchemaRef;
-use datafusion::common::exec_err;
+use datafusion::common::{exec_err, internal_err};
 use datafusion::error::Result;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream};
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion_physical_plan::aggregates::{evaluate_group_by, evaluate_many, PhysicalGroupBy};
 use datafusion_physical_plan::udaf::AggregateFunctionExpr;
 use futures::{ready, StreamExt};
-use libcudf_rs::{ffi, CuDFColumnView, CuDFGroupBy, CuDFGroupByResult, CuDFTable, CuDFTableView};
+use libcudf_rs::{
+    ffi, CuDFColumn, CuDFColumnView, CuDFGroupBy, CuDFGroupByResult, CuDFTable, CuDFTableView,
+};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -111,7 +113,7 @@ impl Stream {
                             .into_iter()
                             .map(|x| x.into_inner())
                             .collect::<Vec<_>>();
-                        CuDFColumnView::from_column(ffi::concat_column_views(&view_ptrs))
+                        CuDFColumn::new(ffi::concat_column_views(&view_ptrs)).into_view()
                     })
                     .collect()
             })
@@ -125,7 +127,7 @@ impl Stream {
         let mut arrays: Vec<ArrayRef> =
             Vec::with_capacity(groups.len() + self.aggregate_expr.len());
         for i in 0..groups.len() {
-            arrays.push(Arc::new(groups.release(i)))
+            arrays.push(Arc::new(groups.release(i).into_view()))
         }
 
         for (result_index, aggr) in self.aggregate_ops.iter().enumerate() {
@@ -168,7 +170,8 @@ impl futures::Stream for Stream {
                                 .map(|x| x.as_any().downcast_ref::<CuDFColumnView>().unwrap())
                                 .collect::<Vec<_>>();
 
-                            let table_view = CuDFTableView::from_column_views(&column_views).map_err(cudf_to_df)?;
+                            let table_view = CuDFTableView::from_column_views(&column_views)
+                                .map_err(cudf_to_df)?;
                             let group_by = CuDFGroupBy::from(&table_view);
 
                             let evaluated_arguments = evaluate_many(&self.aggregate_args, &batch)?;
@@ -177,7 +180,14 @@ impl futures::Stream for Stream {
                                 .map(|args| {
                                     args.iter()
                                         .map(|arg| {
-                                            CuDFColumnView::from_arrow(&arg).map_err(cudf_to_df)
+                                            let Some(view) =
+                                                arg.as_any().downcast_ref::<CuDFColumnView>()
+                                            else {
+                                                return internal_err!(
+                                                    "Expected Array to be of type CuDFColumnView"
+                                                );
+                                            };
+                                            Ok(view.clone())
                                         })
                                         .collect()
                                 })
@@ -199,7 +209,7 @@ impl futures::Stream for Stream {
                     }
 
                     let keys_table = self.concat_keys()?;
-                    let group_by = CuDFGroupBy::from(&keys_table.view());
+                    let group_by = CuDFGroupBy::from(&keys_table.into_view());
 
                     let concatenated_columns = self.concat_partial_results()?;
 

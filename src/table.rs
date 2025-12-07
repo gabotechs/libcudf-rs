@@ -1,6 +1,6 @@
 use crate::cudf_array::is_cudf_array;
 use crate::table_view::CuDFTableView;
-use crate::{CuDFColumnView, CuDFError};
+use crate::{CuDFColumn, CuDFColumnView, CuDFError};
 use arrow::array::{Array, ArrayData, StructArray};
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow::record_batch::RecordBatch;
@@ -8,6 +8,7 @@ use arrow_schema::ArrowError;
 use cxx::UniquePtr;
 use libcudf_sys::{ffi, ArrowDeviceArray};
 use std::path::Path;
+use std::sync::Arc;
 
 /// A GPU-accelerated table (similar to a DataFrame)
 ///
@@ -210,8 +211,13 @@ impl CuDFTable {
     ///
     /// The returned view borrows from this table and remains valid as long as
     /// the table exists.
-    pub fn view(&self) -> CuDFTableView {
-        CuDFTableView::new(self.inner.view())
+    pub fn view(self: Arc<Self>) -> CuDFTableView {
+        CuDFTableView::new_with_ref(self.inner.view(), Some(self))
+    }
+
+    /// Get a non-owning view of this table
+    pub fn into_view(self) -> CuDFTableView {
+        CuDFTableView::new_with_ref(self.inner.view(), Some(Arc::new(self)))
     }
 
     /// Take ownership of the table's columns
@@ -220,6 +226,36 @@ impl CuDFTable {
     /// that can be individually released.
     pub fn take(&mut self) -> CuDFColumnCollection {
         CuDFColumnCollection::new(self.inner.pin_mut().take())
+    }
+
+    /// Concatenate multiple table views into a single table
+    ///
+    /// # Arguments
+    ///
+    /// * `views` - Slice of table views to concatenate (consumes the views)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The tables have incompatible schemas
+    /// - There is insufficient GPU memory
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use libcudf_rs::CuDFTable;
+    ///
+    /// let table1 = CuDFTable::from_parquet("data1.parquet")?;
+    /// let table2 = CuDFTable::from_parquet("data2.parquet")?;
+    ///
+    /// let views = vec![table1.into_view(), table2.into_view()];
+    /// let concatenated = CuDFTable::concat(views)?;
+    /// # Ok::<(), libcudf_rs::CuDFError>(())
+    /// ```
+    pub fn concat(views: Vec<CuDFTableView>) -> Result<Self, CuDFError> {
+        let inner_views: Vec<_> = views.into_iter().map(|v| v.into_inner()).collect();
+        let inner = ffi::concat_table_views(&inner_views);
+        Ok(Self { inner })
     }
 }
 
@@ -250,8 +286,9 @@ impl CuDFColumnCollection {
     /// Release ownership of the column at the specified index
     ///
     /// This removes the column from the collection and returns it.
-    pub fn release(&mut self, index: usize) -> CuDFColumnView {
-        CuDFColumnView::from_column(self.inner.pin_mut().release(index))
+    pub fn release(&mut self, index: usize) -> CuDFColumn {
+        let col = self.inner.pin_mut().release(index);
+        CuDFColumn::new(col)
     }
 }
 

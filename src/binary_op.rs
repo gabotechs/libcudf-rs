@@ -1,3 +1,4 @@
+use crate::column::CuDFColumn;
 use crate::{arrow_type_to_cudf, CuDFColumnView, CuDFColumnViewOrScalar, CuDFError};
 use arrow_schema::{ArrowError, DataType};
 
@@ -108,6 +109,6 @@ pub fn cudf_binary_op(
         }
     }?;
     Ok(CuDFColumnViewOrScalar::ColumnView(
-        CuDFColumnView::from_column(result),
+        CuDFColumn::new(result).into_view(),
     ))
 }

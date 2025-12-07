@@ -17,6 +17,7 @@ use datafusion_physical_plan::{
 };
 use delegate::delegate;
 use futures_util::{Stream, StreamExt};
+use libcudf_rs::CuDFColumnView;
 use libcudf_rs::{CuDFColumnViewOrScalar, CuDFTableView};
 use std::any::Any;
 use std::fmt::Formatter;
@@ -154,8 +155,6 @@ fn filter_and_project(
     projection: Option<&Vec<usize>>,
     output_schema: &SchemaRef,
 ) -> Result<RecordBatch, DataFusionError> {
-    use libcudf_rs::{is_cudf_array, CuDFColumnView, CuDFTable};
-
     // Evaluate the predicate to get a boolean mask (CuDF array on GPU)
     let filter_array = predicate.evaluate(batch)?;
     let CuDFColumnViewOrScalar::ColumnView(bool_mask) = columnar_value_to_cudf(filter_array)?
@@ -190,12 +189,12 @@ fn filter_and_project(
         .map_err(cudf_to_df)?;
 
     // Keep data on GPU by wrapping table in an Arc and creating column views that reference it
-    let table_arc = Arc::new(filtered_table);
-    let num_cols = table_arc.num_columns();
+    let table_view = filtered_table.into_view();
+    let num_cols = table_view.num_columns();
 
     let mut cudf_columns: Vec<Arc<dyn Array>> = Vec::with_capacity(num_cols);
     for i in 0..num_cols {
-        let col_view = CuDFColumnView::from_table_column(Arc::clone(&table_arc), i as i32);
+        let col_view = table_view.column(i as i32);
         cudf_columns.push(Arc::new(col_view));
     }
 

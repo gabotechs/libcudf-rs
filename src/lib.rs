@@ -18,8 +18,10 @@
 //! ```
 
 mod binary_op;
+mod column;
 mod column_view;
 mod cudf_array;
+mod cudf_reference;
 mod data_type;
 mod errors;
 mod group_by;
@@ -28,8 +30,9 @@ mod table;
 mod table_view;
 
 pub use binary_op::{cudf_binary_op, CuDFBinaryOp};
+pub use column::CuDFColumn;
 pub use column_view::CuDFColumnView;
-pub use cudf_array::{is_cudf_array, CuDFColumnViewOrScalar};
+pub use cudf_array::*;
 pub use data_type::*;
 pub use errors::{CuDFError, Result};
 pub use group_by::*;

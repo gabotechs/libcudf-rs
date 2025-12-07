@@ -1,4 +1,4 @@
-use crate::{cudf_type_to_arrow, CuDFColumnView, CuDFError};
+use crate::{cudf_type_to_arrow, CuDFColumn, CuDFColumnView, CuDFError};
 use arrow::array::{Array, ArrayData, ArrayRef, Scalar};
 use arrow::buffer::NullBuffer;
 use arrow_schema::DataType;
@@ -57,7 +57,7 @@ impl CuDFScalar {
         let array = scalar.into_inner();
 
         // Convert the array to a cuDF column (this copies to GPU)
-        let column = CuDFColumnView::from_arrow(&array)?;
+        let column = CuDFColumn::from_arrow_host(&array)?.into_view();
 
         // Extract the scalar from the column at index 0
         let cudf_scalar = libcudf_sys::ffi::get_element(column.inner(), 0);

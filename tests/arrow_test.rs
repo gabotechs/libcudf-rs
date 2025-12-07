@@ -81,7 +81,7 @@ mod tests {
 
         // Convert back to Arrow
         let result_batch = table
-            .view()
+            .into_view()
             .to_arrow_host()
             .expect("Failed to convert back to Arrow");
 
@@ -146,7 +146,7 @@ mod tests {
         assert_eq!(table.num_columns(), 2);
 
         let result_batch = table
-            .view()
+            .into_view()
             .to_arrow_host()
             .expect("Failed to convert back to Arrow");
         assert_eq!(result_batch.num_rows(), 0);
@@ -161,7 +161,7 @@ mod tests {
 
         // Convert to Arrow
         let batch = table
-            .view()
+            .into_view()
             .to_arrow_host()
             .expect("Failed to convert to Arrow");
 

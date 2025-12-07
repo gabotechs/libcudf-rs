@@ -1,30 +1,39 @@
-use std::sync::Arc;
-use arrow::array::{RecordBatch, StructArray};
+use crate::cudf_reference::CuDFRef;
+use crate::{CuDFColumnView, CuDFError, CuDFTable};
+use arrow::array::{ArrayRef, RecordBatch, StructArray};
 use arrow::ffi::{from_ffi, FFI_ArrowArray};
 use arrow_schema::ffi::FFI_ArrowSchema;
-use arrow_schema::Schema;
-use crate::{CuDFColumnView, CuDFError, CuDFTable};
+use arrow_schema::{ArrowError, Schema};
 use cxx::UniquePtr;
 use libcudf_sys::ffi;
+use std::sync::Arc;
 
 /// A non-owning view of a GPU table
 ///
 /// This is a safe wrapper around cuDF's table_view type.
 /// Views provide a lightweight way to reference table data without ownership.
 pub struct CuDFTableView {
+    // Keep the table alive so view remains valid
+    _ref: Option<Arc<dyn CuDFRef>>,
     inner: UniquePtr<ffi::TableView>,
 }
 
 impl CuDFTableView {
     /// Create a new table view from a raw FFI table view
     pub(crate) fn new(inner: UniquePtr<ffi::TableView>) -> Self {
-        Self { inner }
+        Self { _ref: None, inner }
     }
 
-    pub(crate) fn inner(&self) -> &ffi::TableView {
+    pub(crate) fn new_with_ref(
+        inner: UniquePtr<ffi::TableView>,
+        _ref: Option<Arc<dyn CuDFRef>>,
+    ) -> Self {
+        Self { _ref, inner }
+    }
+
+    pub(crate) fn inner(&self) -> &UniquePtr<ffi::TableView> {
         &self.inner
     }
-
 
     pub fn into_inner(self) -> UniquePtr<ffi::TableView> {
         self.inner
@@ -45,14 +54,14 @@ impl CuDFTableView {
     /// ```no_run
     /// use arrow::array::{Int32Array, RecordBatch};
     /// use arrow::datatypes::{DataType, Field, Schema};
-    /// use libcudf_rs::{CuDFColumnView, CuDFTableView};
+    /// use libcudf_rs::{CuDFColumn, CuDFTableView};
     /// use std::sync::Arc;
     ///
     /// // Create column views
     /// let col1 = Int32Array::from(vec![1, 2, 3]);
     /// let col2 = Int32Array::from(vec![4, 5, 6]);
-    /// let view1 = CuDFColumnView::from_arrow(&col1)?;
-    /// let view2 = CuDFColumnView::from_arrow(&col2)?;
+    /// let view1 = CuDFColumn::from_arrow_host(&col1)?.into_view();
+    /// let view2 = CuDFColumn::from_arrow_host(&col2)?.into_view();
     ///
     /// // Create a table view from the column views
     /// let table_view = CuDFTableView::from_column_views(&[&view1, &view2])?;
@@ -61,13 +70,20 @@ impl CuDFTableView {
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
     pub fn from_column_views(column_views: &[&CuDFColumnView]) -> Result<Self, CuDFError> {
-        let view_ptrs: Vec<*const ffi::ColumnView> = column_views
-            .iter()
-            .map(|view| view.inner().as_ref().unwrap() as *const ffi::ColumnView)
-            .collect();
+        let mut view_ptrs: Vec<*const ffi::ColumnView> = Vec::with_capacity(column_views.len());
+        let mut refs: Vec<Arc<dyn CuDFRef>> = vec![];
+        for view in column_views {
+            view_ptrs.push(view.inner().as_ref().unwrap() as _);
+            if let Some(_ref) = &view._ref {
+                refs.push(Arc::clone(_ref));
+            }
+        }
 
         let inner = ffi::create_table_view_from_column_views(&view_ptrs);
-        Ok(Self { inner })
+        Ok(Self {
+            _ref: Some(Arc::new(refs)),
+            inner,
+        })
     }
 
     /// Filter the table using a boolean mask
@@ -92,7 +108,7 @@ impl CuDFTableView {
     /// ```no_run
     /// use arrow::array::{BooleanArray, Int32Array, RecordBatch};
     /// use arrow::datatypes::{DataType, Field, Schema};
-    /// use libcudf_rs::{CuDFColumnView, CuDFTable};
+    /// use libcudf_rs::{CuDFColumn, CuDFTable};
     /// use std::sync::Arc;
     ///
     /// // Create a table
@@ -103,15 +119,18 @@ impl CuDFTableView {
     ///
     /// // Create a boolean mask
     /// let mask = BooleanArray::from(vec![true, false, true, false, true]);
-    /// let mask_column = CuDFColumnView::from_arrow(&mask)?;
+    /// let mask_column = CuDFColumn::from_arrow_host(&mask)?.into_view();
     ///
     /// // Filter the table using a view
-    /// let table_view = table.view();
+    /// let table_view = table.into_view();
     /// let filtered = table_view.apply_boolean_mask(&mask_column)?;
     /// assert_eq!(filtered.num_rows(), 3);
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
-    pub fn apply_boolean_mask(&self, boolean_mask: &CuDFColumnView) -> Result<CuDFTable, CuDFError> {
+    pub fn apply_boolean_mask(
+        &self,
+        boolean_mask: &CuDFColumnView,
+    ) -> Result<CuDFTable, CuDFError> {
         let inner = ffi::apply_boolean_mask(&self.inner, boolean_mask.inner())?;
         Ok(CuDFTable::from_inner(inner))
     }
@@ -124,7 +143,7 @@ impl CuDFTableView {
     /// use libcudf_rs::CuDFTable;
     ///
     /// let table = CuDFTable::new();
-    /// let view = table.view();
+    /// let view = table.into_view();
     /// assert_eq!(view.num_rows(), 0);
     /// ```
     pub fn num_rows(&self) -> usize {
@@ -139,7 +158,7 @@ impl CuDFTableView {
     /// use libcudf_rs::CuDFTable;
     ///
     /// let table = CuDFTable::new();
-    /// let view = table.view();
+    /// let view = table.into_view();
     /// assert_eq!(view.num_columns(), 0);
     /// ```
     pub fn num_columns(&self) -> usize {
@@ -154,7 +173,7 @@ impl CuDFTableView {
     /// use libcudf_rs::CuDFTable;
     ///
     /// let table = CuDFTable::new();
-    /// let view = table.view();
+    /// let view = table.into_view();
     /// assert!(view.is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
@@ -191,7 +210,7 @@ impl CuDFTableView {
     /// // Perform GPU operations...
     ///
     /// // Convert back to Arrow for further processing
-    /// let batch = table.to_arrow_host()?;
+    /// let batch = table.into_view().to_arrow_host()?;
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
     pub fn to_arrow_host(&self) -> Result<RecordBatch, CuDFError> {
@@ -212,5 +231,51 @@ impl CuDFTableView {
         let batch = RecordBatch::try_new(schema, struct_array.columns().to_vec())?;
 
         Ok(batch)
+    }
+
+    /// Gets the Arrow Schema of the table view.
+    pub fn schema(&self) -> Result<Schema, CuDFError> {
+        // Extract schema information
+        let mut ffi_schema = FFI_ArrowSchema::empty();
+        unsafe {
+            self.inner
+                .to_arrow_schema(&mut ffi_schema as *mut FFI_ArrowSchema as *mut u8);
+        }
+        Ok(Schema::try_from(&ffi_schema)?)
+    }
+
+    /// Create a RecordBatch from the table view, keeping data on GPU
+    ///
+    /// This creates a RecordBatch where each column is a CuDFColumnView (GPU array).
+    /// Unlike `to_arrow_host()`, this does NOT copy data to host memory.
+    pub fn to_record_batch(&self) -> Result<RecordBatch, CuDFError> {
+        // Create CuDFColumnView for each column (keeps data on GPU)
+        let columns: Vec<ArrayRef> = (0..self.num_columns())
+            .map(|i| Arc::new(self.column(i as i32)) as _)
+            .collect();
+
+        Ok(RecordBatch::try_new(Arc::new(self.schema()?), columns)?)
+    }
+
+    /// Create a table view from a RecordBatch containing CuDF arrays (GPU)
+    ///
+    /// This expects the RecordBatch to already contain CuDF arrays allocated on GPU.
+    /// The columns will be extracted and composed into a table view.
+    pub fn from_record_batch(batch: &RecordBatch) -> Result<Self, CuDFError> {
+        let column_views: Result<Vec<_>, _> = batch
+            .columns()
+            .iter()
+            .map(|col| {
+                let Some(col) = col.as_any().downcast_ref::<CuDFColumnView>() else {
+                    return Err(CuDFError::ArrowError(ArrowError::InvalidArgumentError(
+                        "Expected all Arrays in RecordBatch to be CuDFColumnView".to_string(),
+                    )));
+                };
+                Ok(col)
+            })
+            .collect();
+        let column_views = column_views?;
+
+        Self::from_column_views(&column_views)
     }
 }

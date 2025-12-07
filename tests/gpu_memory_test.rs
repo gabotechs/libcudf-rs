@@ -1,11 +1,12 @@
 use arrow::array::Int32Array;
-use libcudf_rs::CuDFColumnView;
+use libcudf_rs::{CuDFColumn, CuDFColumnView};
 
 #[test]
 fn test_column_data_is_on_gpu() {
     let array = Int32Array::from(vec![1, 2, 3, 4, 5]);
-    let column =
-        CuDFColumnView::from_arrow(&array).expect("Failed to convert Arrow array to column");
+    let column = CuDFColumn::from_arrow_host(&array)
+        .expect("Failed to convert Arrow array to column")
+        .into_view();
 
     // Get the raw device pointer
     let ptr = unsafe { column.data_ptr() };
@@ -59,8 +60,9 @@ fn test_column_data_is_on_gpu() {
 #[test]
 fn test_empty_column_pointer() {
     let array = Int32Array::from(Vec::<i32>::new());
-    let column =
-        CuDFColumnView::from_arrow(&array).expect("Failed to convert empty Arrow array to column");
+    let column = CuDFColumn::from_arrow_host(&array)
+        .expect("Failed to convert Arrow array to column")
+        .into_view();
 
     // Empty columns might have null pointers, which is fine
     let ptr = unsafe { column.data_ptr() };
@@ -70,8 +72,9 @@ fn test_empty_column_pointer() {
 #[test]
 fn test_column_view_pointer() {
     let array = Int32Array::from(vec![10, 20, 30]);
-    let column =
-        CuDFColumnView::from_arrow(&array).expect("Failed to convert Arrow array to column");
+    let column = CuDFColumn::from_arrow_host(&array)
+        .expect("Failed to convert Arrow array to column")
+        .into_view();
 
     // Get pointer from column
     let column_ptr = unsafe { column.data_ptr() };

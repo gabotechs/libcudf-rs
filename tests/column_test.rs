@@ -1,13 +1,14 @@
 #[cfg(test)]
 mod tests {
     use arrow::array::{Array, Float64Array, Int32Array, Int64Array, StringArray};
-    use libcudf_rs::CuDFColumnView;
+    use libcudf_rs::{CuDFColumn, CuDFColumnView};
 
     #[test]
     fn test_column_from_arrow_int32() {
         let array = Int32Array::from(vec![1, 2, 3, 4, 5]);
-        let column =
-            CuDFColumnView::from_arrow(&array).expect("Failed to convert Arrow array to column");
+        let column = CuDFColumn::from_arrow_host(&array)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
 
         assert_eq!(column.len(), 5);
         assert!(!column.is_empty());
@@ -16,8 +17,9 @@ mod tests {
     #[test]
     fn test_column_from_arrow_string() {
         let array = StringArray::from(vec!["hello", "world", "test"]);
-        let column = CuDFColumnView::from_arrow(&array)
-            .expect("Failed to convert Arrow string array to column");
+        let column = CuDFColumn::from_arrow_host(&array)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
 
         assert_eq!(column.len(), 3);
         assert!(!column.is_empty());
@@ -26,8 +28,9 @@ mod tests {
     #[test]
     fn test_column_from_arrow_empty() {
         let array = Int32Array::from(Vec::<i32>::new());
-        let column = CuDFColumnView::from_arrow(&array)
-            .expect("Failed to convert empty Arrow array to column");
+        let column = CuDFColumn::from_arrow_host(&array)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
 
         assert_eq!(column.len(), 0);
         assert!(column.is_empty());
@@ -36,8 +39,9 @@ mod tests {
     #[test]
     fn test_column_from_arrow_with_nulls() {
         let array = Int32Array::from(vec![Some(1), None, Some(3), None, Some(5)]);
-        let column = CuDFColumnView::from_arrow(&array)
-            .expect("Failed to convert Arrow array with nulls to column");
+        let column = CuDFColumn::from_arrow_host(&array)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
 
         assert_eq!(column.len(), 5);
         assert!(!column.is_empty());
@@ -46,8 +50,9 @@ mod tests {
     #[test]
     fn test_to_arrow_host_int32() {
         let original = Int32Array::from(vec![1, 2, 3, 4, 5]);
-        let column =
-            CuDFColumnView::from_arrow(&original).expect("Failed to convert Arrow array to column");
+        let column = CuDFColumn::from_arrow_host(&original)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
 
         let result = column
             .to_arrow_host()
@@ -67,8 +72,9 @@ mod tests {
     #[test]
     fn test_to_arrow_host_int64() {
         let original = Int64Array::from(vec![100, 200, 300, 400, 500]);
-        let column =
-            CuDFColumnView::from_arrow(&original).expect("Failed to convert Arrow array to column");
+        let column = CuDFColumn::from_arrow_host(&original)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
 
         let result = column
             .to_arrow_host()
@@ -88,8 +94,9 @@ mod tests {
     #[test]
     fn test_to_arrow_host_float64() {
         let original = Float64Array::from(vec![1.5, 2.5, 3.5, 4.5, 5.5]);
-        let column =
-            CuDFColumnView::from_arrow(&original).expect("Failed to convert Arrow array to column");
+        let column = CuDFColumn::from_arrow_host(&original)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
 
         let result = column
             .to_arrow_host()
@@ -109,8 +116,9 @@ mod tests {
     #[test]
     fn test_to_arrow_host_string() {
         let original = StringArray::from(vec!["hello", "world", "test", "cudf", "rust"]);
-        let column = CuDFColumnView::from_arrow(&original)
-            .expect("Failed to convert Arrow string array to column");
+        let column = CuDFColumn::from_arrow_host(&original)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
 
         let result = column
             .to_arrow_host()
@@ -130,8 +138,9 @@ mod tests {
     #[test]
     fn test_to_arrow_host_with_nulls() {
         let original = Int32Array::from(vec![Some(1), None, Some(3), None, Some(5)]);
-        let column = CuDFColumnView::from_arrow(&original)
-            .expect("Failed to convert Arrow array with nulls to column");
+        let column = CuDFColumn::from_arrow_host(&original)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
 
         let result = column
             .to_arrow_host()
@@ -160,8 +169,9 @@ mod tests {
     #[test]
     fn test_to_arrow_host_empty() {
         let original = Int32Array::from(Vec::<i32>::new());
-        let column = CuDFColumnView::from_arrow(&original)
-            .expect("Failed to convert empty Arrow array to column");
+        let column = CuDFColumn::from_arrow_host(&original)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
 
         let result = column
             .to_arrow_host()
@@ -174,8 +184,9 @@ mod tests {
     #[test]
     fn test_to_arrow_host_roundtrip_preserves_data() {
         let original = Int32Array::from(vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
-        let column =
-            CuDFColumnView::from_arrow(&original).expect("Failed to convert Arrow array to column");
+        let column = CuDFColumn::from_arrow_host(&original)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
 
         let result = column
             .to_arrow_host()
