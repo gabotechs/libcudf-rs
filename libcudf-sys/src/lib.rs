@@ -189,6 +189,9 @@ pub mod ffi {
         /// Create a sliced view of this column
         fn slice(self: &ColumnView, offset: usize, length: usize) -> UniquePtr<ColumnView>;
 
+        /// Get the offset of the current ColumnView in case it was a slice of another one
+        fn offset(self: &ColumnView) -> i32;
+
         // DataType methods
         /// Get the type_id
         fn id(self: &DataType) -> i32;

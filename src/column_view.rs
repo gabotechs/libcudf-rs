@@ -181,8 +181,11 @@ impl Array for CuDFColumnView {
         &self.dt
     }
 
-    fn slice(&self, _offset: usize, _length: usize) -> ArrayRef {
-        todo!()
+    fn slice(&self, offset: usize, length: usize) -> ArrayRef {
+        Arc::new(CuDFColumnView::new_with_ref(
+            self.inner.slice(offset, length),
+            self._ref.clone(),
+        ))
     }
 
     fn len(&self) -> usize {

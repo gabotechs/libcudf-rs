@@ -84,6 +84,14 @@ namespace libcudf_bridge {
         return result;
     }
 
+    // Gets the current offset in case this column is a slice of another one
+    int32_t ColumnView::offset() const {
+        if (!inner) {
+            throw std::runtime_error("Cannot offset of null column view");
+        }
+        return inner->offset();
+    }
+
     // Column implementation
     Column::Column() : inner(nullptr) {
     }
@@ -125,7 +133,7 @@ namespace libcudf_bridge {
     }
 
     // Extract a scalar from a column at the specified index
-    std::unique_ptr<Scalar> get_element(const ColumnView& column, size_t index) {
+    std::unique_ptr<Scalar> get_element(const ColumnView &column, size_t index) {
         auto result = std::make_unique<Scalar>();
         result->inner = cudf::get_element(*column.inner, static_cast<cudf::size_type>(index));
         return result;

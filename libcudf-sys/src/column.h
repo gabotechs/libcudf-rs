@@ -40,6 +40,9 @@ namespace libcudf_bridge {
 
         // Create a sliced view of this column
         [[nodiscard]] std::unique_ptr<ColumnView> slice(size_t offset, size_t length) const;
+
+        // Create a sliced view of this column
+        [[nodiscard]] int32_t offset() const;
     };
 
     // Opaque wrapper for cuDF column
@@ -76,5 +79,5 @@ namespace libcudf_bridge {
     Column column_from_unique_ptr(std::unique_ptr<cudf::column> col);
 
     // Extract a scalar from a column at the specified index
-    std::unique_ptr<Scalar> get_element(const ColumnView& column, size_t index);
+    std::unique_ptr<Scalar> get_element(const ColumnView &column, size_t index);
 } // namespace libcudf_bridge
