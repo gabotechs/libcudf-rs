@@ -19,7 +19,7 @@ fn test_groupby_sum() -> Result<(), Box<dyn std::error::Error>> {
     let groupby_result = groupby.aggregate(agg_requests)?;
 
     // Test that we can access aggregation results
-    let aggregation_result = groupby_result.get_result(0);
+    let aggregation_result = groupby_result.get(0);
 
     // Only one aggregation (max) was added, so we get one result column
     assert_eq!(aggregation_result.len(), 1);
@@ -56,8 +56,8 @@ fn test_groupby_multiple_aggregations() -> Result<(), Box<dyn std::error::Error>
     let requests = &[&*agg_request as *const ffi::AggregationRequest];
     let groupby_result = groupby.aggregate(requests)?;
 
-    assert_eq!(groupby_result.results_size(), 1);
-    let agg_result = groupby_result.get_result(0);
+    assert_eq!(groupby_result.len(), 1);
+    let agg_result = groupby_result.get(0);
     assert_eq!(agg_result.len(), 3);
 
     // Access columns using the accessor methods

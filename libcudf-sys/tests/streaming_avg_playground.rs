@@ -58,7 +58,7 @@ fn streaming_avg() -> Result<(), Box<dyn Error>> {
 
     let values = partials
         .iter()
-        .map(|result| result.get_result(0))
+        .map(|result| result.get(0))
         .collect::<Vec<_>>();
 
     let sums = values
@@ -94,8 +94,8 @@ fn streaming_avg() -> Result<(), Box<dyn Error>> {
 
     let result = group_by.aggregate(agg_requests)?;
     let keys = result.get_keys();
-    let sum = result.get_result(0).get(0);
-    let count = result.get_result(1).get(0);
+    let sum = result.get(0).get(0);
+    let count = result.get(1).get(0);
 
     let avg = ffi::binary_operation_col_col(
         &sum.view(),
