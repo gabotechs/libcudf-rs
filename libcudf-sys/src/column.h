@@ -37,6 +37,9 @@ namespace libcudf_bridge {
 
         // Clone this column view
         [[nodiscard]] std::unique_ptr<ColumnView> clone() const;
+
+        // Create a sliced view of this column
+        [[nodiscard]] std::unique_ptr<ColumnView> slice(size_t offset, size_t length) const;
     };
 
     // Opaque wrapper for cuDF column

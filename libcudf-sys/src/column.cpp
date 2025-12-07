@@ -58,6 +58,32 @@ namespace libcudf_bridge {
         return cloned;
     }
 
+    [[nodiscard]] std::unique_ptr<ColumnView> ColumnView::slice(size_t offset, size_t length) const {
+        if (!inner) {
+            throw std::runtime_error("Cannot slice null column view");
+        }
+        if (offset + length > static_cast<size_t>(inner->size())) {
+            throw std::out_of_range("Slice bounds out of range");
+        }
+
+        // Use cuDF's native slice function from cudf/copying.hpp
+        // slice() takes pairs of [start, end) indices and returns a vector of views
+        auto start = static_cast<cudf::size_type>(offset);
+        auto end = static_cast<cudf::size_type>(offset + length);
+        std::vector<cudf::size_type> indices = {start, end};
+
+        auto sliced_views = cudf::slice(*inner, indices);
+
+        // We expect exactly one view back since we provided one [start, end) pair
+        if (sliced_views.empty()) {
+            throw std::runtime_error("cudf::slice returned no views");
+        }
+
+        auto result = std::make_unique<ColumnView>();
+        result->inner = std::make_unique<cudf::column_view>(sliced_views[0]);
+        return result;
+    }
+
     // Column implementation
     Column::Column() : inner(nullptr) {
     }

@@ -186,6 +186,9 @@ pub mod ffi {
         /// Clone this column view
         fn clone(self: &ColumnView) -> UniquePtr<ColumnView>;
 
+        /// Create a sliced view of this column
+        fn slice(self: &ColumnView, offset: usize, length: usize) -> UniquePtr<ColumnView>;
+
         // DataType methods
         /// Get the type_id
         fn id(self: &DataType) -> i32;
