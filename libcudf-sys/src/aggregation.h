@@ -4,11 +4,7 @@
 #include "rust/cxx.h"
 #include "column.h"
 #include "scalar.h"
-
-// Forward declarations of cuDF types
-namespace cudf {
-    class aggregation;
-}
+#include <cudf/aggregation.hpp>
 
 namespace libcudf_bridge {
 

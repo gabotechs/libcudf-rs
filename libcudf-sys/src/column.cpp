@@ -19,10 +19,16 @@ namespace libcudf_bridge {
     ColumnView::~ColumnView() = default;
 
     size_t ColumnView::size() const {
+        if (!inner) {
+            return 0;
+        }
         return inner->size();
     }
 
     void ColumnView::to_arrow_array(uint8_t *out_array_ptr) const {
+        if (!inner) {
+            throw std::runtime_error("Cannot convert null column view to arrow array");
+        }
         auto device_array_unique = cudf::to_arrow_host(*this->inner);
         auto *out_array = reinterpret_cast<ArrowDeviceArray *>(out_array_ptr);
         *out_array = *device_array_unique.get();
@@ -37,6 +43,9 @@ namespace libcudf_bridge {
     }
 
     [[nodiscard]] std::unique_ptr<DataType> ColumnView::data_type() const {
+        if (!inner) {
+            throw std::runtime_error("Cannot get data type of null column view");
+        }
         auto dtype = inner->type();
         auto type_id = static_cast<int32_t>(dtype.id());
 
@@ -45,9 +54,8 @@ namespace libcudf_bridge {
             dtype.id() == cudf::type_id::DECIMAL64 ||
             dtype.id() == cudf::type_id::DECIMAL128) {
             return std::make_unique<DataType>(type_id, dtype.scale());
-        } else {
-            return std::make_unique<DataType>(type_id);
         }
+        return std::make_unique<DataType>(type_id);
     }
 
     [[nodiscard]] std::unique_ptr<ColumnView> ColumnView::clone() const {
@@ -70,7 +78,7 @@ namespace libcudf_bridge {
         // slice() takes pairs of [start, end) indices and returns a vector of views
         auto start = static_cast<cudf::size_type>(offset);
         auto end = static_cast<cudf::size_type>(offset + length);
-        std::vector<cudf::size_type> indices = {start, end};
+        std::vector indices = {start, end};
 
         auto sliced_views = cudf::slice(*inner, indices);
 
@@ -80,7 +88,7 @@ namespace libcudf_bridge {
         }
 
         auto result = std::make_unique<ColumnView>();
-        result->inner = std::make_unique<cudf::column_view>(sliced_views[0]);
+        result->inner = std::make_unique<cudf::column_view>(sliced_views.at(0));
         return result;
     }
 
@@ -106,12 +114,18 @@ namespace libcudf_bridge {
     }
 
     [[nodiscard]] std::unique_ptr<ColumnView> Column::view() const {
+        if (!inner) {
+            throw std::runtime_error("Cannot get view of null column");
+        }
         auto result = std::make_unique<ColumnView>();
         result->inner = std::make_unique<cudf::column_view>(inner->view());
         return result;
     }
 
     [[nodiscard]] std::unique_ptr<DataType> Column::data_type() const {
+        if (!inner) {
+            throw std::runtime_error("Cannot get data type of null column");
+        }
         auto dtype = inner->type();
         auto type_id = static_cast<int32_t>(dtype.id());
 
@@ -120,9 +134,8 @@ namespace libcudf_bridge {
             dtype.id() == cudf::type_id::DECIMAL64 ||
             dtype.id() == cudf::type_id::DECIMAL128) {
             return std::make_unique<DataType>(type_id, dtype.scale());
-        } else {
-            return std::make_unique<DataType>(type_id);
         }
+        return std::make_unique<DataType>(type_id);
     }
 
     // Helper function to create Column from unique_ptr
@@ -134,6 +147,12 @@ namespace libcudf_bridge {
 
     // Extract a scalar from a column at the specified index
     std::unique_ptr<Scalar> get_element(const ColumnView &column, size_t index) {
+        if (!column.inner) {
+            throw std::runtime_error("Cannot get element from null column view");
+        }
+        if (index >= static_cast<size_t>(column.inner->size())) {
+            throw std::out_of_range("Index out of bounds for get_element");
+        }
         auto result = std::make_unique<Scalar>();
         result->inner = cudf::get_element(*column.inner, static_cast<cudf::size_type>(index));
         return result;

@@ -13,7 +13,7 @@ fn concat() -> Result<(), Box<dyn Error>> {
     let table1 = ffi::read_parquet("../testdata/weather/result-000001.parquet")?;
     let table2 = ffi::read_parquet("../testdata/weather/result-000002.parquet")?;
 
-    let concat = ffi::concat_table_views(&[table0.view(), table1.view(), table2.view()]);
+    let concat = ffi::concat_table_views(&[table0.view(), table1.view(), table2.view()])?;
 
     assert_eq!(
         concat.num_rows(),
@@ -45,33 +45,33 @@ fn streaming_avg() -> Result<(), Box<dyn Error>> {
 
     let views = [table0.view(), table1.view(), table2.view()];
 
-    let partials = views
+    let mut partials = views
         .iter()
         .map(|table| partial(table))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let keys = partials
-        .iter()
-        .map(|result| result.get_keys().view())
-        .collect::<Vec<_>>();
-    let keys = ffi::concat_table_views(&keys);
+    // Collect all sums and counts from the partials
+    let mut all_sums = Vec::new();
+    let mut all_counts = Vec::new();
+    let mut keys_views = Vec::new();
 
-    let values = partials
-        .iter()
-        .map(|result| result.get(0))
-        .collect::<Vec<_>>();
+    for partial in &mut partials {
+        keys_views.push(partial.pin_mut().release_keys());
+        // Release result 0 which contains [sum, count]
+        let mut result_0 = partial.pin_mut().release_result(0);
 
-    let sums = values
-        .iter()
-        .map(|value| value.get(0).view())
-        .collect::<Vec<_>>();
-    let sums = ffi::concat_column_views(&sums);
+        // Take ownership of individual columns
+        let sum = result_0.pin_mut().release(0);
+        let count = result_0.pin_mut().release(1);
 
-    let counts = values
-        .iter()
-        .map(|value| value.get(1).view())
-        .collect::<Vec<_>>();
-    let counts = ffi::concat_column_views(&counts);
+        all_sums.push(sum);
+        all_counts.push(count);
+    }
+
+    let sums = ffi::concat_column_views(&all_sums.iter().map(|c| c.view()).collect::<Vec<_>>())?;
+    let counts =
+        ffi::concat_column_views(&all_counts.iter().map(|c| c.view()).collect::<Vec<_>>())?;
+    let keys = ffi::concat_table_views(&keys_views.iter().map(|v| v.view()).collect::<Vec<_>>())?;
 
     // Final aggregation as a merge operation
 
@@ -92,10 +92,13 @@ fn streaming_avg() -> Result<(), Box<dyn Error>> {
         &*count_request as *const ffi::AggregationRequest,
     ];
 
-    let result = group_by.aggregate(agg_requests)?;
-    let keys = result.get_keys();
-    let sum = result.get(0).get(0);
-    let count = result.get(1).get(0);
+    let mut result = group_by.aggregate(agg_requests)?;
+    let keys = result.pin_mut().release_keys();
+    let mut sum_result = result.pin_mut().release_result(0);
+    let mut count_result = result.pin_mut().release_result(1);
+
+    let sum = sum_result.pin_mut().release(0);
+    let count = count_result.pin_mut().release(0);
 
     let avg = ffi::binary_operation_col_col(
         &sum.view(),

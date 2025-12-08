@@ -14,7 +14,7 @@ use std::sync::Arc;
 /// Views provide a lightweight way to reference table data without ownership.
 pub struct CuDFTableView {
     // Keep the table alive so view remains valid
-    _ref: Option<Arc<dyn CuDFRef>>,
+    pub(crate) _ref: Option<Arc<dyn CuDFRef>>,
     inner: UniquePtr<ffi::TableView>,
 }
 
@@ -64,24 +64,22 @@ impl CuDFTableView {
     /// let view2 = CuDFColumn::from_arrow_host(&col2)?.into_view();
     ///
     /// // Create a table view from the column views
-    /// let table_view = CuDFTableView::from_column_views(&[&view1, &view2])?;
+    /// let table_view = CuDFTableView::from_column_views(vec![view1, view2])?;
     /// assert_eq!(table_view.num_columns(), 2);
     /// assert_eq!(table_view.num_rows(), 3);
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
-    pub fn from_column_views(column_views: &[&CuDFColumnView]) -> Result<Self, CuDFError> {
+    pub fn from_column_views(column_views: Vec<CuDFColumnView>) -> Result<Self, CuDFError> {
         let mut view_ptrs: Vec<*const ffi::ColumnView> = Vec::with_capacity(column_views.len());
-        let mut refs: Vec<Arc<dyn CuDFRef>> = vec![];
+        let mut _refs = Vec::with_capacity(column_views.len());
         for view in column_views {
             view_ptrs.push(view.inner().as_ref().unwrap() as _);
-            if let Some(_ref) = &view._ref {
-                refs.push(Arc::clone(_ref));
-            }
+            _refs.push(Arc::new(view) as Arc<dyn CuDFRef>)
         }
 
         let inner = ffi::create_table_view_from_column_views(&view_ptrs);
         Ok(Self {
-            _ref: Some(Arc::new(refs)),
+            _ref: Some(Arc::new(_refs)),
             inner,
         })
     }
@@ -187,7 +185,7 @@ impl CuDFTableView {
     /// * `index` - The column index (0-based)
     pub fn column(&self, index: i32) -> CuDFColumnView {
         let inner = self.inner.column(index);
-        CuDFColumnView::new(inner)
+        CuDFColumnView::new_with_ref(inner, Some(Arc::new(self.clone())))
     }
 
     /// Convert the CuDF table allocated on the GPU to an Arrow RecordBatch allocated on the host.
@@ -271,11 +269,20 @@ impl CuDFTableView {
                         "Expected all Arrays in RecordBatch to be CuDFColumnView".to_string(),
                     )));
                 };
-                Ok(col)
+                Ok(col.clone())
             })
             .collect();
         let column_views = column_views?;
 
-        Self::from_column_views(&column_views)
+        Self::from_column_views(column_views)
+    }
+}
+
+impl Clone for CuDFTableView {
+    fn clone(&self) -> Self {
+        Self {
+            _ref: self._ref.clone(),
+            inner: self.inner.clone(),
+        }
     }
 }

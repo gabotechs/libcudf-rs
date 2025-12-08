@@ -1,3 +1,4 @@
+use crate::cudf_reference::CuDFRef;
 use crate::errors::Result;
 use crate::table_view::CuDFTableView;
 use crate::{CuDFColumn, CuDFColumnView, CuDFTable};
@@ -6,71 +7,8 @@ use libcudf_sys::ffi;
 use libcudf_sys::ffi::{
     aggregation_request_create, make_count_aggregation_groupby, make_max_aggregation_groupby,
     make_mean_aggregation_groupby, make_min_aggregation_groupby, make_sum_aggregation_groupby,
-    Column, GroupByResult,
 };
-
-/// Result of a group-by aggregation operation
-///
-/// Contains the unique group keys and the aggregation results for each group.
-/// Each aggregation request produces one result, which may contain multiple
-/// columns depending on the aggregation type.
-pub struct CuDFGroupByResult {
-    inner: UniquePtr<ffi::GroupByResult>,
-}
-
-impl CuDFGroupByResult {
-    /// Get a view of the group keys
-    ///
-    /// The keys table contains the unique combinations of key column values
-    /// that define each group.
-    pub fn keys(&self) -> CuDFTableView {
-        CuDFTableView::new(self.inner.get_keys().view())
-    }
-
-    /// Take ownership of the group keys
-    ///
-    /// This can only be called once. After calling this, methods that access
-    /// keys will fail.
-    pub fn take_keys(&mut self) -> CuDFTable {
-        CuDFTable::from_ptr(self.inner.pin_mut().release_keys())
-    }
-
-    /// Get a view of a column from an aggregation result
-    ///
-    /// # Arguments
-    ///
-    /// * `index` - The aggregation request index
-    /// * `column` - The column index within that aggregation result
-    pub fn get_column(&self, index: usize, column: usize) -> CuDFColumnView {
-        CuDFColumnView::new(self.inner.get(index).get(column).view())
-    }
-
-    /// Take ownership of a column from an aggregation result
-    ///
-    /// # Arguments
-    ///
-    /// * `index` - The aggregation request index
-    /// * `column` - The column index within that aggregation result
-    pub fn take_column(&mut self, index: usize, column: usize) -> CuDFColumnView {
-        let col = GroupByResult::get_mut(self.inner.pin_mut(), index).release(column);
-        let col = CuDFColumn::new(col);
-        col.into_view()
-    }
-
-    /// Get the number of aggregation results
-    pub fn results_len(&self) -> usize {
-        self.inner.len()
-    }
-
-    /// Get the number of columns in an aggregation result
-    ///
-    /// # Arguments
-    ///
-    /// * `index` - The aggregation request index
-    pub fn columns_len(&self, index: usize) -> usize {
-        self.inner.get(index).len()
-    }
-}
+use std::sync::Arc;
 
 /// A group-by operation builder
 ///
@@ -78,6 +16,7 @@ impl CuDFGroupByResult {
 /// for each group. Created with key columns and then used to perform
 /// multiple aggregations.
 pub struct CuDFGroupBy {
+    _ref: Option<Arc<dyn CuDFRef>>,
     inner: UniquePtr<ffi::GroupBy>,
 }
 
@@ -88,6 +27,7 @@ impl CuDFGroupBy {
     /// values will be grouped together for aggregation.
     pub fn from(view: &CuDFTableView) -> Self {
         Self {
+            _ref: view._ref.clone(),
             inner: ffi::groupby_create(view.inner()),
         }
     }
@@ -97,15 +37,34 @@ impl CuDFGroupBy {
     /// Each request specifies a column to aggregate and the aggregations
     /// to perform on it. Returns the unique group keys and aggregation
     /// results for each group.
-    pub fn aggregate(&self, requests: &[AggregationRequest]) -> Result<CuDFGroupByResult> {
+    pub fn aggregate(
+        &self,
+        requests: &[AggregationRequest],
+    ) -> Result<(CuDFTable, Vec<Vec<CuDFColumn>>)> {
+        let mut _refs = Vec::with_capacity(requests.len());
         let requests = requests
             .iter()
-            .map(|x| x.inner.as_ptr())
+            .map(|x| {
+                _refs.push(x._ref.clone());
+                x.inner.as_ptr()
+            })
             .collect::<Vec<_>>();
+        let mut gby_result = self.inner.aggregate(&requests)?;
+        let keys = gby_result.pin_mut().release_keys();
+        let keys = CuDFTable::from_ptr(keys);
 
-        Ok(CuDFGroupByResult {
-            inner: self.inner.aggregate(&requests)?,
-        })
+        let mut results = Vec::with_capacity(gby_result.len());
+        for i in 0..gby_result.len() {
+            let mut released_result = gby_result.pin_mut().release_result(i);
+            let mut cols = Vec::with_capacity(released_result.len());
+            for j in 0..released_result.len() {
+                let col = released_result.pin_mut().release(j);
+                cols.push(CuDFColumn::new(col));
+            }
+
+            results.push(cols)
+        }
+        Ok((keys, results))
     }
 }
 
@@ -114,6 +73,7 @@ impl CuDFGroupBy {
 /// Specifies a column of values to aggregate and the aggregations to
 /// perform on it. Multiple aggregations can be added to a single request.
 pub struct AggregationRequest {
+    _ref: Option<Arc<dyn CuDFRef>>,
     inner: UniquePtr<ffi::AggregationRequest>,
 }
 
@@ -124,6 +84,7 @@ impl AggregationRequest {
     /// row in the keys used to construct the groupby.
     pub fn new(view: &CuDFColumnView) -> Self {
         Self {
+            _ref: view._ref.clone(),
             inner: aggregation_request_create(view.inner()),
         }
     }

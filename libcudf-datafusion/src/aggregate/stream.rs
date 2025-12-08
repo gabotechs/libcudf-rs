@@ -10,9 +10,7 @@ use datafusion::physical_expr::PhysicalExpr;
 use datafusion_physical_plan::aggregates::{evaluate_group_by, evaluate_many, PhysicalGroupBy};
 use datafusion_physical_plan::udaf::AggregateFunctionExpr;
 use futures::{ready, StreamExt};
-use libcudf_rs::{
-    ffi, CuDFColumn, CuDFColumnView, CuDFGroupBy, CuDFGroupByResult, CuDFTable, CuDFTableView,
-};
+use libcudf_rs::{CuDFColumn, CuDFColumnView, CuDFGroupBy, CuDFTable, CuDFTableView};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -35,7 +33,8 @@ pub struct Stream {
 
     state: State,
 
-    results: Vec<CuDFGroupByResult>,
+    keys: Vec<CuDFTable>,
+    results: Vec<Vec<Vec<CuDFColumn>>>,
 }
 
 impl Stream {
@@ -71,68 +70,67 @@ impl Stream {
             aggregate_args,
             aggregate_ops,
             state: State::ReceivingInput,
+            keys: vec![],
             results: vec![],
         }
     }
 }
 
 impl Stream {
-    fn concat_keys(&self) -> Result<CuDFTable> {
-        let mut keys = Vec::with_capacity(self.results.len());
-        for result in &self.results {
-            keys.push(result.keys());
+    fn concat_keys(&mut self) -> Result<CuDFTable> {
+        let mut keys = Vec::with_capacity(self.keys.len());
+        for table in std::mem::take(&mut self.keys) {
+            keys.push(table.into_view());
         }
-        let keys_views = keys.into_iter().map(|x| x.into_inner()).collect::<Vec<_>>();
-        Ok(CuDFTable::from_ptr(ffi::concat_table_views(&keys_views)))
+        CuDFTable::concat(keys).map_err(cudf_to_df)
     }
 
-    fn concat_partial_results(&self) -> Result<Vec<Vec<CuDFColumnView>>> {
+    fn concat_partial_results(&mut self) -> Result<Vec<Vec<CuDFColumnView>>> {
         let first = self.results.first().expect("at least one result");
-        let mut partial_columns = Vec::with_capacity(first.results_len());
-        for index in 0..first.results_len() {
-            let columns_len = first.columns_len(index);
-            partial_columns.push(vec![Vec::with_capacity(self.results.len()); columns_len])
+        let mut partial_columns = Vec::with_capacity(first.len());
+        for agg_results in first {
+            partial_columns.push(vec![
+                Vec::with_capacity(self.results.len());
+                agg_results.len()
+            ])
         }
 
-        for result in &self.results {
-            for result_index in 0..first.results_len() {
-                for column_index in 0..first.columns_len(result_index) {
-                    partial_columns[result_index][column_index]
-                        .push(result.get_column(result_index, column_index))
+        for results in std::mem::take(&mut self.results) {
+            for (r_i, columns) in results.into_iter().enumerate() {
+                for (c_i, column) in columns.into_iter().enumerate() {
+                    partial_columns[r_i][c_i].push(column.into_view());
                 }
             }
         }
 
-        let concatenated_columns = partial_columns
+        partial_columns
             .into_iter()
             .map(|columns| {
                 columns
                     .into_iter()
-                    .map(|views| {
-                        let view_ptrs = views
-                            .into_iter()
-                            .map(|x| x.into_inner())
-                            .collect::<Vec<_>>();
-                        CuDFColumn::new(ffi::concat_column_views(&view_ptrs)).into_view()
-                    })
+                    .map(|views| Ok(CuDFColumn::concat(views).map_err(cudf_to_df)?.into_view()))
                     .collect()
             })
-            .collect::<Vec<Vec<_>>>();
-
-        Ok(concatenated_columns)
+            .collect()
     }
 
-    fn build_final_batch(&mut self, mut result: CuDFGroupByResult) -> Result<RecordBatch> {
-        let mut groups = result.take_keys().take();
+    fn build_final_batch(
+        &self,
+        keys: CuDFTable,
+        results: Vec<Vec<CuDFColumn>>,
+    ) -> Result<RecordBatch> {
+        let groups = keys.into_columns();
         let mut arrays: Vec<ArrayRef> =
             Vec::with_capacity(groups.len() + self.aggregate_expr.len());
-        for i in 0..groups.len() {
-            arrays.push(Arc::new(groups.release(i).into_view()))
+        for group in groups {
+            arrays.push(Arc::new(group.into_view()))
         }
 
-        for (result_index, aggr) in self.aggregate_ops.iter().enumerate() {
-            let args = (0..result.columns_len(result_index))
-                .map(|columns_index| result.take_column(result_index, columns_index))
+        for (r_i, result) in results.into_iter().enumerate() {
+            let aggr = &self.aggregate_ops[r_i];
+            let args = result
+                .into_iter()
+                .map(|c| c.into_view())
                 .collect::<Vec<_>>();
             let merged = aggr.merge(&args)?;
             arrays.push(Arc::new(merged));
@@ -168,9 +166,10 @@ impl futures::Stream for Stream {
                             let column_views = group
                                 .into_iter()
                                 .map(|x| x.as_any().downcast_ref::<CuDFColumnView>().unwrap())
+                                .cloned()
                                 .collect::<Vec<_>>();
 
-                            let table_view = CuDFTableView::from_column_views(&column_views)
+                            let table_view = CuDFTableView::from_column_views(column_views)
                                 .map_err(cudf_to_df)?;
                             let group_by = CuDFGroupBy::from(&table_view);
 
@@ -197,9 +196,11 @@ impl futures::Stream for Stream {
                             for (agg, args) in self.aggregate_ops.iter().zip(evaluated_views) {
                                 requests.extend(agg.partial_requests(&args)?)
                             }
+                            let (keys, results) =
+                                group_by.aggregate(&requests).map_err(cudf_to_df)?;
 
-                            self.results
-                                .push(group_by.aggregate(&requests).map_err(cudf_to_df)?);
+                            self.results.push(results);
+                            self.keys.push(keys);
                         }
                     }
                 }
@@ -218,8 +219,8 @@ impl futures::Stream for Stream {
                         requests.extend(agg.final_requests(args)?);
                     }
 
-                    let result = group_by.aggregate(&requests).map_err(cudf_to_df)?;
-                    let output = self.build_final_batch(result)?;
+                    let (keys, results) = group_by.aggregate(&requests).map_err(cudf_to_df)?;
+                    let output = self.build_final_batch(keys, results)?;
 
                     self.state = State::Done;
                     return Poll::Ready(Some(Ok(output)));

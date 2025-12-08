@@ -67,4 +67,18 @@ impl CuDFColumn {
     pub fn into_view(self) -> CuDFColumnView {
         Arc::new(self).view()
     }
+
+    /// Concatenate multiple [CuDFColumnView]s into a single [CuDFColumn].
+    pub fn concat(views: Vec<CuDFColumnView>) -> Result<Self, CuDFError> {
+        // Keep the references alive until the concat_column_views operation has completed.
+        let mut _refs = Vec::with_capacity(views.len());
+        let views = views
+            .into_iter()
+            .map(|x| {
+                _refs.push(x._ref.clone());
+                x.into_inner()
+            })
+            .collect::<Vec<_>>();
+        Ok(Self::new(libcudf_sys::ffi::concat_column_views(&views)?))
+    }
 }
