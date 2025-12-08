@@ -1,4 +1,5 @@
-use crate::{arrow_type_to_cudf, CuDFColumnView, CuDFError};
+use crate::data_type::arrow_type_to_cudf;
+use crate::{CuDFColumnView, CuDFError};
 use arrow::array::Array;
 use arrow::ffi::FFI_ArrowArray;
 use arrow_schema::ffi::FFI_ArrowSchema;

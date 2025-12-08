@@ -25,10 +25,11 @@ impl CuDFGroupBy {
     ///
     /// The keys determine how rows are grouped. Rows with matching key
     /// values will be grouped together for aggregation.
-    pub fn from(view: &CuDFTableView) -> Self {
+    pub fn from_table_view(view: CuDFTableView) -> Self {
+        let inner = ffi::groupby_create(view.inner());
         Self {
-            _ref: view._ref.clone(),
-            inner: ffi::groupby_create(view.inner()),
+            _ref: Some(Arc::new(view)),
+            inner,
         }
     }
 
@@ -82,10 +83,11 @@ impl AggregationRequest {
     ///
     /// The group membership of each value is determined by the corresponding
     /// row in the keys used to construct the groupby.
-    pub fn new(view: &CuDFColumnView) -> Self {
+    pub fn from_column_view(view: CuDFColumnView) -> Self {
+        let inner = aggregation_request_create(view.inner());
         Self {
-            _ref: view._ref.clone(),
-            inner: aggregation_request_create(view.inner()),
+            _ref: Some(Arc::new(view)),
+            inner,
         }
     }
 

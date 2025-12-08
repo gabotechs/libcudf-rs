@@ -39,7 +39,7 @@ const TYPE_STRUCT: i32 = 28;
 ///
 /// Returns `Some(i32)` if the Arrow type has a direct cuDF equivalent,
 /// `None` if the type is not supported by cuDF.
-pub fn arrow_type_to_cudf(dtype: &DataType) -> Option<i32> {
+pub(crate) fn arrow_type_to_cudf(dtype: &DataType) -> Option<i32> {
     match dtype {
         DataType::Int8 => Some(TYPE_INT8),
         DataType::Int16 => Some(TYPE_INT16),
@@ -80,7 +80,7 @@ pub fn arrow_type_to_cudf(dtype: &DataType) -> Option<i32> {
 ///
 /// Returns `Some(DataType)` for simple types, `None` for complex types
 /// that require additional metadata (precision, scale, child types, etc.)
-pub fn cudf_type_to_arrow(type_id: i32) -> Option<DataType> {
+pub(crate) fn cudf_type_to_arrow(type_id: i32) -> Option<DataType> {
     match type_id {
         TYPE_EMPTY => None,
         TYPE_INT8 => Some(DataType::Int8),
