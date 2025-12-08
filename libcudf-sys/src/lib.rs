@@ -668,3 +668,396 @@ unsafe impl Send for ffi::GroupByResult {}
 
 /// SAFETY: GroupByResult can be accessed from multiple threads.
 unsafe impl Sync for ffi::GroupByResult {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ffi::ColumnView;
+    use arrow::array::{make_array, RecordBatch, StructArray};
+    use arrow::ffi::{from_ffi, from_ffi_and_data_type, FFI_ArrowArray};
+    use arrow::util::pretty::{pretty_format_batches, pretty_format_columns};
+    use arrow_schema::ffi::FFI_ArrowSchema;
+    use arrow_schema::{ArrowError, DataType};
+    use insta::assert_snapshot;
+    use std::fmt::Display;
+
+    // Sorting tests
+    #[test]
+    fn test_sort_table_ascending() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+
+        let num_cols = table.num_columns();
+        let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
+        let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
+
+        let sorted_table = ffi::sort_table(&table_view, &column_order, &null_precedence)?;
+
+        assert_eq!(sorted_table.num_rows(), table.num_rows());
+        assert_eq!(sorted_table.num_columns(), table.num_columns());
+        assert_snapshot!(pretty_table(&sorted_table.view())?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sort_table_descending() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+
+        let num_cols = table.num_columns();
+        let column_order: Vec<i32> = vec![Order::Descending as i32; num_cols];
+        let null_precedence: Vec<i32> = vec![NullOrder::After as i32; num_cols];
+
+        let sorted_table = ffi::sort_table(&table_view, &column_order, &null_precedence)?;
+
+        assert_eq!(sorted_table.num_rows(), table.num_rows());
+        assert_eq!(sorted_table.num_columns(), table.num_columns());
+        assert_snapshot!(pretty_table(&sorted_table.view())?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_stable_sort_table() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+
+        let num_cols = table.num_columns();
+        let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
+        let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
+
+        let sorted_table = ffi::stable_sort_table(&table_view, &column_order, &null_precedence)?;
+
+        assert_eq!(sorted_table.num_rows(), table.num_rows());
+        assert_eq!(sorted_table.num_columns(), table.num_columns());
+        assert_snapshot!(pretty_table(&sorted_table.view())?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sorted_order() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+
+        let num_cols = table.num_columns();
+        let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
+        let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
+
+        let indices = ffi::sorted_order(&table_view, &column_order, &null_precedence)?;
+
+        assert_eq!(indices.size(), table.num_rows());
+        assert_snapshot!(pretty_column(&indices.view(), DataType::Int32)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_is_sorted() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+
+        let num_cols = table.num_columns();
+        let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
+        let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
+
+        let sorted_table = ffi::sort_table(&table_view, &column_order, &null_precedence)?;
+        let sorted_view = sorted_table.view();
+
+        let is_sorted = ffi::is_sorted(&sorted_view, &column_order, &null_precedence)?;
+        assert!(is_sorted, "Table should be sorted after calling sort_table");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sort_by_key() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+
+        let keys_view = table_view.select(&[0]);
+
+        let column_order = vec![Order::Ascending as i32];
+        let null_precedence = vec![NullOrder::Before as i32];
+
+        let sorted_table =
+            ffi::sort_by_key(&table_view, &keys_view, &column_order, &null_precedence)?;
+
+        assert_eq!(sorted_table.num_rows(), table.num_rows());
+        assert_eq!(sorted_table.num_columns(), table.num_columns());
+        assert_snapshot!(pretty_table(&sorted_table.view())?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_stable_sort_by_key() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+
+        let keys_view = table_view.select(&[0, 1]);
+
+        let column_order = vec![Order::Ascending as i32, Order::Descending as i32];
+        let null_precedence = vec![NullOrder::Before as i32, NullOrder::After as i32];
+
+        let sorted_table =
+            ffi::stable_sort_by_key(&table_view, &keys_view, &column_order, &null_precedence)?;
+
+        assert_eq!(sorted_table.num_rows(), table.num_rows());
+        assert_eq!(sorted_table.num_columns(), table.num_columns());
+        assert_snapshot!(pretty_table(&sorted_table.view())?);
+
+        Ok(())
+    }
+
+    // Binary operation tests
+    #[test]
+    fn test_binary_op_col_col_add() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+
+        let col1 = table_view.column(1);
+        let col2 = table_view.column(2);
+
+        let result = ffi::binary_operation_col_col(
+            &col1,
+            &col2,
+            BinaryOperator::Add as i32,
+            TypeId::Float64 as i32,
+        )?;
+
+        assert_eq!(result.size(), col1.size());
+        assert_eq!(result.size(), col2.size());
+        assert_snapshot!(pretty_column(&result.view(), DataType::Float64)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_binary_op_col_col_multiply() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+
+        let col1 = table_view.column(1);
+        let col2 = table_view.column(2);
+
+        let result = ffi::binary_operation_col_col(
+            &col1,
+            &col2,
+            BinaryOperator::Mul as i32,
+            TypeId::Float64 as i32,
+        )?;
+
+        assert_eq!(result.size(), col1.size());
+        assert_snapshot!(pretty_column(&result.view(), DataType::Float64)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_binary_operators_enum() {
+        assert_eq!(BinaryOperator::Add as i32, 0);
+        assert_eq!(BinaryOperator::Sub as i32, 1);
+        assert_eq!(BinaryOperator::Mul as i32, 2);
+        assert_eq!(BinaryOperator::Div as i32, 3);
+    }
+
+    #[test]
+    fn test_type_id_enum() {
+        assert_eq!(TypeId::Int8 as i32, 1);
+        assert_eq!(TypeId::Int32 as i32, 3);
+        assert_eq!(TypeId::Float32 as i32, 9);
+        assert_eq!(TypeId::Float64 as i32, 10);
+    }
+
+    // Filter tests
+    #[test]
+    fn test_apply_boolean_mask() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+
+        let min_temp = table_view.column(1);
+        let max_temp = table_view.column(2);
+
+        let boolean_mask = ffi::binary_operation_col_col(
+            &min_temp,
+            &max_temp,
+            BinaryOperator::Less as i32,
+            TypeId::Bool8 as i32,
+        )?;
+
+        let filtered_table = ffi::apply_boolean_mask(&table_view, &boolean_mask.view())?;
+
+        assert!(filtered_table.num_rows() < table.num_rows());
+        assert_eq!(filtered_table.num_columns(), table.num_columns());
+
+        let filtered_view = filtered_table.view();
+        let filtered_col = filtered_view.column(1);
+        assert_snapshot!(pretty_column(&filtered_col, DataType::Float64)?);
+
+        Ok(())
+    }
+
+    // GroupBy tests
+    #[test]
+    fn test_groupby_sum() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+
+        let groupby = ffi::groupby_create(&table_view.select(&[21]));
+
+        let value_column = table_view.column(1);
+        let mut request = ffi::aggregation_request_create(&value_column);
+        request.pin_mut().add(ffi::make_max_aggregation_groupby());
+
+        let agg_requests = &[&*request as *const ffi::AggregationRequest];
+        let mut groupby_result = groupby.aggregate(agg_requests)?;
+
+        let mut aggregation_result = groupby_result.pin_mut().release_result(0);
+        let keys = groupby_result.pin_mut().release_keys();
+
+        assert_eq!(aggregation_result.len(), 1);
+        assert_eq!(
+            aggregation_result.pin_mut().release(0).size(),
+            keys.num_rows()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_groupby_multiple_aggregations() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("testdata/weather/result-000001.parquet")?;
+        let table_view = table.view();
+
+        let keys_view = table_view.select(&[0]);
+        let groupby = ffi::groupby_create(&keys_view);
+
+        let value_column = table_view.column(1);
+        let mut agg_request = ffi::aggregation_request_create(&value_column);
+        agg_request
+            .pin_mut()
+            .add(ffi::make_sum_aggregation_groupby());
+        agg_request
+            .pin_mut()
+            .add(ffi::make_min_aggregation_groupby());
+        agg_request
+            .pin_mut()
+            .add(ffi::make_max_aggregation_groupby());
+
+        let requests = &[&*agg_request as *const ffi::AggregationRequest];
+        let mut groupby_result = groupby.aggregate(requests)?;
+
+        assert_eq!(groupby_result.len(), 1);
+        let mut agg_result = groupby_result.pin_mut().release_result(0);
+        assert_eq!(agg_result.len(), 3);
+
+        let sum_column = agg_result.pin_mut().release(0);
+        let min_column = agg_result.pin_mut().release(1);
+        let max_column = agg_result.pin_mut().release(2);
+
+        let keys = groupby_result.pin_mut().release_keys();
+        assert!(keys.num_rows() > 0);
+
+        assert_eq!(sum_column.size(), keys.num_rows());
+        assert_eq!(min_column.size(), keys.num_rows());
+        assert_eq!(max_column.size(), keys.num_rows());
+
+        Ok(())
+    }
+
+    // Slice tests
+    #[test]
+    fn test_slice_column_basic() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+        let original_col = table_view.column(1);
+
+        let original_size = original_col.size();
+        assert!(original_size > 10, "Need at least 10 rows for testing");
+
+        let sliced_col = original_col.slice(5, 5);
+
+        assert_eq!(sliced_col.size(), 5);
+
+        let original_dtype = original_col.data_type();
+        let sliced_dtype = sliced_col.data_type();
+        assert_eq!(original_dtype.id(), sliced_dtype.id());
+
+        assert_snapshot!(pretty_column(&sliced_col, DataType::Float64)?, @r"
+        +------+
+        | test |
+        +------+
+        | 16.9 |
+        | 18.2 |
+        | 17.0 |
+        | 19.5 |
+        | 22.8 |
+        +------+
+        ");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_slice_column_from_start() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table_view = table.view();
+        let original_col = table_view.column(2);
+
+        let sliced_col = original_col.slice(0, 10);
+
+        assert_eq!(sliced_col.size(), 10);
+        assert_snapshot!(pretty_column(&sliced_col, DataType::Float64)?, @r"
+        +------+
+        | test |
+        +------+
+        | 0.0  |
+        | 3.6  |
+        | 3.6  |
+        | 39.8 |
+        | 2.8  |
+        | 0.0  |
+        | 0.2  |
+        | 0.0  |
+        | 0.0  |
+        | 16.2 |
+        +------+
+        ");
+
+        Ok(())
+    }
+
+    fn pretty_table(table_view: &ffi::TableView) -> Result<impl Display + use<>, ArrowError> {
+        let mut array = FFI_ArrowArray::empty();
+        let mut schema = FFI_ArrowSchema::empty();
+
+        let data = unsafe {
+            table_view.to_arrow_array(&mut array as *mut FFI_ArrowArray as *mut u8);
+            table_view.to_arrow_schema(&mut schema as *mut FFI_ArrowSchema as *mut u8);
+
+            from_ffi(array, &schema).expect("ffi data should be valid")
+        };
+
+        let record = RecordBatch::from(StructArray::from(data));
+
+        pretty_format_batches(&[record])
+    }
+
+    fn pretty_column(
+        column_view: &ColumnView,
+        data_type: DataType,
+    ) -> Result<impl Display + use<>, ArrowError> {
+        let mut array = FFI_ArrowArray::empty();
+
+        let data = unsafe {
+            column_view.to_arrow_array(&mut array as *mut FFI_ArrowArray as *mut u8);
+
+            from_ffi_and_data_type(array, data_type).expect("ffi data should be valid")
+        };
+
+        let array = make_array(data);
+        pretty_format_columns("test", &[array])
+    }
+}
