@@ -6,6 +6,7 @@ mod cudf_load;
 mod cudf_unload;
 mod filter;
 mod projection;
+mod sort;
 
 pub use coalesce_batches::CuDFCoalesceBatchesExec;
 pub use cudf_load::CuDFLoadExec;
