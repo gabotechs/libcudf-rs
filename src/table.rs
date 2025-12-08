@@ -1,6 +1,6 @@
 use crate::cudf_array::is_cudf_array;
 use crate::table_view::CuDFTableView;
-use crate::{CuDFColumn, CuDFColumnView, CuDFError};
+use crate::{CuDFColumn, CuDFError};
 use arrow::array::{Array, ArrayData, StructArray};
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow::record_batch::RecordBatch;
@@ -14,7 +14,7 @@ use std::sync::Arc;
 ///
 /// This is a safe wrapper around cuDF's table type.
 pub struct CuDFTable {
-    inner: UniquePtr<ffi::Table>,
+    pub(crate) inner: UniquePtr<ffi::Table>,
 }
 
 impl CuDFTable {
@@ -67,9 +67,7 @@ impl CuDFTable {
     /// ```
     pub fn from_parquet<P: AsRef<Path>>(path: P) -> Result<Self, CuDFError> {
         let path_str = path.as_ref().to_str().ok_or_else(|| {
-            arrow::error::ArrowError::InvalidArgumentError(
-                "Path contains invalid UTF-8".to_string(),
-            )
+            ArrowError::InvalidArgumentError("Path contains invalid UTF-8".to_string())
         })?;
 
         let inner = ffi::read_parquet(path_str)?;
@@ -100,9 +98,7 @@ impl CuDFTable {
     /// ```
     pub fn to_parquet<P: AsRef<Path>>(&self, path: P) -> Result<(), CuDFError> {
         let path_str = path.as_ref().to_str().ok_or_else(|| {
-            arrow::error::ArrowError::InvalidArgumentError(
-                "Path contains invalid UTF-8".to_string(),
-            )
+            ArrowError::InvalidArgumentError("Path contains invalid UTF-8".to_string())
         })?;
 
         let view = self.inner.view();
@@ -224,8 +220,14 @@ impl CuDFTable {
     ///
     /// This consumes the table structure and returns its columns as a collection
     /// that can be individually released.
-    pub fn take(&mut self) -> CuDFColumnCollection {
-        CuDFColumnCollection::new(self.inner.pin_mut().take())
+    pub fn into_columns(mut self) -> Vec<CuDFColumn> {
+        let mut columns = self.inner.pin_mut().release();
+        let mut result = Vec::with_capacity(columns.len());
+        for i in 0..columns.len() {
+            let col = columns.pin_mut().release(i);
+            result.push(CuDFColumn::new(col));
+        }
+        result
     }
 
     /// Concatenate multiple table views into a single table
@@ -253,42 +255,18 @@ impl CuDFTable {
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
     pub fn concat(views: Vec<CuDFTableView>) -> Result<Self, CuDFError> {
-        let inner_views: Vec<_> = views.into_iter().map(|v| v.into_inner()).collect();
-        let inner = ffi::concat_table_views(&inner_views);
+        // The CuDFTableView need to leave at least until the ffi::concat_table_views operation
+        // has finished.
+        let mut _refs = Vec::with_capacity(views.len());
+        let inner_views: Vec<_> = views
+            .into_iter()
+            .map(|v| {
+                _refs.push(v._ref.clone());
+                v.into_inner()
+            })
+            .collect();
+        let inner = ffi::concat_table_views(&inner_views)?;
         Ok(Self { inner })
-    }
-}
-
-/// A collection of cuDF columns
-///
-/// This type holds multiple columns and allows releasing them individually.
-/// It's typically obtained by calling `take()` on a table.
-pub struct CuDFColumnCollection {
-    inner: UniquePtr<ffi::ColumnCollection>,
-}
-
-impl CuDFColumnCollection {
-    /// Create a column collection from a cuDF ColumnCollection pointer
-    pub fn new(inner: UniquePtr<ffi::ColumnCollection>) -> Self {
-        Self { inner }
-    }
-
-    /// Get the number of columns in this collection
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    /// Check if the collection is empty
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Release ownership of the column at the specified index
-    ///
-    /// This removes the column from the collection and returns it.
-    pub fn release(&mut self, index: usize) -> CuDFColumn {
-        let col = self.inner.pin_mut().release(index);
-        CuDFColumn::new(col)
     }
 }
 

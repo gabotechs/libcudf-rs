@@ -6,31 +6,34 @@
 #include "table.h"
 #include "column.h"
 #include "aggregation.h"
-
-// Forward declarations of cuDF types
-namespace cudf {
-    namespace groupby {
-        class groupby;
-        struct aggregation_request;
-    }
-}
+#include <cudf/groupby.hpp>
 
 namespace libcudf_bridge {
+    // Helper to extract a column from a vector by moving it
+    struct ColumnVectorHelper {
+        std::vector<Column> columns;
+
+        ColumnVectorHelper();
+        ~ColumnVectorHelper();
+
+        [[nodiscard]] size_t len() const;
+        [[nodiscard]] std::unique_ptr<Column> release(size_t index);
+    };
 
     // Direct exposure of cuDF's groupby aggregate() return type
     struct GroupByResult {
         Table keys;
-        std::vector<ColumnCollection> results;
+        std::vector<std::vector<Column> > results;
 
         GroupByResult();
+
         ~GroupByResult();
 
-        // Field accessors as methods
-        [[nodiscard]] const Table &get_keys() const;
         [[nodiscard]] std::unique_ptr<Table> release_keys();
+
         [[nodiscard]] size_t len() const;
-        [[nodiscard]] const ColumnCollection &get(size_t index) const;
-        [[nodiscard]] ColumnCollection &get_mut(size_t index);
+
+        [[nodiscard]] std::unique_ptr<ColumnVectorHelper> release_result(size_t index);
     };
 
     // Opaque wrapper for cuDF aggregation_request
@@ -38,6 +41,7 @@ namespace libcudf_bridge {
         std::unique_ptr<cudf::groupby::aggregation_request> inner;
 
         AggregationRequest();
+
         ~AggregationRequest();
 
         // Direct cuDF method (adds aggregation to the request)
@@ -49,6 +53,7 @@ namespace libcudf_bridge {
         std::unique_ptr<cudf::groupby::groupby> inner;
 
         GroupBy();
+
         ~GroupBy();
 
         // Direct cuDF method
@@ -58,5 +63,6 @@ namespace libcudf_bridge {
 
     // GroupBy operations - direct cuDF mappings
     std::unique_ptr<GroupBy> groupby_create(const TableView &keys);
+
     std::unique_ptr<AggregationRequest> aggregation_request_create(const ColumnView &values);
 } // namespace libcudf_bridge

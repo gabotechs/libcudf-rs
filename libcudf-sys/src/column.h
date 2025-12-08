@@ -4,13 +4,9 @@
 
 #include "cudf/types.hpp"
 #include "rust/cxx.h"
-
-// Forward declarations of cuDF types
-namespace cudf {
-    class column;
-    class column_view;
-    class scalar;
-}
+#include <cudf/column/column.hpp>
+#include <cudf/column/column_view.hpp>
+#include <cudf/scalar/scalar.hpp>
 
 namespace libcudf_bridge {
     struct DataType;

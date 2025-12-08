@@ -89,19 +89,14 @@ pub mod ffi {
         /// Add an aggregation to this request
         fn add(self: &AggregationRequest, agg: UniquePtr<Aggregation>);
 
-        /// Note: Due to cxx limitations, the internal rust::Vec<Column> cannot be exposed
-        /// directly. Use len() and index access via [] to work with results.
-        type ColumnCollection;
+        /// Helper to extract columns from a vector by moving them
+        type ColumnVectorHelper;
 
-        /// Get the number of result columns
-        fn len(self: &ColumnCollection) -> usize;
+        /// Get the number of columns in the helper
+        fn len(self: &ColumnVectorHelper) -> usize;
 
-        /// Get a reference to the column at the specified index
-        fn get(self: &ColumnCollection, index: usize) -> &Column;
-
-        /// Take the group labels for each group. Can be done only once and will make all other
-        /// keys method fail.
-        fn release(self: Pin<&mut ColumnCollection>, index: usize) -> UniquePtr<Column>;
+        /// Release and take ownership of a column at the specified index
+        fn release(self: Pin<&mut ColumnVectorHelper>, index: usize) -> UniquePtr<Column>;
 
         /// Result pair from a groupby aggregation operation
         ///
@@ -112,9 +107,6 @@ pub mod ffi {
 
         // GroupByResult methods
 
-        /// Get the group labels for each group
-        fn get_keys(self: &GroupByResult) -> &Table;
-
         /// Take the group labels for each group. Can be done only once and will make all other
         /// keys method fail.
         fn release_keys(self: Pin<&mut GroupByResult>) -> UniquePtr<Table>;
@@ -122,11 +114,11 @@ pub mod ffi {
         /// Get the number of aggregation requests
         fn len(self: &GroupByResult) -> usize;
 
-        /// Get an immutable reference to the aggregation result at the specified index
-        fn get(self: &GroupByResult, index: usize) -> &ColumnCollection;
-
-        /// Get an immutable reference to the aggregation result at the specified index
-        fn get_mut(self: Pin<&mut GroupByResult>, index: usize) -> Pin<&mut ColumnCollection>;
+        /// Release and take ownership of the aggregation result at the specified index
+        fn release_result(
+            self: Pin<&mut GroupByResult>,
+            index: usize,
+        ) -> UniquePtr<ColumnVectorHelper>;
 
         // Table methods
         /// Get the number of columns in the table
@@ -138,8 +130,8 @@ pub mod ffi {
         /// Get a view of this table
         fn view(self: &Table) -> UniquePtr<TableView>;
 
-        /// Get a view of this table
-        fn take(self: &Table) -> UniquePtr<ColumnCollection>;
+        /// Release and take ownership of the table's columns
+        fn release(self: &Table) -> UniquePtr<ColumnVectorHelper>;
 
         // TableView methods
         /// Get the number of columns in the table view
@@ -159,6 +151,9 @@ pub mod ffi {
 
         /// Get the table view data as an FFI ArrowArray
         unsafe fn to_arrow_array(self: &TableView, out_array_ptr: *mut u8);
+
+        /// Clone this table view
+        fn clone(self: &TableView) -> UniquePtr<TableView>;
 
         // Column methods
         /// Get the number of elements in the column
@@ -219,10 +214,10 @@ pub mod ffi {
         fn create_table_from_columns_move(columns: &[*mut Column]) -> UniquePtr<Table>;
 
         /// Create a table from vertically concatenating TableView together
-        fn concat_table_views(views: &[UniquePtr<TableView>]) -> UniquePtr<Table>;
+        fn concat_table_views(views: &[UniquePtr<TableView>]) -> Result<UniquePtr<Table>>;
 
         /// Create a table from vertically concatenating ColumnView together
-        fn concat_column_views(views: &[UniquePtr<ColumnView>]) -> UniquePtr<Column>;
+        fn concat_column_views(views: &[UniquePtr<ColumnView>]) -> Result<UniquePtr<Column>>;
 
         /// Create a TableView from a set of ColumnView pointers (non-owning)
         fn create_table_view_from_column_views(
@@ -667,12 +662,6 @@ unsafe impl Send for ffi::AggregationRequest {}
 
 /// SAFETY: AggregationRequest configuration can be accessed from multiple threads.
 unsafe impl Sync for ffi::AggregationRequest {}
-
-/// SAFETY: ColumnCollection contains GPU data that can be sent between threads.
-unsafe impl Send for ffi::ColumnCollection {}
-
-/// SAFETY: ColumnCollection can be accessed from multiple threads.
-unsafe impl Sync for ffi::ColumnCollection {}
 
 /// SAFETY: GroupByResult contains GPU data that can be sent between threads.
 unsafe impl Send for ffi::GroupByResult {}

@@ -16,18 +16,19 @@ fn test_groupby_sum() -> Result<(), Box<dyn std::error::Error>> {
 
     // Execute groupby
     let agg_requests = &[&*request as *const ffi::AggregationRequest];
-    let groupby_result = groupby.aggregate(agg_requests)?;
+    let mut groupby_result = groupby.aggregate(agg_requests)?;
 
     // Test that we can access aggregation results
-    let aggregation_result = groupby_result.get(0);
+    let mut aggregation_result = groupby_result.pin_mut().release_result(0);
+    let keys = groupby_result.pin_mut().release_keys();
 
     // Only one aggregation (max) was added, so we get one result column
     assert_eq!(aggregation_result.len(), 1);
 
     // Verify the column has the expected number of rows
     assert_eq!(
-        aggregation_result.get(0).size(),
-        groupby_result.get_keys().num_rows()
+        aggregation_result.pin_mut().release(0).size(),
+        keys.num_rows()
     );
 
     Ok(())
@@ -54,18 +55,18 @@ fn test_groupby_multiple_aggregations() -> Result<(), Box<dyn std::error::Error>
         .add(ffi::make_max_aggregation_groupby());
 
     let requests = &[&*agg_request as *const ffi::AggregationRequest];
-    let groupby_result = groupby.aggregate(requests)?;
+    let mut groupby_result = groupby.aggregate(requests)?;
 
     assert_eq!(groupby_result.len(), 1);
-    let agg_result = groupby_result.get(0);
+    let mut agg_result = groupby_result.pin_mut().release_result(0);
     assert_eq!(agg_result.len(), 3);
 
     // Access columns using the accessor methods
-    let sum_column = agg_result.get(0);
-    let min_column = agg_result.get(1);
-    let max_column = agg_result.get(2);
+    let sum_column = agg_result.pin_mut().release(0);
+    let min_column = agg_result.pin_mut().release(1);
+    let max_column = agg_result.pin_mut().release(2);
 
-    let keys = groupby_result.get_keys();
+    let keys = groupby_result.pin_mut().release_keys();
     assert!(keys.num_rows() > 0);
 
     // Verify the columns have the same size as the keys
@@ -91,9 +92,9 @@ fn test_groupby_count() -> Result<(), Box<dyn std::error::Error>> {
         .add(ffi::make_count_aggregation_groupby());
 
     let agg_requests = &[&*agg_request as *const ffi::AggregationRequest];
-    let groupby_result = groupby.aggregate(agg_requests)?;
+    let mut groupby_result = groupby.aggregate(agg_requests)?;
 
-    let keys = groupby_result.get_keys();
+    let keys = groupby_result.pin_mut().release_keys();
     assert!(keys.num_rows() > 0);
 
     Ok(())

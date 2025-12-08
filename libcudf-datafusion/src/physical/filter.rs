@@ -171,17 +171,17 @@ fn filter_and_project(
     }
 
     // Check if the batch is already on GPU (all columns are CuDF arrays)
-    let mut column_views: Vec<&CuDFColumnView> = Vec::new();
+    let mut column_views: Vec<CuDFColumnView> = Vec::new();
     for (i, col) in batch.columns().iter().enumerate() {
         let Some(view) = col.as_any().downcast_ref::<CuDFColumnView>() else {
             return internal_err!(
                 "Mixed GPU/host RecordBatch not supported: column {i} is not a CuDF array"
             );
         };
-        column_views.push(view);
+        column_views.push(view.clone());
     }
 
-    let table_view = CuDFTableView::from_column_views(&column_views).map_err(cudf_to_df)?;
+    let table_view = CuDFTableView::from_column_views(column_views).map_err(cudf_to_df)?;
 
     // Apply boolean mask using CuDF on GPU
     let filtered_table = table_view
@@ -288,8 +288,8 @@ mod tests {
         let plan = tf.plan(&cudf_sql).await?;
         assert_snapshot!(plan.display(), @r"
         CoalescePartitionsExec: fetch=3
-          CoalesceBatchesExec: target_batch_size=8192, fetch=3
-            CudfUnloadExec
+          CudfUnloadExec
+            CuDFCoalesceBatchesExec: target_batch_size=8192, fetch=3
               CuDFFilterExec: MinTemp@0 > 10
                 CudfLoadExec
                   DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=MinTemp@0 > 10, pruning_predicate=MinTemp_null_count@1 != row_count@2 AND MinTemp_max@0 > 10, required_guarantees=[]

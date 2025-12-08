@@ -6,14 +6,20 @@
 #include <cudf/aggregation.hpp>
 
 namespace libcudf_bridge {
-    // Helper function to create ColumnCollection from cudf::groupby::aggregation_result
-    ColumnCollection aggregation_result_from_cudf(cudf::groupby::aggregation_result cudf_result) {
-        ColumnCollection ar;
-        for (auto &cudf_col: cudf_result.results) {
-            auto col = column_from_unique_ptr(std::move(cudf_col));
-            ar.results.emplace_back(std::move(col));
+    // ColumnVectorHelper implementation
+    ColumnVectorHelper::ColumnVectorHelper() = default;
+
+    ColumnVectorHelper::~ColumnVectorHelper() = default;
+
+    size_t ColumnVectorHelper::len() const {
+        return columns.size();
+    }
+
+    std::unique_ptr<Column> ColumnVectorHelper::release(size_t index) {
+        if (index >= columns.size()) {
+            throw std::out_of_range("Index out of bounds");
         }
-        return ar;
+        return std::make_unique<Column>(std::move(columns[index]));
     }
 
     // Aggregation implementation
@@ -49,8 +55,12 @@ namespace libcudf_bridge {
         group_by_result->keys.inner = std::move(aggregate_result.first);
 
         for (auto &cudf_agg_result: aggregate_result.second) {
-            auto ar = aggregation_result_from_cudf(std::move(cudf_agg_result));
-            group_by_result->results.push_back(std::move(ar));
+            auto result = std::vector<Column>();
+            result.reserve(cudf_agg_result.results.size());
+            for (auto &col: cudf_agg_result.results) {
+                result.emplace_back(column_from_unique_ptr(std::move(col)));
+            }
+            group_by_result->results.emplace_back(std::move(result));
         }
 
         return group_by_result;
@@ -72,10 +82,6 @@ namespace libcudf_bridge {
 
     GroupByResult::~GroupByResult() = default;
 
-    const Table &GroupByResult::get_keys() const {
-        return keys;
-    }
-
     std::unique_ptr<Table> GroupByResult::release_keys() {
         auto table = std::make_unique<Table>();
         table->inner = std::move(keys.inner);
@@ -86,11 +92,12 @@ namespace libcudf_bridge {
         return results.size();
     }
 
-    const ColumnCollection &GroupByResult::get(size_t index) const {
-        return results[index];
-    }
-
-    ColumnCollection &GroupByResult::get_mut(size_t index) {
-        return results[index];
+    std::unique_ptr<ColumnVectorHelper> GroupByResult::release_result(size_t index) {
+        if (index >= results.size()) {
+            throw std::out_of_range("Index out of bounds");
+        }
+        auto helper = std::make_unique<ColumnVectorHelper>();
+        helper->columns = std::move(results[index]);
+        return helper;
     }
 } // namespace libcudf_bridge

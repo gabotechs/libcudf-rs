@@ -4,38 +4,19 @@
 #include <vector>
 #include "rust/cxx.h"
 #include "column.h"
-
-// Forward declarations of cuDF types
-namespace cudf {
-    class table;
-    class table_view;
-}
+#include <cudf/table/table.hpp>
+#include <cudf/table/table_view.hpp>
 
 namespace libcudf_bridge {
-    // Direct exposure of cuDF's aggregation_result
-    struct ColumnCollection {
-        std::vector<Column> results;
-
-        ColumnCollection();
-        ~ColumnCollection();
-
-        // Delete copy, allow move
-        ColumnCollection(const ColumnCollection &) = delete;
-        ColumnCollection &operator=(const ColumnCollection &) = delete;
-        ColumnCollection(ColumnCollection &&) = default;
-        ColumnCollection &operator=(ColumnCollection &&) = default;
-
-        // Accessors for the results vector
-        [[nodiscard]] size_t len() const;
-        [[nodiscard]] const Column &get(size_t index) const;
-        [[nodiscard]] std::unique_ptr<Column> release(size_t index);
-    };
+    // Forward declaration
+    struct ColumnVectorHelper;
 
     // Opaque wrapper for cuDF table_view
     struct TableView {
         std::unique_ptr<cudf::table_view> inner;
 
         TableView();
+
         ~TableView();
 
         // Get number of columns
@@ -55,6 +36,9 @@ namespace libcudf_bridge {
 
         // Get the columns' data as an FFI Arrow Array
         void to_arrow_array(uint8_t *out_array_ptr) const;
+
+        // Clone this table view
+        [[nodiscard]] std::unique_ptr<TableView> clone() const;
     };
 
     // Opaque wrapper for cuDF table
@@ -62,6 +46,7 @@ namespace libcudf_bridge {
         std::unique_ptr<cudf::table> inner;
 
         Table();
+
         ~Table();
 
         // Get number of columns
@@ -73,11 +58,12 @@ namespace libcudf_bridge {
         // Get a view of this table
         [[nodiscard]] std::unique_ptr<TableView> view() const;
 
-        [[nodiscard]] std::unique_ptr<ColumnCollection> take() const;
+        [[nodiscard]] std::unique_ptr<ColumnVectorHelper> release() const;
     };
 
     // Table factory functions
     std::unique_ptr<Table> create_empty_table();
+
     std::unique_ptr<Table> create_table_from_columns_move(rust::Slice<Column *const> columns);
 
     // TableView factory functions
