@@ -30,7 +30,7 @@ impl CuDFTableView {
         &self.inner
     }
 
-    pub fn into_inner(self) -> UniquePtr<ffi::TableView> {
+    pub(crate) fn into_inner(self) -> UniquePtr<ffi::TableView> {
         self.inner
     }
 
@@ -135,7 +135,7 @@ impl CuDFTableView {
     /// ```
     /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = CuDFTable::new();
+    /// let table = CuDFTable::default();
     /// let view = table.into_view();
     /// assert_eq!(view.num_rows(), 0);
     /// ```
@@ -150,7 +150,7 @@ impl CuDFTableView {
     /// ```
     /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = CuDFTable::new();
+    /// let table = CuDFTable::default();
     /// let view = table.into_view();
     /// assert_eq!(view.num_columns(), 0);
     /// ```
@@ -165,7 +165,7 @@ impl CuDFTableView {
     /// ```
     /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = CuDFTable::new();
+    /// let table = CuDFTable::default();
     /// let view = table.into_view();
     /// assert!(view.is_empty());
     /// ```

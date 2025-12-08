@@ -1,5 +1,6 @@
 use crate::cudf_reference::CuDFRef;
-use crate::{cudf_type_to_arrow, CuDFError};
+use crate::data_type::cudf_type_to_arrow;
+use crate::CuDFError;
 use arrow::array::{Array, ArrayData, ArrayRef};
 use arrow::buffer::NullBuffer;
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
@@ -25,21 +26,6 @@ pub struct CuDFColumnView {
 }
 
 impl CuDFColumnView {
-    /// Create a CuDFColumnView from an existing cuDF column view
-    ///
-    /// This creates a non-owning view. The caller must ensure the underlying
-    /// column data remains valid for the lifetime of this view.
-    pub fn new(view: UniquePtr<libcudf_sys::ffi::ColumnView>) -> Self {
-        let cudf_dtype = view.data_type();
-        let dt = cudf_type_to_arrow(cudf_dtype.id());
-        let dt = dt.unwrap_or(DataType::Null);
-        Self {
-            _ref: None,
-            inner: view,
-            dt,
-        }
-    }
-
     /// Create a [CuDFColumnView] from a column view and optional table reference
     ///
     /// This is used internally to create column views that keep the source table or column alive
@@ -53,41 +39,13 @@ impl CuDFColumnView {
         Self { _ref, inner, dt }
     }
 
-    pub fn inner(&self) -> &UniquePtr<libcudf_sys::ffi::ColumnView> {
+    pub(crate) fn inner(&self) -> &UniquePtr<libcudf_sys::ffi::ColumnView> {
         &self.inner
     }
 
     /// Consume this wrapper and return the underlying cuDF column view
-    pub fn into_inner(self) -> UniquePtr<libcudf_sys::ffi::ColumnView> {
+    pub(crate) fn into_inner(self) -> UniquePtr<libcudf_sys::ffi::ColumnView> {
         self.inner
-    }
-
-    /// Get the raw device pointer to the column's data
-    ///
-    /// This returns a pointer to GPU device memory. The pointer is only valid
-    /// as long as this CuDFColumn exists.
-    ///
-    /// # Safety
-    ///
-    /// This is marked unsafe because:
-    /// - The returned pointer points to GPU device memory
-    /// - Dereferencing it from CPU code will cause undefined behavior
-    /// - Use CUDA APIs to interact with this pointer
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use arrow::array::Int32Array;
-    /// use libcudf_rs::{CuDFColumn, CuDFColumnView};
-    ///
-    /// let array = Int32Array::from(vec![1, 2, 3]);
-    /// let column = CuDFColumn::from_arrow_host(&array)?.into_view();
-    /// let gpu_ptr = unsafe { column.data_ptr() };
-    /// // Use CUDA APIs to work with gpu_ptr
-    /// # Ok::<(), libcudf_rs::CuDFError>(())
-    /// ```
-    pub unsafe fn data_ptr(&self) -> u64 {
-        self.inner.data_ptr()
     }
 
     /// Convert the cuDF column view to an Arrow array, copying data from GPU to host
@@ -231,8 +189,8 @@ mod tests {
         assert_eq!(column.len(), 5);
         assert_eq!(cloned.len(), 5);
 
-        let original_ptr = unsafe { column.data_ptr() };
-        let cloned_ptr = unsafe { cloned.data_ptr() };
+        let original_ptr = column.inner.data_ptr();
+        let cloned_ptr = cloned.inner.data_ptr();
         assert_eq!(
             original_ptr, cloned_ptr,
             "Cloned view should point to the same GPU memory"
@@ -250,10 +208,10 @@ mod tests {
         let clone2 = column.clone();
         let clone3 = clone1.clone();
 
-        let ptr = unsafe { column.data_ptr() };
-        assert_eq!(unsafe { clone1.data_ptr() }, ptr);
-        assert_eq!(unsafe { clone2.data_ptr() }, ptr);
-        assert_eq!(unsafe { clone3.data_ptr() }, ptr);
+        let ptr = column.inner.data_ptr();
+        assert_eq!(clone1.inner.data_ptr(), ptr);
+        assert_eq!(clone2.inner.data_ptr(), ptr);
+        assert_eq!(clone3.inner.data_ptr(), ptr);
 
         assert_eq!(column.len(), 3);
         assert_eq!(clone1.len(), 3);
@@ -261,7 +219,7 @@ mod tests {
         assert_eq!(clone3.len(), 3);
 
         drop(column);
-        assert_eq!(unsafe { clone1.data_ptr() }, ptr);
+        assert_eq!(clone1.inner.data_ptr(), ptr);
         assert_eq!(clone1.len(), 3);
     }
 
@@ -272,12 +230,11 @@ mod tests {
             .expect("Failed to convert Arrow array to column")
             .into_view();
 
-        let ptr = unsafe { column.data_ptr() };
+        let ptr = column.inner.data_ptr();
 
         assert_ne!(ptr, 0, "Column data pointer should not be null");
 
-        let mut attrs: cuda_runtime_sys::cudaPointerAttributes =
-            unsafe { std::mem::zeroed() };
+        let mut attrs: cuda_runtime_sys::cudaPointerAttributes = unsafe { std::mem::zeroed() };
         let result = unsafe {
             cuda_runtime_sys::cudaPointerGetAttributes(
                 &mut attrs as *mut _,
@@ -305,5 +262,4 @@ mod tests {
             }
         }
     }
-
 }

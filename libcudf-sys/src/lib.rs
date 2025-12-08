@@ -702,7 +702,7 @@ mod tests {
 
     #[test]
     fn test_sort_table_descending() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
@@ -720,7 +720,7 @@ mod tests {
 
     #[test]
     fn test_stable_sort_table() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
@@ -738,7 +738,7 @@ mod tests {
 
     #[test]
     fn test_sorted_order() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
@@ -755,7 +755,7 @@ mod tests {
 
     #[test]
     fn test_is_sorted() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
@@ -773,7 +773,7 @@ mod tests {
 
     #[test]
     fn test_sort_by_key() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let keys_view = table_view.select(&[0]);
@@ -793,7 +793,7 @@ mod tests {
 
     #[test]
     fn test_stable_sort_by_key() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let keys_view = table_view.select(&[0, 1]);
@@ -814,7 +814,7 @@ mod tests {
     // Binary operation tests
     #[test]
     fn test_binary_op_col_col_add() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let col1 = table_view.column(1);
@@ -836,7 +836,7 @@ mod tests {
 
     #[test]
     fn test_binary_op_col_col_multiply() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let col1 = table_view.column(1);
@@ -874,7 +874,7 @@ mod tests {
     // Filter tests
     #[test]
     fn test_apply_boolean_mask() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let min_temp = table_view.column(1);
@@ -902,7 +902,7 @@ mod tests {
     // GroupBy tests
     #[test]
     fn test_groupby_sum() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let groupby = ffi::groupby_create(&table_view.select(&[21]));
@@ -928,7 +928,7 @@ mod tests {
 
     #[test]
     fn test_groupby_multiple_aggregations() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("testdata/weather/result-000001.parquet")?;
+        let table = ffi::read_parquet("../testdata/weather/result-000001.parquet")?;
         let table_view = table.view();
 
         let keys_view = table_view.select(&[0]);
@@ -970,7 +970,7 @@ mod tests {
     // Slice tests
     #[test]
     fn test_slice_column_basic() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
         let original_col = table_view.column(1);
 
@@ -1002,7 +1002,7 @@ mod tests {
 
     #[test]
     fn test_slice_column_from_start() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("testdata/weather/result-000000.parquet")?;
+        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
         let original_col = table_view.column(2);
 

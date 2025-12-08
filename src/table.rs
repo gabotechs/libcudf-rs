@@ -29,17 +29,17 @@ impl CuDFTable {
     /// ```
     /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = CuDFTable::new();
+    /// let table = CuDFTable::default();
     /// assert_eq!(table.num_rows(), 0);
     /// assert_eq!(table.num_columns(), 0);
     /// ```
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             inner: ffi::create_empty_table(),
         }
     }
 
-    pub fn from_ptr(inner: UniquePtr<ffi::Table>) -> Self {
+    pub(crate) fn from_ptr(inner: UniquePtr<ffi::Table>) -> Self {
         Self { inner }
     }
 
@@ -90,9 +90,8 @@ impl CuDFTable {
     /// # Examples
     ///
     /// ```no_run
-    /// use libcudf_rs::CuDFTable;
-    ///
-    /// let table = CuDFTable::new();
+    /// # use libcudf_rs::CuDFTable;
+    /// # let table: CuDFTable = todo!();
     /// table.to_parquet("output.parquet")?;
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
@@ -168,7 +167,7 @@ impl CuDFTable {
     /// ```
     /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = CuDFTable::new();
+    /// let table = CuDFTable::default();
     /// assert_eq!(table.num_rows(), 0);
     /// ```
     pub fn num_rows(&self) -> usize {
@@ -182,7 +181,7 @@ impl CuDFTable {
     /// ```
     /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = CuDFTable::new();
+    /// let table = CuDFTable::default();
     /// assert_eq!(table.num_columns(), 0);
     /// ```
     pub fn num_columns(&self) -> usize {
@@ -196,7 +195,7 @@ impl CuDFTable {
     /// ```
     /// use libcudf_rs::CuDFTable;
     ///
-    /// let table = CuDFTable::new();
+    /// let table = CuDFTable::default();
     /// assert!(table.is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {

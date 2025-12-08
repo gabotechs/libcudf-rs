@@ -27,7 +27,7 @@ impl CuDFAggregationOp for CuDFSum {
             return exec_err!("SUM expects 1 argument, got {}", args.len());
         }
 
-        let mut request = AggregationRequest::new(&args[0]);
+        let mut request = AggregationRequest::from_column_view(args[0].clone());
         request.add(AggregationOp::SUM.group_by());
 
         Ok(vec![request])

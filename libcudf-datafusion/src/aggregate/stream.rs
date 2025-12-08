@@ -171,7 +171,7 @@ impl futures::Stream for Stream {
 
                             let table_view = CuDFTableView::from_column_views(column_views)
                                 .map_err(cudf_to_df)?;
-                            let group_by = CuDFGroupBy::from(&table_view);
+                            let group_by = CuDFGroupBy::from_table_view(table_view);
 
                             let evaluated_arguments = evaluate_many(&self.aggregate_args, &batch)?;
                             let evaluated_views = evaluated_arguments
@@ -210,7 +210,7 @@ impl futures::Stream for Stream {
                     }
 
                     let keys_table = self.concat_keys()?;
-                    let group_by = CuDFGroupBy::from(&keys_table.into_view());
+                    let group_by = CuDFGroupBy::from_table_view(keys_table.into_view());
 
                     let concatenated_columns = self.concat_partial_results()?;
 
