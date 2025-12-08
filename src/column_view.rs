@@ -212,3 +212,98 @@ impl Array for CuDFColumnView {
         todo!()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::CuDFColumn;
+    use arrow::array::Int32Array;
+
+    #[test]
+    fn test_column_view_clone() {
+        let array = Int32Array::from(vec![1, 2, 3, 4, 5]);
+        let column = CuDFColumn::from_arrow_host(&array)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
+
+        let cloned = column.clone();
+
+        assert_eq!(column.len(), 5);
+        assert_eq!(cloned.len(), 5);
+
+        let original_ptr = unsafe { column.data_ptr() };
+        let cloned_ptr = unsafe { cloned.data_ptr() };
+        assert_eq!(
+            original_ptr, cloned_ptr,
+            "Cloned view should point to the same GPU memory"
+        );
+    }
+
+    #[test]
+    fn test_multiple_clones() {
+        let array = Int32Array::from(vec![10, 20, 30]);
+        let column = CuDFColumn::from_arrow_host(&array)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
+
+        let clone1 = column.clone();
+        let clone2 = column.clone();
+        let clone3 = clone1.clone();
+
+        let ptr = unsafe { column.data_ptr() };
+        assert_eq!(unsafe { clone1.data_ptr() }, ptr);
+        assert_eq!(unsafe { clone2.data_ptr() }, ptr);
+        assert_eq!(unsafe { clone3.data_ptr() }, ptr);
+
+        assert_eq!(column.len(), 3);
+        assert_eq!(clone1.len(), 3);
+        assert_eq!(clone2.len(), 3);
+        assert_eq!(clone3.len(), 3);
+
+        drop(column);
+        assert_eq!(unsafe { clone1.data_ptr() }, ptr);
+        assert_eq!(clone1.len(), 3);
+    }
+
+    #[test]
+    fn test_column_data_is_on_gpu() {
+        let array = Int32Array::from(vec![1, 2, 3, 4, 5]);
+        let column = CuDFColumn::from_arrow_host(&array)
+            .expect("Failed to convert Arrow array to column")
+            .into_view();
+
+        let ptr = unsafe { column.data_ptr() };
+
+        assert_ne!(ptr, 0, "Column data pointer should not be null");
+
+        let mut attrs: cuda_runtime_sys::cudaPointerAttributes =
+            unsafe { std::mem::zeroed() };
+        let result = unsafe {
+            cuda_runtime_sys::cudaPointerGetAttributes(
+                &mut attrs as *mut _,
+                ptr as *const std::ffi::c_void,
+            )
+        };
+
+        assert_eq!(
+            result,
+            cuda_runtime_sys::cudaError_t::cudaSuccess,
+            "cudaPointerGetAttributes should succeed"
+        );
+
+        assert_ne!(
+            attrs.type_,
+            cuda_runtime_sys::cudaMemoryType::cudaMemoryTypeHost,
+            "Column data should NOT be in host memory"
+        );
+
+        match attrs.type_ {
+            cuda_runtime_sys::cudaMemoryType::cudaMemoryTypeDevice => {}
+            cuda_runtime_sys::cudaMemoryType::cudaMemoryTypeUnregistered => {}
+            _ => {
+                panic!("Unexpected memory type: {:?}", attrs.type_);
+            }
+        }
+    }
+
+}

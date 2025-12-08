@@ -279,6 +279,8 @@ impl Default for CuDFTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow::array::*;
+    use arrow::datatypes::*;
 
     #[test]
     fn test_empty_table() {
@@ -292,5 +294,157 @@ mod tests {
     fn test_default_table() {
         let table = CuDFTable::default();
         assert!(table.is_empty());
+    }
+
+    #[test]
+    fn test_arrow_roundtrip_simple() {
+        let schema = Schema::new(vec![
+            Field::new("int8", DataType::Int8, false),
+            Field::new("int16", DataType::Int16, false),
+            Field::new("int32", DataType::Int32, false),
+            Field::new("int64", DataType::Int64, false),
+            Field::new("uint8", DataType::UInt8, false),
+            Field::new("uint16", DataType::UInt16, false),
+            Field::new("uint32", DataType::UInt32, false),
+            Field::new("uint64", DataType::UInt64, false),
+            Field::new("float32", DataType::Float32, false),
+            Field::new("float64", DataType::Float64, false),
+            Field::new("bool", DataType::Boolean, false),
+            Field::new("string", DataType::Utf8, false),
+            Field::new("date32", DataType::Date32, false),
+            Field::new(
+                "timestamp_ms",
+                DataType::Timestamp(TimeUnit::Millisecond, None),
+                false,
+            ),
+        ]);
+
+        let arrays: Vec<Arc<dyn Array>> = vec![
+            Arc::new(Int8Array::from(vec![1i8, 2, 3, 4, 5])),
+            Arc::new(Int16Array::from(vec![10i16, 20, 30, 40, 50])),
+            Arc::new(Int32Array::from(vec![100i32, 200, 300, 400, 500])),
+            Arc::new(Int64Array::from(vec![1000i64, 2000, 3000, 4000, 5000])),
+            Arc::new(UInt8Array::from(vec![1u8, 2, 3, 4, 5])),
+            Arc::new(UInt16Array::from(vec![10u16, 20, 30, 40, 50])),
+            Arc::new(UInt32Array::from(vec![100u32, 200, 300, 400, 500])),
+            Arc::new(UInt64Array::from(vec![1000u64, 2000, 3000, 4000, 5000])),
+            Arc::new(Float32Array::from(vec![1.5f32, 2.5, 3.5, 4.5, 5.5])),
+            Arc::new(Float64Array::from(vec![10.5f64, 20.5, 30.5, 40.5, 50.5])),
+            Arc::new(BooleanArray::from(vec![true, false, true, false, true])),
+            Arc::new(StringArray::from(vec!["a", "b", "c", "d", "e"])),
+            Arc::new(Date32Array::from(vec![18000, 18001, 18002, 18003, 18004])),
+            Arc::new(TimestampMillisecondArray::from(vec![
+                1609459200000i64,
+                1609545600000,
+                1609632000000,
+                1609718400000,
+                1609804800000,
+            ])),
+        ];
+
+        let batch =
+            RecordBatch::try_new(Arc::new(schema), arrays).expect("Failed to create RecordBatch");
+
+        let table = CuDFTable::from_arrow_host(batch.clone()).expect("Failed to convert to cuDF");
+
+        assert_eq!(table.num_rows(), 5);
+        assert_eq!(table.num_columns(), 14);
+
+        let result_batch = table
+            .into_view()
+            .to_arrow_host()
+            .expect("Failed to convert back to Arrow");
+
+        assert_eq!(result_batch.num_rows(), batch.num_rows());
+        assert_eq!(result_batch.num_columns(), batch.num_columns());
+
+        for (i, (original_field, result_field)) in batch
+            .schema()
+            .fields()
+            .iter()
+            .zip(result_batch.schema().fields().iter())
+            .enumerate()
+        {
+            assert_eq!(
+                result_field.data_type(),
+                original_field.data_type(),
+                "Data type mismatch for column {}: expected {:?}, got {:?}",
+                i,
+                original_field.data_type(),
+                result_field.data_type()
+            );
+        }
+
+        for col_idx in 0..batch.num_columns() {
+            let original_col = batch.column(col_idx);
+            let result_col = result_batch.column(col_idx);
+
+            assert_eq!(
+                original_col,
+                result_col,
+                "Data mismatch for column {} (type: {:?})",
+                col_idx,
+                original_col.data_type()
+            );
+        }
+    }
+
+    #[test]
+    fn test_arrow_empty_roundtrip() {
+        let schema = Schema::new(vec![
+            Field::new("id", DataType::Int32, false),
+            Field::new("value", DataType::Float64, false),
+        ]);
+
+        let id_array = Int32Array::from(Vec::<i32>::new());
+        let value_array = Float64Array::from(Vec::<f64>::new());
+
+        let batch = RecordBatch::try_new(
+            Arc::new(schema),
+            vec![Arc::new(id_array), Arc::new(value_array)],
+        )
+        .expect("Failed to create RecordBatch");
+
+        let table = CuDFTable::from_arrow_host(batch).expect("Failed to convert to cuDF");
+        assert_eq!(table.num_rows(), 0);
+        assert_eq!(table.num_columns(), 2);
+
+        let result_batch = table
+            .into_view()
+            .to_arrow_host()
+            .expect("Failed to convert back to Arrow");
+        assert_eq!(result_batch.num_rows(), 0);
+        assert_eq!(result_batch.num_columns(), 2);
+    }
+
+    #[test]
+    fn test_arrow_parquet_roundtrip() {
+        let table = CuDFTable::from_parquet("testdata/weather/result-000000.parquet")
+            .expect("Failed to read parquet");
+
+        let batch = table
+            .into_view()
+            .to_arrow_host()
+            .expect("Failed to convert to Arrow");
+
+        let original_rows = batch.num_rows();
+        let original_cols = batch.num_columns();
+
+        let table2 = CuDFTable::from_arrow_host(batch).expect("Failed to convert from Arrow");
+
+        assert_eq!(table2.num_rows(), original_rows);
+        assert_eq!(table2.num_columns(), original_cols);
+    }
+
+    #[test]
+    fn test_read_all_weather_files() {
+        for i in 0..3 {
+            let filename = format!("testdata/weather/result-{:06}.parquet", i);
+            let table = CuDFTable::from_parquet(&filename)
+                .unwrap_or_else(|_| panic!("Failed to read {}", filename));
+
+            assert!(table.num_rows() > 0);
+            assert!(table.num_columns() > 0);
+        }
     }
 }

@@ -19,11 +19,6 @@ pub struct CuDFTableView {
 }
 
 impl CuDFTableView {
-    /// Create a new table view from a raw FFI table view
-    pub(crate) fn new(inner: UniquePtr<ffi::TableView>) -> Self {
-        Self { _ref: None, inner }
-    }
-
     pub(crate) fn new_with_ref(
         inner: UniquePtr<ffi::TableView>,
         _ref: Option<Arc<dyn CuDFRef>>,

@@ -1,0 +1,11 @@
+---
+source: libcudf-sys/src/lib.rs
+expression: "pretty_column(&filtered_col, DataType::Float64)?"
+---
++------+
+| test |
++------+
+| 15.5 |
+| 18.5 |
+| 20.4 |
++------+

@@ -1,5 +1,5 @@
 use crate::column::CuDFColumn;
-use crate::{arrow_type_to_cudf, CuDFColumnView, CuDFColumnViewOrScalar, CuDFError};
+use crate::{arrow_type_to_cudf, CuDFColumnViewOrScalar, CuDFError};
 use arrow_schema::{ArrowError, DataType};
 
 /// Binary operations supported by cuDF
