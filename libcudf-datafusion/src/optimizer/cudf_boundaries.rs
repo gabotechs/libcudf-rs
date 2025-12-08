@@ -2,6 +2,7 @@ use crate::physical::{is_cudf_plan, CuDFLoadExec, CuDFUnloadExec};
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::config::ConfigOptions;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
+use datafusion_physical_plan::repartition::RepartitionExec;
 use datafusion_physical_plan::ExecutionPlan;
 use std::sync::Arc;
 
@@ -20,10 +21,16 @@ impl PhysicalOptimizerRule for CuDFBoundariesRule {
             let children = parent.children();
             let mut new_children: Vec<Arc<dyn ExecutionPlan>> = Vec::with_capacity(children.len());
             let mut changed = false;
-            for child in children {
+            for mut child in children {
                 let child_is_cudf = is_cudf_plan(child.as_ref());
 
                 if parent_is_cudf && !child_is_cudf && !parent.as_any().is::<CuDFLoadExec>() {
+                    // CuDFLoadExec coalesces everything into one partition (assuming one GPU), so
+                    // having a repartition is pointless, as we will just join all the output
+                    // partitions into one.
+                    if child.as_any().is::<RepartitionExec>() {
+                        child = child.children().swap_remove(0)
+                    }
                     new_children.push(Arc::new(CuDFLoadExec::new(Arc::clone(child))));
                     changed = true;
                     continue;

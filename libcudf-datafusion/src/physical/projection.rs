@@ -106,12 +106,7 @@ mod tests {
         let tf = TestFramework::new().await;
 
         let plan = tf
-            .plan(
-                r#"
-            SET datafusion.execution.target_partitions=1;
-            SET cudf.enable=true;
-            SELECT "MinTemp" + 1 FROM weather LIMIT 1"#,
-            )
+            .plan(r#" SET cudf.enable=true; SELECT "MinTemp" + 1 FROM weather LIMIT 1"#)
             .await?;
 
         assert_snapshot!(plan.display(), @r"

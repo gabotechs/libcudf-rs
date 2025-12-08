@@ -277,13 +277,7 @@ mod tests {
             WHERE "MinTemp" > 10.0
             LIMIT 3
         "#;
-        let cudf_sql = format!(
-            r#"
-            SET datafusion.execution.target_partitions=1;
-            SET cudf.enable=true;
-            {host_sql}
-        "#
-        );
+        let cudf_sql = format!(r#" SET cudf.enable=true; {host_sql} "#);
 
         let plan = tf.plan(&cudf_sql).await?;
         assert_snapshot!(plan.display(), @r"

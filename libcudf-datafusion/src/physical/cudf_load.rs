@@ -4,7 +4,9 @@ use arrow_schema::{ArrowError, DataType, Field, FieldRef, Schema, SchemaRef};
 use datafusion::common::{exec_err, plan_err};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
-use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
+use datafusion_physical_plan::{
+    execute_stream, DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
+};
 use futures_util::stream::StreamExt;
 use libcudf_rs::{is_cudf_array, CuDFColumn};
 use std::any::Any;
@@ -14,11 +16,15 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct CuDFLoadExec {
     input: Arc<dyn ExecutionPlan>,
+
+    properties: PlanProperties,
 }
 
 impl CuDFLoadExec {
     pub fn new(input: Arc<dyn ExecutionPlan>) -> Self {
-        Self { input }
+        let mut properties = input.properties().clone();
+        properties.partitioning = Partitioning::UnknownPartitioning(1);
+        Self { input, properties }
     }
 }
 
@@ -38,7 +44,7 @@ impl ExecutionPlan for CuDFLoadExec {
     }
 
     fn properties(&self) -> &PlanProperties {
-        self.input.properties()
+        &self.properties
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
@@ -56,15 +62,15 @@ impl ExecutionPlan for CuDFLoadExec {
             );
         }
         let input = Arc::clone(&children[0]);
-        Ok(Arc::new(Self { input }))
+        Ok(Arc::new(Self::new(input)))
     }
 
     fn execute(
         &self,
-        partition: usize,
+        _partition: usize,
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
-        let host_stream = self.input.execute(partition, context)?;
+        let host_stream = execute_stream(Arc::clone(&self.input), context)?;
         let schema = cudf_schema_compatibility_map(host_stream.schema());
         let target_schema = Arc::clone(&schema);
 
