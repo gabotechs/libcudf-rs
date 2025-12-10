@@ -150,6 +150,15 @@ impl Stream for CuDFSortStream {
     }
 }
 
+/// Stream that efficiently computes Top-K by maintaining only K elements
+///
+/// Instead of accumulating all input data and sorting at the end, this stream
+/// keeps only the top K rows at each step. When a new batch arrives, it:
+/// 1. Concatenates with existing top K rows
+/// 2. If total > K, sorts and keeps only top K
+/// 3. Otherwise, keeps all rows (will sort at the end)
+///
+/// This reduces memory usage and improves performance for large inputs.
 struct CuDFTopKStream {
     input: SendableRecordBatchStream,
     ordering: LexOrdering,
@@ -168,16 +177,37 @@ impl Stream for CuDFTopKStream {
 
         match ready!(self.input.poll_next_unpin(cx)) {
             Some(Ok(batch)) => {
-                let view = CuDFTableView::from_record_batch(&batch).map_err(cudf_to_df)?;
+                let new_table = CuDFTableView::from_record_batch(&batch).map_err(cudf_to_df)?;
 
                 let merged_table = if let Some(existing) = self.result.take() {
-                    let views = vec![existing, view];
-                    CuDFTable::concat(views).map_err(cudf_to_df)?
+                    let views = vec![existing, new_table];
+                    CuDFTable::concat(views).map_err(cudf_to_df)?.into_view()
                 } else {
-                    CuDFTable::concat(vec![view]).map_err(cudf_to_df)?
+                    new_table
                 };
 
-                self.result = Some(merged_table.into_view());
+                // Keep only top K rows to avoid accumulating all data
+                if merged_table.num_rows() > self.limit {
+                    let sort_orders =
+                        extract_sort_params(&self.ordering, merged_table.num_columns());
+
+                    // Get sorted indices
+                    let indices =
+                        stable_sorted_order(&merged_table, &sort_orders).map_err(cudf_to_df)?;
+
+                    // Slice to keep only top K indices
+                    let indices_view = Arc::new(indices).view();
+                    let topk_indices_view =
+                        slice_column(&indices_view, 0, self.limit).map_err(cudf_to_df)?;
+
+                    // Gather the top K rows
+                    let topk_table =
+                        gather(&merged_table, &topk_indices_view).map_err(cudf_to_df)?;
+                    self.result = Some(topk_table.into_view());
+                } else {
+                    self.result = Some(merged_table);
+                }
+
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
@@ -188,23 +218,12 @@ impl Stream for CuDFTopKStream {
                     return Poll::Ready(None);
                 };
 
-                // Top-K implementation using stable_sorted_order + slice + gather
-                // Note: This is O(N log N) as cuDF doesn't provide a heap-based O(N*k) top-K
-                // for multi-column lexicographic ordering. See: https://github.com/rapidsai/cudf/pull/19303
+                // At this point we have <= K rows accumulated from all batches
+                // Just sort them to get the final top K result
                 let sort_orders = extract_sort_params(&self.ordering, result.num_columns());
+                let sorted_result = sort_by_all(&result, &sort_orders).map_err(cudf_to_df)?;
 
-                // Get sorted indices
-                let indices = stable_sorted_order(&result, &sort_orders).map_err(cudf_to_df)?;
-
-                // Slice to keep only top K indices
-                let indices_view = Arc::new(indices).view();
-                let topk_indices_view =
-                    slice_column(&indices_view, 0, self.limit).map_err(cudf_to_df)?;
-
-                // Gather the top K rows
-                let topk_table = gather(&result, &topk_indices_view).map_err(cudf_to_df)?;
-
-                let batch = topk_table
+                let batch = sorted_result
                     .into_view()
                     .to_record_batch()
                     .map_err(cudf_to_df)?;
