@@ -13,6 +13,7 @@ pub use cudf_load::CuDFLoadExec;
 pub use cudf_unload::CuDFUnloadExec;
 pub use filter::CuDFFilterExec;
 pub use projection::CuDFProjectionExec;
+pub use sort::CuDFSortExec;
 
 pub fn is_cudf_plan(plan: &dyn ExecutionPlan) -> bool {
     let any = plan.as_any();
@@ -22,4 +23,5 @@ pub fn is_cudf_plan(plan: &dyn ExecutionPlan) -> bool {
         || any.is::<CuDFUnloadExec>()
         || any.is::<CuDFProjectionExec>()
         || any.is::<CuDFCoalesceBatchesExec>()
+        || any.is::<CuDFSortExec>()
 }

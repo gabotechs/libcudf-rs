@@ -100,6 +100,14 @@ namespace libcudf_bridge {
         return inner->offset();
     }
 
+    // Returns how many nulls this column has
+    [[nodiscard]] int32_t ColumnView::null_count() const {
+        if (inner) {
+            return inner->null_count();
+        }
+        return 0;
+    }
+
     // Column implementation
     Column::Column() : inner(nullptr) {
     }

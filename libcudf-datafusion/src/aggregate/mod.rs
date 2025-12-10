@@ -1,4 +1,4 @@
-use arrow_schema::{Schema};
+use arrow_schema::Schema;
 use datafusion::error::Result;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::projection::ProjectionMapping;
@@ -146,25 +146,21 @@ impl ExecutionPlan for CuDFAggregateExec {
 }
 #[cfg(test)]
 mod test {
-    use crate::aggregate::op::udf::CuDFAggregateUDF;
-    use crate::aggregate::{CuDFAggregateExec, CuDFSum};
+    use crate::aggregate::op::sum::sum;
+    use crate::aggregate::CuDFAggregateExec;
     use crate::assert_snapshot;
     use crate::physical::{CuDFLoadExec, CuDFUnloadExec};
     use arrow::array::record_batch;
     use arrow::util::pretty::pretty_format_batches;
     use datafusion::execution::TaskContext;
-    use datafusion::functions_aggregate::sum::Sum;
     use datafusion::physical_expr::aggregate::AggregateExprBuilder;
-    use datafusion_expr::AggregateUDF;
     use datafusion_physical_plan::aggregates::PhysicalGroupBy;
     use datafusion_physical_plan::expressions::col;
     use datafusion_physical_plan::test::TestMemoryExec;
-    use datafusion_physical_plan::udaf::AggregateFunctionExpr;
-    use datafusion_physical_plan::{displayable, ExecutionPlan};
+    use datafusion_physical_plan::ExecutionPlan;
     use futures_util::TryStreamExt;
     use std::error::Error;
     use std::sync::Arc;
-    use crate::aggregate::op::sum::sum;
 
     #[tokio::test]
     async fn test_group_by_sum() -> Result<(), Box<dyn Error>> {

@@ -1,9 +1,8 @@
 use crate::aggregate::op::udf::CuDFAggregateUDF;
 use crate::aggregate::CuDFAggregationOp;
-use crate::errors::cudf_to_df;
 use datafusion::common::exec_err;
 use datafusion::error::Result;
-use datafusion::functions_aggregate::sum::{sum_udaf, Sum};
+use datafusion::functions_aggregate::sum::Sum;
 use datafusion_expr::AggregateUDF;
 use libcudf_rs::{AggregationOp, AggregationRequest, CuDFColumnView};
 use std::fmt::Debug;

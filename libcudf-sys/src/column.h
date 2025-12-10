@@ -39,6 +39,9 @@ namespace libcudf_bridge {
 
         // Create a sliced view of this column
         [[nodiscard]] int32_t offset() const;
+
+        // Returns how many nulls this column has
+        [[nodiscard]] int32_t null_count() const;
     };
 
     // Opaque wrapper for cuDF column

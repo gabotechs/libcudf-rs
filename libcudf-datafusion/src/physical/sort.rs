@@ -13,7 +13,7 @@ use datafusion_physical_plan::{
 use delegate::delegate;
 use futures::Stream;
 use futures_util::{ready, StreamExt};
-use libcudf_rs::CuDFTable;
+use libcudf_rs::{sort_by_all, CuDFTable, CuDFTableView, SortOrder};
 use std::any::Any;
 use std::fmt::Formatter;
 use std::pin::Pin;
@@ -81,7 +81,7 @@ impl ExecutionPlan for CuDFSortExec {
             CuDFSortStream {
                 input,
                 ordering: self.inner.expr().clone(),
-                batches: vec![],
+                views: vec![],
                 finished: false,
             }
             .right_stream()
@@ -107,7 +107,7 @@ impl ExecutionPlan for CuDFSortExec {
 struct CuDFSortStream {
     input: SendableRecordBatchStream,
     ordering: LexOrdering,
-    batches: Vec<RecordBatch>,
+    views: Vec<CuDFTableView>,
     finished: bool,
 }
 
@@ -120,15 +120,29 @@ impl Stream for CuDFSortStream {
         }
         match ready!(self.input.poll_next_unpin(cx)) {
             Some(Ok(batch)) => {
-                self.batches.push(batch);
+                let view = CuDFTableView::from_record_batch(&batch).map_err(cudf_to_df)?;
+                self.views.push(view);
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
             Some(Err(err)) => Poll::Ready(Some(Err(err))),
             None => {
                 self.finished = true;
-                // TODO: Here, we need to sort self.batches and emit the final batch already sorted.
-                todo!()
+
+                if self.views.is_empty() {
+                    return Poll::Ready(None);
+                }
+
+                let views = self.views.drain(..).collect();
+                let concatenated = CuDFTable::concat(views).map_err(cudf_to_df)?;
+                let table_view = concatenated.into_view();
+
+                let sort_orders = extract_sort_params(&self.ordering, table_view.num_columns());
+                let sorted = sort_by_all(&table_view, &sort_orders).map_err(cudf_to_df)?;
+
+                let result = sorted.into_view().to_record_batch().map_err(cudf_to_df);
+
+                Poll::Ready(Some(result))
             }
         }
     }
@@ -150,7 +164,7 @@ impl Stream for CuDFTopKStream {
             return Poll::Ready(None);
         }
         match ready!(self.input.poll_next_unpin(cx)) {
-            Some(Ok(batch)) => {
+            Some(Ok(_batch)) => {
                 // TODO: Here, we need to accumulate the TopK in self.result using CuDF operations.
                 todo!()
             }
@@ -164,5 +178,86 @@ impl Stream for CuDFTopKStream {
                 Poll::Ready(Some(result))
             }
         }
+    }
+}
+
+fn extract_sort_params(ordering: &LexOrdering, num_columns: usize) -> Vec<SortOrder> {
+    let mut sort_orders: Vec<SortOrder> = ordering
+        .iter()
+        .map(
+            |expr| match (expr.options.descending, expr.options.nulls_first) {
+                (false, true) => SortOrder::AscendingNullsFirst,
+                (false, false) => SortOrder::AscendingNullsLast,
+                (true, true) => SortOrder::DescendingNullsFirst,
+                (true, false) => SortOrder::DescendingNullsLast,
+            },
+        )
+        .collect();
+
+    // Pad with default sort order for remaining columns (they won't affect the sort)
+    while sort_orders.len() < num_columns {
+        sort_orders.push(SortOrder::AscendingNullsLast);
+    }
+
+    sort_orders
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::assert_snapshot;
+    use crate::test_utils::TestFramework;
+
+    #[tokio::test]
+    async fn test_basic_sort() -> Result<(), Box<dyn std::error::Error>> {
+        let tf = TestFramework::new().await;
+
+        let host_sql = r#"
+            SELECT "MinTemp", "MaxTemp"
+            FROM weather
+            ORDER BY "MinTemp" ASC
+        "#;
+        let cudf_sql = format!(r#" SET cudf.enable=true; {host_sql} "#);
+
+        let plan = tf.plan(&cudf_sql).await?;
+        assert_snapshot!(plan.display(), @r"
+        SortPreservingMergeExec: [MinTemp@0 ASC NULLS LAST]
+          CudfUnloadExec
+            CuDFSortExec: expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[true]
+              CudfLoadExec
+                DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet
+        ");
+
+        let cudf_results = plan.execute().await?;
+        let host_results = tf.execute(host_sql).await?;
+        assert_eq!(host_results.pretty_print, cudf_results.pretty_print);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_sort_descending() -> Result<(), Box<dyn std::error::Error>> {
+        let tf = TestFramework::new().await;
+
+        let host_sql = r#"
+            SELECT "MinTemp", "MaxTemp"
+            FROM weather
+            ORDER BY "MaxTemp" DESC
+        "#;
+        let cudf_sql = format!(r#" SET cudf.enable=true; {host_sql} "#);
+
+        let plan = tf.plan(&cudf_sql).await?;
+        assert_snapshot!(plan.display(), @r"
+        SortPreservingMergeExec: [MaxTemp@1 DESC]
+          CudfUnloadExec
+            CuDFSortExec: expr=[MaxTemp@1 DESC], preserve_partitioning=[true]
+              CudfLoadExec
+                DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet
+        ");
+
+        let cudf_results = plan.execute().await?;
+        let host_results = tf.execute(host_sql).await?;
+        assert_eq!(host_results.pretty_print, cudf_results.pretty_print);
+
+        Ok(())
     }
 }

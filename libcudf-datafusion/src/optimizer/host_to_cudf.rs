@@ -1,11 +1,14 @@
 use crate::optimizer::CuDFConfig;
-use crate::physical::{is_cudf_plan, CuDFCoalesceBatchesExec, CuDFFilterExec, CuDFProjectionExec};
+use crate::physical::{
+    is_cudf_plan, CuDFCoalesceBatchesExec, CuDFFilterExec, CuDFProjectionExec, CuDFSortExec,
+};
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::config::ConfigOptions;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion_physical_plan::coalesce_batches::CoalesceBatchesExec;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::projection::ProjectionExec;
+use datafusion_physical_plan::sorts::sort::SortExec;
 use datafusion_physical_plan::ExecutionPlan;
 use std::sync::Arc;
 
@@ -34,6 +37,12 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
 
             if let Some(node) = plan.as_any().downcast_ref::<ProjectionExec>() {
                 return Ok(Transformed::yes(Arc::new(CuDFProjectionExec::try_new(
+                    node.clone(),
+                )?)));
+            }
+
+            if let Some(node) = plan.as_any().downcast_ref::<SortExec>() {
+                return Ok(Transformed::yes(Arc::new(CuDFSortExec::try_new(
                     node.clone(),
                 )?)));
             }
