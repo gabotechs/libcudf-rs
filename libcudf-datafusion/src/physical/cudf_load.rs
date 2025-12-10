@@ -30,7 +30,7 @@ impl CuDFLoadExec {
 
 impl DisplayAs for CuDFLoadExec {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "CudfLoadExec")
+        write!(f, "CuDFLoadExec")
     }
 }
 

@@ -280,10 +280,10 @@ mod tests {
         let plan = tf.plan(&cudf_sql).await?;
         assert_snapshot!(plan.display(), @r"
         CoalescePartitionsExec: fetch=3
-          CudfUnloadExec
+          CuDFUnloadExec
             CuDFCoalesceBatchesExec: target_batch_size=8192, fetch=3
               CuDFFilterExec: MinTemp@0 > 10
-                CudfLoadExec
+                CuDFLoadExec
                   DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=MinTemp@0 > 10, pruning_predicate=MinTemp_null_count@1 != row_count@2 AND MinTemp_max@0 > 10, required_guarantees=[]
         ");
 

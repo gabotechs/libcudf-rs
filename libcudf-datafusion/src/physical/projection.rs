@@ -110,9 +110,9 @@ mod tests {
             .await?;
 
         assert_snapshot!(plan.display(), @r"
-        CudfUnloadExec
+        CuDFUnloadExec
           CuDFProjectionExec: expr=[MinTemp@0 + 1 as weather.MinTemp + Int64(1)]
-            CudfLoadExec
+            CuDFLoadExec
               DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000002.parquet]]}, projection=[MinTemp], limit=1, file_type=parquet
         ");
         let result = plan.execute().await?;
