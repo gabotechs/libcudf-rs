@@ -169,13 +169,37 @@ impl Array for CuDFColumnView {
     fn get_array_memory_size(&self) -> usize {
         todo!()
     }
+
+    fn logical_nulls(&self) -> Option<NullBuffer> {
+        todo!()
+    }
+
+    fn is_null(&self, _index: usize) -> bool {
+        todo!()
+    }
+
+    fn is_valid(&self, _index: usize) -> bool {
+        todo!()
+    }
+
+    fn null_count(&self) -> usize {
+        self.inner.null_count() as usize
+    }
+
+    fn logical_null_count(&self) -> usize {
+        todo!()
+    }
+
+    fn is_nullable(&self) -> bool {
+        todo!()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::CuDFColumn;
-    use arrow::array::Int32Array;
+    use arrow::array::{Int32Array, RecordBatch};
 
     #[test]
     fn test_column_view_clone() {

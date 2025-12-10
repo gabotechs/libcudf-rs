@@ -1,5 +1,5 @@
 use crate::errors::cudf_to_df;
-use arrow::array::{Array, RecordBatch};
+use arrow::array::RecordBatch;
 use arrow_schema::SchemaRef;
 use datafusion::common::{internal_err, Statistics};
 use datafusion::config::ConfigOptions;

@@ -26,6 +26,7 @@ mod data_type;
 mod errors;
 mod group_by;
 mod scalar;
+mod sort;
 mod table;
 mod table_view;
 
@@ -37,6 +38,7 @@ pub use errors::{CuDFError, Result};
 pub use group_by::*;
 pub use libcudf_sys::*;
 pub use scalar::CuDFScalar;
+pub use sort::{sort, sort_by_all, SortOrder};
 pub use table::*;
 pub use table_view::*;
 

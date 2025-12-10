@@ -187,6 +187,9 @@ pub mod ffi {
         /// Get the offset of the current ColumnView in case it was a slice of another one
         fn offset(self: &ColumnView) -> i32;
 
+        /// Get the number of null values in the column
+        fn null_count(self: &ColumnView) -> i32;
+
         // DataType methods
         /// Get the type_id
         fn id(self: &DataType) -> i32;
