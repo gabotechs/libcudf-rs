@@ -72,6 +72,26 @@ namespace libcudf_bridge {
         return std::make_unique<Column>(column_from_unique_ptr(std::move(result_col)));
     }
 
+    // Get stable sorted order indices
+    std::unique_ptr<Column> stable_sorted_order(
+        const TableView &input,
+        const rust::Slice<const int32_t> column_order,
+        const rust::Slice<const int32_t> null_precedence) {
+        std::vector<cudf::order> orders;
+        for (auto ord: column_order) {
+            orders.push_back(static_cast<cudf::order>(ord));
+        }
+
+        std::vector<cudf::null_order> null_orders;
+        for (auto null_ord: null_precedence) {
+            null_orders.push_back(static_cast<cudf::null_order>(null_ord));
+        }
+
+        auto result_col = cudf::stable_sorted_order(*input.inner, orders, null_orders);
+
+        return std::make_unique<Column>(column_from_unique_ptr(std::move(result_col)));
+    }
+
     // Check if table is sorted
     bool is_sorted(
         const TableView &input,

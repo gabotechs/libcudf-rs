@@ -1,5 +1,4 @@
-use crate::{CuDFError, CuDFTable, CuDFTableView};
-use arrow::array::Array;
+use crate::{CuDFColumn, CuDFError, CuDFTable, CuDFTableView};
 use libcudf_sys::{ffi, NullOrder, Order};
 
 /// Sort options combining sort order and null precedence
@@ -16,14 +15,14 @@ pub enum SortOrder {
 }
 
 impl SortOrder {
-    fn order(self) -> Order {
+    pub fn order(self) -> Order {
         match self {
             SortOrder::AscendingNullsFirst | SortOrder::AscendingNullsLast => Order::Ascending,
             SortOrder::DescendingNullsFirst | SortOrder::DescendingNullsLast => Order::Descending,
         }
     }
 
-    fn null_order(self) -> NullOrder {
+    pub fn null_order(self) -> NullOrder {
         match self {
             SortOrder::AscendingNullsFirst | SortOrder::DescendingNullsFirst => NullOrder::Before,
             SortOrder::AscendingNullsLast | SortOrder::DescendingNullsLast => NullOrder::After,
@@ -155,6 +154,44 @@ pub fn sort_by_all(
 
     let inner = ffi::stable_sort_table(table.inner(), &column_order_i32, &null_precedence_i32)?;
     Ok(CuDFTable::from_inner(inner))
+}
+
+/// Get the sorted order (indices) of a table
+///
+/// Returns a column of indices that would stably sort the table according to the specified sort orders.
+/// This is useful for implementing top-K or when you need the sort order without actually reordering the data.
+///
+/// # Arguments
+///
+/// * `table` - The table view to compute sort order for
+/// * `sort_orders` - Sort order for each column, specifying both direction and null handling
+///
+/// # Errors
+///
+/// Returns an error if there is insufficient GPU memory
+///
+/// # Examples
+///
+/// ```no_run
+/// use libcudf_rs::{CuDFTable, SortOrder, stable_sorted_order};
+///
+/// let table = CuDFTable::from_parquet("data.parquet")?;
+/// let view = table.into_view();
+///
+/// let sort_orders = vec![SortOrder::AscendingNullsLast, SortOrder::DescendingNullsFirst];
+/// let indices = stable_sorted_order(&view, &sort_orders)?;
+/// # Ok::<(), libcudf_rs::CuDFError>(())
+/// ```
+pub fn stable_sorted_order(
+    table: &CuDFTableView,
+    sort_orders: &[SortOrder],
+) -> Result<CuDFColumn, CuDFError> {
+    let column_order_i32: Vec<i32> = sort_orders.iter().map(|&o| o.order() as i32).collect();
+    let null_precedence_i32: Vec<i32> =
+        sort_orders.iter().map(|&o| o.null_order() as i32).collect();
+
+    let inner = ffi::stable_sorted_order(table.inner(), &column_order_i32, &null_precedence_i32)?;
+    Ok(CuDFColumn::new(inner))
 }
 
 #[cfg(test)]

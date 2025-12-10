@@ -140,10 +140,10 @@ impl Array for CuDFColumnView {
     }
 
     fn slice(&self, offset: usize, length: usize) -> ArrayRef {
-        Arc::new(CuDFColumnView::new_with_ref(
-            self.inner.slice(offset, length),
-            self._ref.clone(),
-        ))
+        Arc::new(
+            crate::operations::slice_column(self, offset, length)
+                .expect("Failed to slice column"),
+        )
     }
 
     fn len(&self) -> usize {

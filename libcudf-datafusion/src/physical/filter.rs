@@ -17,7 +17,7 @@ use datafusion_physical_plan::{
 };
 use delegate::delegate;
 use futures_util::{Stream, StreamExt};
-use libcudf_rs::CuDFColumnView;
+use libcudf_rs::{apply_boolean_mask, CuDFColumnView};
 use libcudf_rs::{CuDFColumnViewOrScalar, CuDFTableView};
 use std::any::Any;
 use std::fmt::Formatter;
@@ -184,9 +184,7 @@ fn filter_and_project(
     let table_view = CuDFTableView::from_column_views(column_views).map_err(cudf_to_df)?;
 
     // Apply boolean mask using CuDF on GPU
-    let filtered_table = table_view
-        .apply_boolean_mask(&bool_mask)
-        .map_err(cudf_to_df)?;
+    let filtered_table = apply_boolean_mask(&table_view, &bool_mask).map_err(cudf_to_df)?;
 
     // Keep data on GPU by wrapping table in an Arc and creating column views that reference it
     let table_view = filtered_table.into_view();

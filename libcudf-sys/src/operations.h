@@ -24,6 +24,12 @@ namespace libcudf_bridge {
 
     std::unique_ptr<Column> concat_column_views(rust::Slice<const std::unique_ptr<ColumnView>> views);
 
+    // Gather rows from a table based on a gather map (column of indices)
+    std::unique_ptr<Table> gather(const TableView &source_table, const ColumnView &gather_map);
+
+    // Create a sliced view of a column
+    std::unique_ptr<ColumnView> slice_column(const ColumnView &column, size_t offset, size_t length);
+
     // Utility functions
     rust::String get_cudf_version();
 } // namespace libcudf_bridge

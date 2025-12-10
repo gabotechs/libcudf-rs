@@ -24,6 +24,11 @@ namespace libcudf_bridge {
         rust::Slice<const int32_t> column_order,
         rust::Slice<const int32_t> null_precedence);
 
+    std::unique_ptr<Column> stable_sorted_order(
+        const TableView &input,
+        rust::Slice<const int32_t> column_order,
+        rust::Slice<const int32_t> null_precedence);
+
     bool is_sorted(
         const TableView &input,
         rust::Slice<const int32_t> column_order,

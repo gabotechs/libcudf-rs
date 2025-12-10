@@ -4,6 +4,7 @@
 #include <cudf/table/table.hpp>
 #include <cudf/column/column.hpp>
 #include <cudf/concatenate.hpp>
+#include <cudf/copying.hpp>
 #include <cudf/interop.hpp>
 #include <cudf/stream_compaction.hpp>
 #include <cudf/version_config.hpp>
@@ -67,6 +68,44 @@ namespace libcudf_bridge {
     std::unique_ptr<Table> apply_boolean_mask(const TableView &table, const ColumnView &boolean_mask) {
         auto result = std::make_unique<Table>();
         result->inner = cudf::apply_boolean_mask(*table.inner, *boolean_mask.inner);
+        return result;
+    }
+
+    // Gather rows from a table based on a gather map
+    std::unique_ptr<Table> gather(const TableView &source_table, const ColumnView &gather_map) {
+        auto result = std::make_unique<Table>();
+        result->inner = cudf::gather(
+            *source_table.inner,
+            *gather_map.inner,
+            cudf::out_of_bounds_policy::DONT_CHECK
+        );
+        return result;
+    }
+
+    // Create a sliced view of a column
+    std::unique_ptr<ColumnView> slice_column(const ColumnView &column, size_t offset, size_t length) {
+        if (!column.inner) {
+            throw std::runtime_error("Cannot slice null column view");
+        }
+        if (offset + length > static_cast<size_t>(column.inner->size())) {
+            throw std::out_of_range("Slice bounds out of range");
+        }
+
+        // Use cuDF's native slice function from cudf/copying.hpp
+        // slice() takes pairs of [start, end) indices and returns a vector of views
+        auto start = static_cast<cudf::size_type>(offset);
+        auto end = static_cast<cudf::size_type>(offset + length);
+        std::vector indices = {start, end};
+
+        auto sliced_views = cudf::slice(*column.inner, indices);
+
+        // We expect exactly one view back since we provided one [start, end) pair
+        if (sliced_views.empty()) {
+            throw std::runtime_error("cudf::slice returned no views");
+        }
+
+        auto result = std::make_unique<ColumnView>();
+        result->inner = std::make_unique<cudf::column_view>(sliced_views.at(0));
         return result;
     }
 

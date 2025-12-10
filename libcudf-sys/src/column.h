@@ -34,10 +34,7 @@ namespace libcudf_bridge {
         // Clone this column view
         [[nodiscard]] std::unique_ptr<ColumnView> clone() const;
 
-        // Create a sliced view of this column
-        [[nodiscard]] std::unique_ptr<ColumnView> slice(size_t offset, size_t length) const;
-
-        // Create a sliced view of this column
+        // Get the offset of the current ColumnView in case it was a slice of another one
         [[nodiscard]] int32_t offset() const;
 
         // Returns how many nulls this column has

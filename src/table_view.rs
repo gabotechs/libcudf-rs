@@ -26,7 +26,7 @@ impl CuDFTableView {
         Self { _ref, inner }
     }
 
-    pub(crate) fn inner(&self) -> &UniquePtr<ffi::TableView> {
+    pub fn inner(&self) -> &UniquePtr<ffi::TableView> {
         &self.inner
     }
 
@@ -77,55 +77,6 @@ impl CuDFTableView {
             _ref: Some(Arc::new(_refs)),
             inner,
         })
-    }
-
-    /// Filter the table using a boolean mask
-    ///
-    /// Returns a new table containing only the rows where the corresponding
-    /// element in the boolean mask is `true`. This operation is stable: the
-    /// input order is preserved in the output.
-    ///
-    /// # Arguments
-    ///
-    /// * `boolean_mask` - A boolean array where `true` indicates rows to keep
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The mask length does not match the table's number of rows
-    /// - The mask is not a boolean type
-    /// - There is insufficient GPU memory
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use arrow::array::{BooleanArray, Int32Array, RecordBatch};
-    /// use arrow::datatypes::{DataType, Field, Schema};
-    /// use libcudf_rs::{CuDFColumn, CuDFTable};
-    /// use std::sync::Arc;
-    ///
-    /// // Create a table
-    /// let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
-    /// let array = Int32Array::from(vec![1, 2, 3, 4, 5]);
-    /// let batch = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(array)])?;
-    /// let table = CuDFTable::from_arrow_host(batch)?;
-    ///
-    /// // Create a boolean mask
-    /// let mask = BooleanArray::from(vec![true, false, true, false, true]);
-    /// let mask_column = CuDFColumn::from_arrow_host(&mask)?.into_view();
-    ///
-    /// // Filter the table using a view
-    /// let table_view = table.into_view();
-    /// let filtered = table_view.apply_boolean_mask(&mask_column)?;
-    /// assert_eq!(filtered.num_rows(), 3);
-    /// # Ok::<(), libcudf_rs::CuDFError>(())
-    /// ```
-    pub fn apply_boolean_mask(
-        &self,
-        boolean_mask: &CuDFColumnView,
-    ) -> Result<CuDFTable, CuDFError> {
-        let inner = ffi::apply_boolean_mask(&self.inner, boolean_mask.inner())?;
-        Ok(CuDFTable::from_inner(inner))
     }
 
     /// Get the number of rows in the table view

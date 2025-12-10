@@ -1,6 +1,6 @@
 use crate::errors::cudf_to_df;
-use arrow::array::RecordBatch;
-use datafusion::common::Statistics;
+use arrow::array::{Array, RecordBatch};
+use datafusion::common::{internal_err, Statistics};
 use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::LexOrdering;
@@ -13,7 +13,9 @@ use datafusion_physical_plan::{
 use delegate::delegate;
 use futures::Stream;
 use futures_util::{ready, StreamExt};
-use libcudf_rs::{sort_by_all, CuDFTable, CuDFTableView, SortOrder};
+use libcudf_rs::{
+    gather, slice_column, sort_by_all, stable_sorted_order, CuDFTable, CuDFTableView, SortOrder,
+};
 use std::any::Any;
 use std::fmt::Formatter;
 use std::pin::Pin;
@@ -152,7 +154,7 @@ struct CuDFTopKStream {
     input: SendableRecordBatchStream,
     ordering: LexOrdering,
     limit: usize,
-    result: Option<CuDFTable>,
+    result: Option<CuDFTableView>,
     finished: bool,
 }
 
@@ -163,10 +165,21 @@ impl Stream for CuDFTopKStream {
         if self.finished {
             return Poll::Ready(None);
         }
+
         match ready!(self.input.poll_next_unpin(cx)) {
-            Some(Ok(_batch)) => {
-                // TODO: Here, we need to accumulate the TopK in self.result using CuDF operations.
-                todo!()
+            Some(Ok(batch)) => {
+                let view = CuDFTableView::from_record_batch(&batch).map_err(cudf_to_df)?;
+
+                let merged_table = if let Some(existing) = self.result.take() {
+                    let views = vec![existing, view];
+                    CuDFTable::concat(views).map_err(cudf_to_df)?
+                } else {
+                    CuDFTable::concat(vec![view]).map_err(cudf_to_df)?
+                };
+
+                self.result = Some(merged_table.into_view());
+                cx.waker().wake_by_ref();
+                Poll::Pending
             }
             Some(Err(err)) => Poll::Ready(Some(Err(err))),
             None => {
@@ -174,8 +187,28 @@ impl Stream for CuDFTopKStream {
                 let Some(result) = self.result.take() else {
                     return Poll::Ready(None);
                 };
-                let result = result.into_view().to_record_batch().map_err(cudf_to_df);
-                Poll::Ready(Some(result))
+
+                // Top-K implementation using stable_sorted_order + slice + gather
+                // Note: This is O(N log N) as cuDF doesn't provide a heap-based O(N*k) top-K
+                // for multi-column lexicographic ordering. See: https://github.com/rapidsai/cudf/pull/19303
+                let sort_orders = extract_sort_params(&self.ordering, result.num_columns());
+
+                // Get sorted indices
+                let indices = stable_sorted_order(&result, &sort_orders).map_err(cudf_to_df)?;
+
+                // Slice to keep only top K indices
+                let indices_view = Arc::new(indices).view();
+                let topk_indices_view =
+                    slice_column(&indices_view, 0, self.limit).map_err(cudf_to_df)?;
+
+                // Gather the top K rows
+                let topk_table = gather(&result, &topk_indices_view).map_err(cudf_to_df)?;
+
+                let batch = topk_table
+                    .into_view()
+                    .to_record_batch()
+                    .map_err(cudf_to_df)?;
+                Poll::Ready(Some(Ok(batch)))
             }
         }
     }
@@ -252,6 +285,34 @@ mod tests {
             CuDFSortExec: expr=[MaxTemp@1 DESC], preserve_partitioning=[true]
               CudfLoadExec
                 DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet
+        ");
+
+        let cudf_results = plan.execute().await?;
+        let host_results = tf.execute(host_sql).await?;
+        assert_eq!(host_results.pretty_print, cudf_results.pretty_print);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_sort_with_limit() -> Result<(), Box<dyn std::error::Error>> {
+        let tf = TestFramework::new().await;
+
+        let host_sql = r#"
+            SELECT "MinTemp", "MaxTemp"
+            FROM weather
+            ORDER BY "MinTemp" ASC
+            LIMIT 3
+        "#;
+        let cudf_sql = format!(r#" SET cudf.enable=true; {host_sql} "#);
+
+        let plan = tf.plan(&cudf_sql).await?;
+        assert_snapshot!(plan.display(), @r"
+        SortPreservingMergeExec: [MinTemp@0 ASC NULLS LAST], fetch=3
+          CudfUnloadExec
+            CuDFSortExec: TopK(fetch=3), expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[true]
+              CudfLoadExec
+                DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=DynamicFilter [ empty ]
         ");
 
         let cudf_results = plan.execute().await?;
