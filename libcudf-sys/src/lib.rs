@@ -181,9 +181,6 @@ pub mod ffi {
         /// Clone this column view
         fn clone(self: &ColumnView) -> UniquePtr<ColumnView>;
 
-        /// Create a sliced view of this column
-        fn slice(self: &ColumnView, offset: usize, length: usize) -> UniquePtr<ColumnView>;
-
         /// Get the offset of the current ColumnView in case it was a slice of another one
         fn offset(self: &ColumnView) -> i32;
 
@@ -247,6 +244,24 @@ pub mod ffi {
             boolean_mask: &ColumnView,
         ) -> Result<UniquePtr<Table>>;
 
+        /// Gather rows from a table based on a gather map (column of indices)
+        ///
+        /// Reorders the rows of `source_table` according to the indices in `gather_map`.
+        /// The resulting table will have the same number of rows as `gather_map` has elements.
+        fn gather(
+            source_table: &TableView,
+            gather_map: &ColumnView,
+        ) -> Result<UniquePtr<Table>>;
+
+        /// Create a sliced view of a column
+        ///
+        /// Returns a new column view that is a slice of the input column from `offset` to `offset + length`.
+        fn slice_column(
+            column: &ColumnView,
+            offset: usize,
+            length: usize,
+        ) -> Result<UniquePtr<ColumnView>>;
+
         // Binary operations - direct cuDF mappings
 
         /// Perform a binary operation between two columns
@@ -306,6 +321,15 @@ pub mod ffi {
         ///
         /// Returns a column of indices that would produce a sorted table if used to reorder the rows.
         fn sorted_order(
+            input: &TableView,
+            column_order: &[i32],
+            null_precedence: &[i32],
+        ) -> Result<UniquePtr<Column>>;
+
+        /// Get the indices that would stably sort a table
+        ///
+        /// Like sorted_order but preserves the relative order of equivalent elements.
+        fn stable_sorted_order(
             input: &TableView,
             column_order: &[i32],
             null_precedence: &[i32],
@@ -980,7 +1004,7 @@ mod tests {
         let original_size = original_col.size();
         assert!(original_size > 10, "Need at least 10 rows for testing");
 
-        let sliced_col = original_col.slice(5, 5);
+        let sliced_col = ffi::slice_column(&original_col, 5, 5)?;
 
         assert_eq!(sliced_col.size(), 5);
 
@@ -1009,7 +1033,7 @@ mod tests {
         let table_view = table.view();
         let original_col = table_view.column(2);
 
-        let sliced_col = original_col.slice(0, 10);
+        let sliced_col = ffi::slice_column(&original_col, 0, 10)?;
 
         assert_eq!(sliced_col.size(), 10);
         assert_snapshot!(pretty_column(&sliced_col, DataType::Float64)?, @r"
