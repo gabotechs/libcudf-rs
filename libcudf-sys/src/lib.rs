@@ -206,6 +206,12 @@ pub mod ffi {
 
         // Factory functions
 
+        /// Create a DataType from a type_id
+        fn new_data_type(type_id: i32) -> UniquePtr<DataType>;
+
+        /// Create a DataType from a type_id and scale (for decimals)
+        fn new_data_type_with_scale(type_id: i32, scale: i32) -> UniquePtr<DataType>;
+
         /// Create an empty table with no columns and no rows
         fn create_empty_table() -> UniquePtr<Table>;
 
@@ -272,7 +278,7 @@ pub mod ffi {
             lhs: &ColumnView,
             rhs: &ColumnView,
             op: i32,
-            output_type_id: i32,
+            output_type: &DataType,
         ) -> Result<UniquePtr<Column>>;
 
         /// Perform a binary operation between a column and a scalar
@@ -283,7 +289,7 @@ pub mod ffi {
             lhs: &ColumnView,
             rhs: &Scalar,
             op: i32,
-            output_type_id: i32,
+            output_type: &DataType,
         ) -> Result<UniquePtr<Column>>;
 
         /// Perform a binary operation between a scalar and a column
@@ -294,7 +300,7 @@ pub mod ffi {
             lhs: &Scalar,
             rhs: &ColumnView,
             op: i32,
-            output_type_id: i32,
+            output_type: &DataType,
         ) -> Result<UniquePtr<Column>>;
 
         // Sorting operations - direct cuDF mappings
@@ -847,11 +853,12 @@ mod tests {
         let col1 = table_view.column(1);
         let col2 = table_view.column(2);
 
+        let output_type = ffi::new_data_type(TypeId::Float64 as i32);
         let result = ffi::binary_operation_col_col(
             &col1,
             &col2,
             BinaryOperator::Add as i32,
-            TypeId::Float64 as i32,
+            &output_type,
         )?;
 
         assert_eq!(result.size(), col1.size());
@@ -869,11 +876,12 @@ mod tests {
         let col1 = table_view.column(1);
         let col2 = table_view.column(2);
 
+        let output_type = ffi::new_data_type(TypeId::Float64 as i32);
         let result = ffi::binary_operation_col_col(
             &col1,
             &col2,
             BinaryOperator::Mul as i32,
-            TypeId::Float64 as i32,
+            &output_type,
         )?;
 
         assert_eq!(result.size(), col1.size());
@@ -907,11 +915,12 @@ mod tests {
         let min_temp = table_view.column(1);
         let max_temp = table_view.column(2);
 
+        let output_type = ffi::new_data_type(TypeId::Bool8 as i32);
         let boolean_mask = ffi::binary_operation_col_col(
             &min_temp,
             &max_temp,
             BinaryOperator::Less as i32,
-            TypeId::Bool8 as i32,
+            &output_type,
         )?;
 
         let filtered_table = ffi::apply_boolean_mask(&table_view, &boolean_mask.view())?;

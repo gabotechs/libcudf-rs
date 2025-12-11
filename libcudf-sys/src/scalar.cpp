@@ -95,6 +95,38 @@ namespace libcudf_bridge {
                 cloned->inner = std::make_unique<cudf::string_scalar>(
                     static_cast<cudf::string_scalar const&>(*inner));
                 break;
+            case cudf::type_id::DECIMAL32:
+                cloned->inner = std::make_unique<cudf::fixed_point_scalar<numeric::decimal32>>(
+                    static_cast<cudf::fixed_point_scalar<numeric::decimal32> const&>(*inner));
+                break;
+            case cudf::type_id::DECIMAL64:
+                cloned->inner = std::make_unique<cudf::fixed_point_scalar<numeric::decimal64>>(
+                    static_cast<cudf::fixed_point_scalar<numeric::decimal64> const&>(*inner));
+                break;
+            case cudf::type_id::DECIMAL128:
+                cloned->inner = std::make_unique<cudf::fixed_point_scalar<numeric::decimal128>>(
+                    static_cast<cudf::fixed_point_scalar<numeric::decimal128> const&>(*inner));
+                break;
+            case cudf::type_id::TIMESTAMP_DAYS:
+                cloned->inner = std::make_unique<cudf::timestamp_scalar<cudf::timestamp_D>>(
+                    static_cast<cudf::timestamp_scalar<cudf::timestamp_D> const&>(*inner));
+                break;
+            case cudf::type_id::TIMESTAMP_SECONDS:
+                cloned->inner = std::make_unique<cudf::timestamp_scalar<cudf::timestamp_s>>(
+                    static_cast<cudf::timestamp_scalar<cudf::timestamp_s> const&>(*inner));
+                break;
+            case cudf::type_id::TIMESTAMP_MILLISECONDS:
+                cloned->inner = std::make_unique<cudf::timestamp_scalar<cudf::timestamp_ms>>(
+                    static_cast<cudf::timestamp_scalar<cudf::timestamp_ms> const&>(*inner));
+                break;
+            case cudf::type_id::TIMESTAMP_MICROSECONDS:
+                cloned->inner = std::make_unique<cudf::timestamp_scalar<cudf::timestamp_us>>(
+                    static_cast<cudf::timestamp_scalar<cudf::timestamp_us> const&>(*inner));
+                break;
+            case cudf::type_id::TIMESTAMP_NANOSECONDS:
+                cloned->inner = std::make_unique<cudf::timestamp_scalar<cudf::timestamp_ns>>(
+                    static_cast<cudf::timestamp_scalar<cudf::timestamp_ns> const&>(*inner));
+                break;
             // Add more types as needed
             default:
                 throw std::runtime_error("Unsupported scalar type for cloning");

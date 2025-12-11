@@ -18,7 +18,6 @@ mod tests {
     const TPCH_DATA_PARTS: i32 = 16;
 
     #[tokio::test]
-    #[ignore]
     async fn test_tpch_1() -> Result<(), Box<dyn Error>> {
         test_tpch_query(get_test_tpch_query(1)).await
     }

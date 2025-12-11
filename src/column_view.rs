@@ -1,6 +1,6 @@
 use crate::cudf_reference::CuDFRef;
 use crate::data_type::cudf_type_to_arrow;
-use crate::CuDFError;
+use crate::{slice_column, CuDFError};
 use arrow::array::{Array, ArrayData, ArrayRef};
 use arrow::buffer::NullBuffer;
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
@@ -34,7 +34,7 @@ impl CuDFColumnView {
         _ref: Option<Arc<dyn CuDFRef>>,
     ) -> Self {
         let cudf_dtype = inner.data_type();
-        let dt = cudf_type_to_arrow(cudf_dtype.id());
+        let dt = cudf_type_to_arrow(&cudf_dtype);
         let dt = dt.unwrap_or(DataType::Null);
         Self { _ref, inner, dt }
     }
@@ -140,10 +140,7 @@ impl Array for CuDFColumnView {
     }
 
     fn slice(&self, offset: usize, length: usize) -> ArrayRef {
-        Arc::new(
-            crate::operations::slice_column(self, offset, length)
-                .expect("Failed to slice column"),
-        )
+        Arc::new(slice_column(self, offset, length).expect("Failed to slice column"))
     }
 
     fn len(&self) -> usize {
@@ -199,7 +196,7 @@ impl Array for CuDFColumnView {
 mod tests {
     use super::*;
     use crate::CuDFColumn;
-    use arrow::array::{Int32Array, RecordBatch};
+    use arrow::array::Int32Array;
 
     #[test]
     fn test_column_view_clone() {

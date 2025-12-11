@@ -11,15 +11,14 @@ namespace libcudf_bridge {
         const ColumnView &lhs,
         const ColumnView &rhs,
         int32_t op,
-        int32_t output_type_id) {
+        const DataType &output_type) {
         const auto binary_op = static_cast<cudf::binary_operator>(op);
-        const auto output_type = cudf::data_type{static_cast<cudf::type_id>(output_type_id)};
 
         auto result_col = cudf::binary_operation(
             *lhs.inner,
             *rhs.inner,
             binary_op,
-            output_type
+            output_type.inner
         );
 
         return std::make_unique<Column>(column_from_unique_ptr(std::move(result_col)));
@@ -30,15 +29,14 @@ namespace libcudf_bridge {
         const ColumnView &lhs,
         const Scalar &rhs,
         int32_t op,
-        int32_t output_type_id) {
+        const DataType &output_type) {
         const auto binary_op = static_cast<cudf::binary_operator>(op);
-        const auto output_type = cudf::data_type{static_cast<cudf::type_id>(output_type_id)};
 
         auto result_col = cudf::binary_operation(
             *lhs.inner,
             *rhs.inner,
             binary_op,
-            output_type
+            output_type.inner
         );
 
         return std::make_unique<Column>(column_from_unique_ptr(std::move(result_col)));
@@ -49,15 +47,14 @@ namespace libcudf_bridge {
         const Scalar &lhs,
         const ColumnView &rhs,
         int32_t op,
-        int32_t output_type_id) {
+        const DataType &output_type) {
         const auto binary_op = static_cast<cudf::binary_operator>(op);
-        const auto output_type = cudf::data_type{static_cast<cudf::type_id>(output_type_id)};
 
         auto result_col = cudf::binary_operation(
             *lhs.inner,
             *rhs.inner,
             binary_op,
-            output_type
+            output_type.inner
         );
 
         return std::make_unique<Column>(column_from_unique_ptr(std::move(result_col)));
