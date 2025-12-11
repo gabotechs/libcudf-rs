@@ -37,6 +37,10 @@ impl CuDFCoalesceBatchesExec {
             metrics: ExecutionPlanMetricsSet::new(),
         }
     }
+
+    pub fn from_input(input: Arc<dyn ExecutionPlan>, batch_size: usize) -> Self {
+        Self::new(CoalesceBatchesExec::new(input, batch_size))
+    }
 }
 
 impl DisplayAs for CuDFCoalesceBatchesExec {

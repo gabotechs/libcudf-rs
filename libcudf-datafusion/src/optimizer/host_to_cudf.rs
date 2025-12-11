@@ -61,23 +61,33 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
             let plan_is_cudf = is_cudf_plan(plan.as_ref());
             let children = plan.children();
             let mut new_children: Vec<Arc<dyn ExecutionPlan>> = Vec::with_capacity(children.len());
-            for mut child in plan.children() {
+            for child in plan.children() {
                 let child_is_cudf = is_cudf_plan(child.as_ref());
 
                 if plan_is_cudf && !child_is_cudf && !plan.as_any().is::<CuDFLoadExec>() {
-                    // CuDFLoadExec coalesces everything into one partition (assuming one GPU), so
-                    // having a repartition is pointless, as we will just join all the output
-                    // partitions into one.
-                    if child.as_any().is::<RepartitionExec>() {
-                        child = child.children().swap_remove(0)
+                    if !child.as_any().is::<CoalesceBatchesExec>() {
+                        let child = Arc::new(CoalesceBatchesExec::new(
+                            Arc::clone(child),
+                            cudf_config.batch_size,
+                        ));
+                        new_children.push(Arc::new(CuDFLoadExec::try_new(child)?));
+                    } else {
+                        new_children.push(Arc::new(CuDFLoadExec::try_new(Arc::clone(child))?));
                     }
-                    new_children.push(Arc::new(CuDFLoadExec::try_new(Arc::clone(child))?));
                     changed = true;
                     continue;
                 }
 
                 if !plan_is_cudf && child_is_cudf && !child.as_any().is::<CuDFUnloadExec>() {
-                    let mut unload = CuDFUnloadExec::new(Arc::clone(child));
+                    let mut unload = if !child.as_any().is::<CoalesceBatchesExec>() {
+                        let child = Arc::new(CuDFCoalesceBatchesExec::from_input(
+                            Arc::clone(child),
+                            cudf_config.batch_size,
+                        ));
+                        CuDFUnloadExec::new(child)
+                    } else {
+                        CuDFUnloadExec::new(Arc::clone(child))
+                    };
                     // Aggregations will expect a specific schema in, which is the one that was
                     // established while the node was placed there. As we are dealing with type
                     // incompatibilities in CuDF, we are tweaking the schema we return, and
