@@ -3,9 +3,11 @@ use crate::physical::{
     is_cudf_plan, CuDFCoalesceBatchesExec, CuDFFilterExec, CuDFLoadExec, CuDFProjectionExec,
     CuDFSortExec, CuDFUnloadExec,
 };
+use arrow_schema::SchemaRef;
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::config::ConfigOptions;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
+use datafusion_physical_plan::aggregates::AggregateExec;
 use datafusion_physical_plan::coalesce_batches::CoalesceBatchesExec;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::projection::ProjectionExec;
@@ -75,9 +77,15 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
                 }
 
                 if !plan_is_cudf && child_is_cudf && !child.as_any().is::<CuDFUnloadExec>() {
-                    new_children.push(Arc::new(
-                        CuDFUnloadExec::new(Arc::clone(child)).with_target_schema(plan.schema()),
-                    ));
+                    let mut unload = CuDFUnloadExec::new(Arc::clone(child));
+                    // Aggregations will expect a specific schema in, which is the one that was
+                    // established while the node was placed there. As we are dealing with type
+                    // incompatibilities in CuDF, we are tweaking the schema we return, and
+                    // therefore, we might need to manually force a cast.
+                    if let Some(agg) = plan.as_any().downcast_ref::<AggregateExec>() {
+                        unload = unload.with_target_schema(Arc::clone(&agg.input_schema))
+                    }
+                    new_children.push(Arc::new(unload));
                     changed = true;
                     continue;
                 }
