@@ -1,7 +1,9 @@
 use crate::errors::cudf_to_df;
 use arrow::array::RecordBatch;
-use datafusion::common::{exec_err, plan_err, DataFusionError};
+use arrow_schema::SchemaRef;
+use datafusion::common::{exec_err, internal_datafusion_err, plan_err, DataFusionError};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::physical_expr::EquivalenceProperties;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures_util::StreamExt;
@@ -13,11 +15,24 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct CuDFUnloadExec {
     input: Arc<dyn ExecutionPlan>,
+    properties: PlanProperties,
 }
 
 impl CuDFUnloadExec {
     pub fn new(input: Arc<dyn ExecutionPlan>) -> Self {
-        Self { input }
+        Self {
+            properties: input.properties().clone(),
+            input,
+        }
+    }
+
+    pub fn with_target_schema(&self, target_schema: SchemaRef) -> Self {
+        let mut properties = self.properties.clone();
+        properties.eq_properties = EquivalenceProperties::new(target_schema);
+        Self {
+            properties,
+            input: Arc::clone(&self.input),
+        }
     }
 }
 
@@ -37,7 +52,7 @@ impl ExecutionPlan for CuDFUnloadExec {
     }
 
     fn properties(&self) -> &PlanProperties {
-        self.input.properties()
+        &self.properties
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
@@ -55,7 +70,7 @@ impl ExecutionPlan for CuDFUnloadExec {
             );
         }
         let input = Arc::clone(&children[0]);
-        Ok(Arc::new(Self { input }))
+        Ok(Arc::new(Self::new(input)))
     }
 
     fn execute(
@@ -64,7 +79,7 @@ impl ExecutionPlan for CuDFUnloadExec {
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
         let cudf_stream = self.input.execute(partition, context)?;
-        let target_schema = self.input.schema();
+        let target_schema = self.schema();
         let host_stream = cudf_stream.map(move |batch_or_err| {
             let batch = match batch_or_err {
                 Ok(batch) => batch,
@@ -80,11 +95,13 @@ impl ExecutionPlan for CuDFUnloadExec {
                     );
                 };
                 let arr = cudf_col.to_arrow_host().map_err(cudf_to_df)?;
-                let field_name = target_schema
+                let target_field = target_schema
                     .fields
                     .get(i)
-                    .map_or(i.to_string(), |v| v.to_string());
-                host_cols.push((field_name, arr))
+                    .ok_or_else(|| internal_datafusion_err!("Could not find field {i}"))?;
+
+                let arr = arrow::compute::cast(&arr, target_field.data_type())?;
+                host_cols.push((target_field.name(), arr))
             }
             RecordBatch::try_from_iter(host_cols).map_err(|err| {
                 DataFusionError::ArrowError(
