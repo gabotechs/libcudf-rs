@@ -5,6 +5,8 @@ extensions_options! {
     pub struct CuDFConfig {
         /// Enables CuDF optimizations.
         pub enable: bool, default = false
+        /// Batch size for moving data from CPU to GPU and vice-versa.
+        pub batch_size: usize, default = 8192 * 10
     }
 }
 

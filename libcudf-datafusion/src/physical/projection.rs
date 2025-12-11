@@ -219,13 +219,14 @@ mod tests {
             .plan(r#" SET cudf.enable=true; SELECT "MinTemp" + 1 FROM weather LIMIT 1"#)
             .await?;
 
-        assert_snapshot!(plan.display(), @r#"
-        +----------------------------------------------------------+
-        | Field { "weather.MinTemp + Int64(1)": nullable Float64 } |
-        +----------------------------------------------------------+
-        | 7.6                                                      |
-        +----------------------------------------------------------+
-        "#);
+        assert_snapshot!(plan.display(), @r"
+        CuDFUnloadExec
+          CuDFProjectionExec: expr=[MinTemp@0 + 1 as weather.MinTemp + Int64(1)]
+            CuDFLoadExec
+              CoalesceBatchesExec: target_batch_size=81920
+                RepartitionExec: partitioning=RoundRobinBatch(16), input_partitions=1
+                  DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000002.parquet]]}, projection=[MinTemp], limit=1, file_type=parquet
+        ");
         let result = plan.execute().await?;
         assert_snapshot!(result.pretty_print, @r"
         +----------------------------+
@@ -257,15 +258,15 @@ mod tests {
             .execute(r#"SET cudf.enable=true; SELECT price1 + price2 as total FROM prices"#)
             .await?;
 
-        assert_snapshot!(result.pretty_print, @r#"
-        +-----------------------------------------------+
-        | Field { "total": nullable Decimal128(38, 2) } |
-        +-----------------------------------------------+
-        | 223.45                                        |
-        | 879.40                                        |
-        | 161.36                                        |
-        +-----------------------------------------------+
-        "#);
+        assert_snapshot!(result.pretty_print, @r"
+        +--------+
+        | total  |
+        +--------+
+        | 223.45 |
+        | 879.40 |
+        | 161.36 |
+        +--------+
+        ");
 
         let host_result = tf
             .execute(r#"SELECT price1 + price2 as total FROM prices"#)
