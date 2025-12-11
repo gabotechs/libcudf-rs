@@ -6,9 +6,7 @@ use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
-use datafusion_physical_plan::{
-    execute_stream, DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
-};
+use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures_util::stream::StreamExt;
 use libcudf_rs::{is_cudf_array, CuDFColumn};
 use std::any::Any;
@@ -26,7 +24,7 @@ impl CuDFLoadExec {
     pub fn try_new(input: Arc<dyn ExecutionPlan>) -> Result<Self, DataFusionError> {
         let properties = PlanProperties::new(
             EquivalenceProperties::new(cudf_schema_compatibility_map(input.schema())),
-            Partitioning::UnknownPartitioning(1),
+            input.properties().partitioning.clone(),
             input.properties().emission_type,
             input.properties().boundedness,
         );
@@ -73,10 +71,10 @@ impl ExecutionPlan for CuDFLoadExec {
 
     fn execute(
         &self,
-        _partition: usize,
+        partition: usize,
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
-        let host_stream = execute_stream(Arc::clone(&self.input), context)?;
+        let host_stream = self.input.execute(partition, context)?;
         let target_schema = self.schema();
 
         let cudf_stream = host_stream.map(move |batch_or_err| {
