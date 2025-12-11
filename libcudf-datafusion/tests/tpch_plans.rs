@@ -4,7 +4,7 @@ mod tests {
     use datafusion::prelude::{SessionConfig, SessionContext};
     use datafusion_physical_plan::displayable;
     use libcudf_datafusion::test_utils::tpch;
-    use libcudf_datafusion::{assert_snapshot, CuDFBoundariesRule, CuDFConfig, HostToCuDFRule};
+    use libcudf_datafusion::{assert_snapshot, CuDFConfig, HostToCuDFRule};
     use std::error::Error;
     use std::fs;
     use std::path::Path;
@@ -866,7 +866,6 @@ mod tests {
             SessionStateBuilder::new()
                 .with_default_features()
                 .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
-                .with_physical_optimizer_rule(Arc::new(CuDFBoundariesRule))
                 .with_config(SessionConfig::new().with_option_extension(cfg))
                 .build(),
         );

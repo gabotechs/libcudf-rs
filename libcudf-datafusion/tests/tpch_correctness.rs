@@ -5,7 +5,7 @@ mod tests {
     use datafusion::prelude::{SessionConfig, SessionContext};
     use futures::TryStreamExt;
     use libcudf_datafusion::test_utils::tpch;
-    use libcudf_datafusion::{CuDFBoundariesRule, CuDFConfig, HostToCuDFRule};
+    use libcudf_datafusion::{CuDFConfig, HostToCuDFRule};
     use std::error::Error;
     use std::fmt::Display;
     use std::fs;
@@ -162,7 +162,6 @@ mod tests {
             SessionStateBuilder::new()
                 .with_default_features()
                 .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
-                .with_physical_optimizer_rule(Arc::new(CuDFBoundariesRule))
                 .with_config(SessionConfig::new().with_option_extension(cfg))
                 .build(),
         );

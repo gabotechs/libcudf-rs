@@ -12,4 +12,4 @@ mod physical;
 #[cfg(any(feature = "integration", test))]
 pub mod test_utils;
 
-pub use optimizer::{CuDFBoundariesRule, CuDFConfig, HostToCuDFRule};
+pub use optimizer::{CuDFConfig, HostToCuDFRule};

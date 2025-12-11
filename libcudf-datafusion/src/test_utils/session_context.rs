@@ -1,4 +1,4 @@
-use crate::optimizer::{CuDFBoundariesRule, CuDFConfig, HostToCuDFRule};
+use crate::optimizer::{CuDFConfig, HostToCuDFRule};
 use arrow::util::pretty::pretty_format_batches;
 use datafusion::error::DataFusionError;
 use datafusion::execution::{SessionStateBuilder, TaskContext};
@@ -20,7 +20,6 @@ impl TestFramework {
             .with_default_features()
             .with_config(config)
             .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
-            .with_physical_optimizer_rule(Arc::new(CuDFBoundariesRule))
             .build();
         let ctx = SessionContext::from(state);
         let mut base = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
