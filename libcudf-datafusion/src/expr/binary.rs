@@ -1,6 +1,6 @@
 use crate::errors::cudf_to_df;
 use crate::expr::{columnar_value_to_cudf, cudf_to_columnar_value, expr_to_cudf_expr};
-use arrow::array::RecordBatch;
+use arrow::array::{AsArray, RecordBatch};
 use arrow_schema::{DataType, FieldRef, Schema};
 use datafusion::common::DataFusionError;
 use datafusion::logical_expr::ColumnarValue;
@@ -67,16 +67,45 @@ impl PhysicalExpr for CuDFBinaryExpr {
     }
 
     fn evaluate(&self, batch: &RecordBatch) -> datafusion::common::Result<ColumnarValue> {
-        let output_type = self.inner.data_type(batch.schema_ref())?;
+        // Get BOTH the expected output type (from host) AND the CuDF output type (normalized precision)
+        let expected_output_type = self.data_type(batch.schema_ref())?;
+
+        // For CuDF binary op, use normalized decimal precision (38)
+        let cudf_output_type = match &expected_output_type {
+            DataType::Decimal128(_, scale) => DataType::Decimal128(38, *scale),
+            DataType::Decimal32(_, scale) => DataType::Decimal32(9, *scale),
+            DataType::Decimal64(_, scale) => DataType::Decimal64(18, *scale),
+            _ => expected_output_type.clone(),
+        };
 
         let lhs = self.left.evaluate(batch)?;
         let lhs = columnar_value_to_cudf(lhs)?;
         let rhs = self.right.evaluate(batch)?;
         let rhs = columnar_value_to_cudf(rhs)?;
 
-        let result = cudf_binary_op(lhs, rhs, self.op, &output_type).map_err(cudf_to_df)?;
+        let result = cudf_binary_op(lhs, rhs, self.op, &cudf_output_type).map_err(cudf_to_df)?;
+        let mut result = cudf_to_columnar_value(result);
 
-        Ok(cudf_to_columnar_value(result))
+        // CuDF returns decimals with maximum precision (38), but DataFusion may expect a different precision.
+        // Cast the result if needed to match the expected output type.
+        if let ColumnarValue::Array(arr) = &result {
+            if arr.data_type() != &expected_output_type {
+                if let (DataType::Decimal128(_, result_scale), DataType::Decimal128(_expected_prec, expected_scale)) =
+                    (arr.data_type(), &expected_output_type) {
+                    if result_scale == expected_scale {
+                        // Same scale, just different precision. Arrow's cast doesn't handle this,
+                        // so we manually change the precision metadata while keeping the same i128 values.
+                        let decimal_array = arr.as_primitive::<arrow::datatypes::Decimal128Type>();
+                        let casted = decimal_array.clone()
+                            .with_precision_and_scale(*_expected_prec, *expected_scale)
+                            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+                        result = ColumnarValue::Array(Arc::new(casted));
+                    }
+                }
+            }
+        }
+
+        Ok(result)
     }
 
     fn with_new_children(

@@ -77,7 +77,6 @@ impl ExecutionPlan for CuDFProjectionExec {
 
     delegate! {
         to self.host_exec {
-            fn properties(&self) -> &PlanProperties;
             fn maintains_input_order(&self) -> Vec<bool>;
             fn benefits_from_input_partitioning(&self) -> Vec<bool>;
             fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>>;
@@ -89,6 +88,7 @@ impl ExecutionPlan for CuDFProjectionExec {
 
     delegate! {
         to self.cudf_exec {
+            fn properties(&self) -> &PlanProperties;
             fn metrics(&self) -> Option<MetricsSet>;
             fn partition_statistics(&self, partition: Option<usize>) -> datafusion::common::Result<Statistics>;
         }
@@ -146,7 +146,15 @@ mod tests {
             .execute(r#"SET cudf.enable=true; SELECT price1 + price2 as total FROM prices"#)
             .await?;
 
-        assert_snapshot!(result.pretty_print, @"");
+        assert_snapshot!(result.pretty_print, @r#"
+        +-----------------------------------------------+
+        | Field { "total": nullable Decimal128(38, 2) } |
+        +-----------------------------------------------+
+        | 223.45                                        |
+        | 879.40                                        |
+        | 161.36                                        |
+        +-----------------------------------------------+
+        "#);
 
         let host_result = tf
             .execute(r#"SELECT price1 + price2 as total FROM prices"#)

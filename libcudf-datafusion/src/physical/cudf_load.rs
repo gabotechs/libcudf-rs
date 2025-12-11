@@ -4,6 +4,7 @@ use arrow_schema::{ArrowError, DataType, Field, FieldRef, Schema, SchemaRef};
 use datafusion::common::{exec_err, plan_err};
 use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::physical_expr::EquivalenceProperties;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{
     execute_stream, DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
@@ -22,10 +23,14 @@ pub struct CuDFLoadExec {
 }
 
 impl CuDFLoadExec {
-    pub fn new(input: Arc<dyn ExecutionPlan>) -> Self {
-        let mut properties = input.properties().clone();
-        properties.partitioning = Partitioning::UnknownPartitioning(1);
-        Self { input, properties }
+    pub fn try_new(input: Arc<dyn ExecutionPlan>) -> Result<Self, DataFusionError> {
+        let properties = PlanProperties::new(
+            EquivalenceProperties::new(cudf_schema_compatibility_map(input.schema())),
+            Partitioning::UnknownPartitioning(1),
+            input.properties().emission_type,
+            input.properties().boundedness,
+        );
+        Ok(Self { input, properties })
     }
 }
 
@@ -63,7 +68,7 @@ impl ExecutionPlan for CuDFLoadExec {
             );
         }
         let input = Arc::clone(&children[0]);
-        Ok(Arc::new(Self::new(input)))
+        Ok(Arc::new(Self::try_new(input)?))
     }
 
     fn execute(
@@ -72,17 +77,13 @@ impl ExecutionPlan for CuDFLoadExec {
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
         let host_stream = execute_stream(Arc::clone(&self.input), context)?;
-        let schema = cudf_schema_compatibility_map(host_stream.schema());
-        let target_schema = Arc::clone(&schema);
+        let target_schema = self.schema();
 
         let cudf_stream = host_stream.map(move |batch_or_err| {
             let batch = match batch_or_err {
-                Ok(batch) => batch,
+                Ok(batch) => cast_to_target_schema(batch, Arc::clone(&target_schema))?,
                 Err(err) => return Err(err),
             };
-            let batch = cast_to_target_schema(batch, Arc::clone(&target_schema)).map_err(|err| {
-                DataFusionError::ArrowError(Box::new(err), Some("Error while casting RecordBatch into a suitable schema for CuDF".to_string()))
-            })?;
 
             let original_cols = batch.columns();
             let mut cudf_cols: Vec<Arc<dyn Array>> = Vec::with_capacity(original_cols.len());
@@ -96,11 +97,12 @@ impl ExecutionPlan for CuDFLoadExec {
                 cudf_cols.push(Arc::new(col.into_view()));
             }
 
-            RecordBatch::try_new(batch.schema(), cudf_cols).map_err(|err| {
-                DataFusionError::ArrowError(Box::new(err), Some("Error while loading a RecordBatch into CuDF".to_string()))
-            })
+            Ok(RecordBatch::try_new(batch.schema(), cudf_cols)?)
         });
-        Ok(Box::pin(RecordBatchStreamAdapter::new(schema, cudf_stream)))
+        Ok(Box::pin(RecordBatchStreamAdapter::new(
+            self.schema(),
+            cudf_stream,
+        )))
     }
 }
 
