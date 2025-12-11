@@ -19,7 +19,34 @@ async-trait = "0.1"
 tokio = { version = "1.41", features = ["rt", "macros"] }
 futures-util = "0.3"
 delegate = "0.13"
+# TODO: put clap somewhere else
+
+# integration tests deps
+insta = { version = "1.43.1", features = ["filters"], optional = true }
+tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "e83365a5a9101906eb9f78c5607b83bc59849acf", optional = true }
+tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "e83365a5a9101906eb9f78c5607b83bc59849acf", optional = true }
+parquet = { version = "57", optional = true }
+pretty_assertions = { version = "1.4", optional = true }
+
+
+[features]
+integration = [
+    "insta",
+    "tpchgen",
+    "tpchgen-arrow",
+    "parquet",
+    "pretty_assertions",
+]
+
+tpch = ["integration"]
 
 [dev-dependencies]
-tokio = { version = "1.48.0", features = ["full"] }
-insta = { version = "1.44.3", features = ["filters"] }
+tokio = { version = "1.41", features = ["full"] }
+
+# integration tests deps
+insta = { version = "1.43.1", features = ["filters"] }
+tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "e83365a5a9101906eb9f78c5607b83bc59849acf" }
+tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "e83365a5a9101906eb9f78c5607b83bc59849acf" }
+parquet = { version = "57" }
+pretty_assertions = { version = "1.4" }
+
