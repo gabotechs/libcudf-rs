@@ -75,7 +75,9 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
                 }
 
                 if !plan_is_cudf && child_is_cudf && !child.as_any().is::<CuDFUnloadExec>() {
-                    new_children.push(Arc::new(CuDFUnloadExec::new(Arc::clone(child))));
+                    new_children.push(Arc::new(
+                        CuDFUnloadExec::new(Arc::clone(child)).with_target_schema(plan.schema()),
+                    ));
                     changed = true;
                     continue;
                 }
