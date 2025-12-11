@@ -113,3 +113,89 @@ pub fn cudf_binary_op(
         CuDFColumn::new(result).into_view(),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow::array::{Array, Decimal128Array};
+    use arrow::datatypes::DataType;
+
+    #[test]
+    fn test_decimal_addition() -> Result<(), Box<dyn std::error::Error>> {
+        // Create two decimal columns with scale=2 (e.g., currency values)
+        let values1 = vec![12345i128, 67890i128, 11111i128]; // 123.45, 678.90, 111.11
+        let values2 = vec![54321i128, 98765i128, 22222i128]; // 543.21, 987.65, 222.22
+
+        let array1 = Decimal128Array::from(values1).with_precision_and_scale(38, 2)?;
+        let array2 = Decimal128Array::from(values2).with_precision_and_scale(38, 2)?;
+
+        let col1 = CuDFColumn::from_arrow_host(&array1)?;
+        let col2 = CuDFColumn::from_arrow_host(&array2)?;
+
+        // Add the two decimal columns
+        let result = cudf_binary_op(
+            CuDFColumnViewOrScalar::ColumnView(col1.into_view()),
+            CuDFColumnViewOrScalar::ColumnView(col2.into_view()),
+            CuDFBinaryOp::Add,
+            &DataType::Decimal128(38, 2),
+        )?;
+
+        // Convert result back to Arrow
+        let result_col = match result {
+            CuDFColumnViewOrScalar::ColumnView(view) => view,
+            _ => panic!("Expected column view"),
+        };
+
+        let result_array = result_col.to_arrow_host()?;
+        let result_decimal = result_array
+            .as_any()
+            .downcast_ref::<Decimal128Array>()
+            .expect("Expected Decimal128Array");
+
+        // Verify results: 123.45 + 543.21 = 666.66, etc.
+        assert_eq!(result_decimal.len(), 3);
+        assert_eq!(result_decimal.value(0), 66666); // 666.66 with scale=2
+        assert_eq!(result_decimal.value(1), 166655); // 1666.55 with scale=2
+        assert_eq!(result_decimal.value(2), 33333); // 333.33 with scale=2
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_multiplication() -> Result<(), Box<dyn std::error::Error>> {
+        // Create decimal columns: price * quantity
+        let prices = vec![1050i128, 2500i128]; // 10.50, 25.00 with scale=2
+        let quantities = vec![3i128, 5i128]; // 3, 5 with scale=0
+
+        let price_array = Decimal128Array::from(prices).with_precision_and_scale(38, 2)?;
+        let qty_array = Decimal128Array::from(quantities).with_precision_and_scale(38, 0)?;
+
+        let col_price = CuDFColumn::from_arrow_host(&price_array)?;
+        let col_qty = CuDFColumn::from_arrow_host(&qty_array)?;
+
+        // Multiply: result should have scale = 2 + 0 = 2
+        let result = cudf_binary_op(
+            CuDFColumnViewOrScalar::ColumnView(col_price.into_view()),
+            CuDFColumnViewOrScalar::ColumnView(col_qty.into_view()),
+            CuDFBinaryOp::Mul,
+            &DataType::Decimal128(38, 2),
+        )?;
+
+        let result_col = match result {
+            CuDFColumnViewOrScalar::ColumnView(view) => view,
+            _ => panic!("Expected column view"),
+        };
+
+        let result_array = result_col.to_arrow_host()?;
+        let result_decimal = result_array
+            .as_any()
+            .downcast_ref::<Decimal128Array>()
+            .expect("Expected Decimal128Array");
+
+        // Verify: 10.50 * 3 = 31.50, 25.00 * 5 = 125.00
+        assert_eq!(result_decimal.value(0), 3150); // 31.50 with scale=2
+        assert_eq!(result_decimal.value(1), 12500); // 125.00 with scale=2
+
+        Ok(())
+    }
+}

@@ -129,4 +129,30 @@ mod tests {
         assert_eq!(host_result.pretty_print, result.pretty_print);
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_decimal_addition() -> Result<(), DataFusionError> {
+        let tf = TestFramework::new().await;
+
+        tf.execute(
+            r#"CREATE TABLE prices (price1 DECIMAL(10, 2), price2 DECIMAL(10, 2)) AS VALUES
+                (123.45, 100.00),
+                (678.90, 200.50),
+                (111.11, 50.25)"#,
+        )
+        .await?;
+
+        let result = tf
+            .execute(r#"SET cudf.enable=true; SELECT price1 + price2 as total FROM prices"#)
+            .await?;
+
+        assert_snapshot!(result.pretty_print, @"");
+
+        let host_result = tf
+            .execute(r#"SELECT price1 + price2 as total FROM prices"#)
+            .await?;
+        assert_eq!(host_result.pretty_print, result.pretty_print);
+
+        Ok(())
+    }
 }
