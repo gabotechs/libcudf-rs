@@ -451,9 +451,9 @@ impl CuDFBatchCoalescer {
 
 #[cfg(test)]
 mod tests {
-    use crate::optimizer::CuDFBoundariesRule;
     use crate::physical::CuDFCoalesceBatchesExec;
     use crate::test_utils::TestFramework;
+    use crate::HostToCuDFRule;
     use arrow::util::pretty::pretty_format_batches;
     use datafusion::physical_optimizer::PhysicalOptimizerRule;
     use datafusion_physical_plan::coalesce_batches::CoalesceBatchesExec;
@@ -547,7 +547,7 @@ mod tests {
         let host_stream = execute_stream(host, tf.task_ctx())?;
         let host_batches = host_stream.try_collect::<Vec<_>>().await?;
 
-        let cudf = CuDFBoundariesRule.optimize(cudf, &Default::default())?;
+        let cudf = HostToCuDFRule.optimize(cudf, &Default::default())?;
         let cudf_stream = execute_stream(cudf, tf.task_ctx())?;
         let cudf_batches = cudf_stream.try_collect::<Vec<_>>().await?;
 

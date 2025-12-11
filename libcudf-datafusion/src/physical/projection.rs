@@ -219,12 +219,13 @@ mod tests {
             .plan(r#" SET cudf.enable=true; SELECT "MinTemp" + 1 FROM weather LIMIT 1"#)
             .await?;
 
-        assert_snapshot!(plan.display(), @r"
-        CuDFUnloadExec
-          CuDFProjectionExec: expr=[MinTemp@0 + 1 as weather.MinTemp + Int64(1)]
-            CuDFLoadExec
-              DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000002.parquet]]}, projection=[MinTemp], limit=1, file_type=parquet
-        ");
+        assert_snapshot!(plan.display(), @r#"
+        +----------------------------------------------------------+
+        | Field { "weather.MinTemp + Int64(1)": nullable Float64 } |
+        +----------------------------------------------------------+
+        | 7.6                                                      |
+        +----------------------------------------------------------+
+        "#);
         let result = plan.execute().await?;
         assert_snapshot!(result.pretty_print, @r"
         +----------------------------+
