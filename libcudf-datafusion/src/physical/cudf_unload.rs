@@ -1,5 +1,4 @@
 use crate::errors::cudf_to_df;
-use crate::physical::cudf_load::cast_to_target_schema;
 use arrow::array::RecordBatch;
 use datafusion::common::{exec_err, plan_err, DataFusionError};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -87,16 +86,10 @@ impl ExecutionPlan for CuDFUnloadExec {
                     .map_or(i.to_string(), |v| v.to_string());
                 host_cols.push((field_name, arr))
             }
-            let batch = RecordBatch::try_from_iter(host_cols).map_err(|err| {
+            RecordBatch::try_from_iter(host_cols).map_err(|err| {
                 DataFusionError::ArrowError(
                     Box::new(err),
                     Some("Error while unloading a RecordBatch from CuDF into host".to_string()),
-                )
-            })?;
-            cast_to_target_schema(batch, Arc::clone(&target_schema)).map_err(|err| {
-                DataFusionError::ArrowError(
-                    Box::new(err),
-                    Some("Error while casting RecordBatch to target schema from CuDF".to_string()),
                 )
             })
         });

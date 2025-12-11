@@ -31,7 +31,7 @@ impl PhysicalOptimizerRule for CuDFBoundariesRule {
                     if child.as_any().is::<RepartitionExec>() {
                         child = child.children().swap_remove(0)
                     }
-                    new_children.push(Arc::new(CuDFLoadExec::new(Arc::clone(child))));
+                    new_children.push(Arc::new(CuDFLoadExec::try_new(Arc::clone(child))?));
                     changed = true;
                     continue;
                 }

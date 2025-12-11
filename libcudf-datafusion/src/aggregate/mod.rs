@@ -179,7 +179,7 @@ mod test {
             schema.clone(),
             None,
         )?;
-        let load = CuDFLoadExec::new(Arc::new(root));
+        let load = CuDFLoadExec::try_new(Arc::new(root))?;
 
         let group_by = PhysicalGroupBy::new_single(vec![(col("c", &schema)?, "c".to_string())]);
 
