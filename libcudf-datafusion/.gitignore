@@ -1,2 +1,2 @@
-testdata/
-!testdata/queries/*.sql
+testdata/tpch/*
+!testdata/tpch/queries/

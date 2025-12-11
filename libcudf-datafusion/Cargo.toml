@@ -19,7 +19,6 @@ async-trait = "0.1"
 tokio = { version = "1.41", features = ["rt", "macros"] }
 futures-util = "0.3"
 delegate = "0.13"
-# TODO: put clap somewhere else
 
 # integration tests deps
 insta = { version = "1.43.1", features = ["filters"], optional = true }
@@ -28,6 +27,11 @@ tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "e8336
 parquet = { version = "57", optional = true }
 pretty_assertions = { version = "1.4", optional = true }
 
+#cli deps
+clap = { version = "4", features = ["derive"], optional = true }
+datafusion-cli = { version = "51", optional = true }
+env_logger = { version = "0.11", optional = true }
+dirs = { version = "6", optional = true }
 
 [features]
 integration = [
@@ -37,7 +41,12 @@ integration = [
     "parquet",
     "pretty_assertions",
 ]
-
+cli = [
+    "clap",
+    "datafusion-cli",
+    "env_logger",
+    "dirs",
+]
 tpch = ["integration"]
 
 [dev-dependencies]
@@ -49,4 +58,10 @@ tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "e83365a5a91
 tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "e83365a5a9101906eb9f78c5607b83bc59849acf" }
 parquet = { version = "57" }
 pretty_assertions = { version = "1.4" }
+
+
+[[bin]]
+name = "cli"
+path = "bin/cli.rs"
+required-features = ["cli"]
 
