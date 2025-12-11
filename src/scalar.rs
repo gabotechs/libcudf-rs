@@ -21,7 +21,7 @@ impl CuDFScalar {
     /// Create a CuDFScalar from an existing cuDF scalar
     pub(crate) fn new(inner: UniquePtr<libcudf_sys::ffi::Scalar>) -> Self {
         let cudf_dtype = inner.data_type();
-        let dt = cudf_type_to_arrow(cudf_dtype.id());
+        let dt = cudf_type_to_arrow(&cudf_dtype);
         let dt = dt.unwrap_or(DataType::Null);
         Self { inner, dt }
     }

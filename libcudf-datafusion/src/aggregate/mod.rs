@@ -14,7 +14,7 @@ use std::sync::Arc;
 mod op;
 mod stream;
 
-pub(crate) use op::{sum::CuDFSum, CuDFAggregationOp};
+pub(crate) use op::CuDFAggregationOp;
 
 #[derive(Debug)]
 pub struct CuDFAggregateExec {

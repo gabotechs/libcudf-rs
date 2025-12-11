@@ -2,6 +2,7 @@ use crate::errors::cudf_to_df;
 use arrow::array::{Array, RecordBatch};
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Schema, SchemaRef};
 use datafusion::common::{exec_err, plan_err};
+use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{
@@ -76,9 +77,12 @@ impl ExecutionPlan for CuDFLoadExec {
 
         let cudf_stream = host_stream.map(move |batch_or_err| {
             let batch = match batch_or_err {
-                Ok(batch) => cudf_batch_compatibility_map(batch, Arc::clone(&target_schema))?,
+                Ok(batch) => batch,
                 Err(err) => return Err(err),
             };
+            let batch = cast_to_target_schema(batch, Arc::clone(&target_schema)).map_err(|err| {
+                DataFusionError::ArrowError(Box::new(err), Some("Error while casting RecordBatch into a suitable schema for CuDF".to_string()))
+            })?;
 
             let original_cols = batch.columns();
             let mut cudf_cols: Vec<Arc<dyn Array>> = Vec::with_capacity(original_cols.len());
@@ -92,7 +96,9 @@ impl ExecutionPlan for CuDFLoadExec {
                 cudf_cols.push(Arc::new(col.into_view()));
             }
 
-            Ok(RecordBatch::try_new(batch.schema(), cudf_cols)?)
+            RecordBatch::try_new(batch.schema(), cudf_cols).map_err(|err| {
+                DataFusionError::ArrowError(Box::new(err), Some("Error while loading a RecordBatch into CuDF".to_string()))
+            })
         });
         Ok(Box::pin(RecordBatchStreamAdapter::new(schema, cudf_stream)))
     }
@@ -102,43 +108,50 @@ fn cudf_schema_compatibility_map(schema: SchemaRef) -> SchemaRef {
     let mut new_fields = Vec::with_capacity(schema.fields.len());
 
     for field in schema.fields() {
-        if field.data_type() == &DataType::Utf8View {
-            new_fields.push(FieldRef::new(Field::new(
+        let field = match field.data_type() {
+            // CuDF doesn't support Utf8View, convert to regular Utf8
+            DataType::Utf8View => FieldRef::new(Field::new(
                 field.name(),
                 DataType::Utf8,
                 field.is_nullable(),
-            )));
-        } else {
-            new_fields.push(Arc::clone(field));
-        }
+            )),
+            // Normalize decimal precision to max for the representation type.
+            // CuDF uses fixed precision based on storage type (int32/int64/int128),
+            // so we normalize schema to match what CuDF will produce.
+            // Scale is preserved as-is since it's user-specified metadata.
+            DataType::Decimal32(_, s) => FieldRef::new(Field::new(
+                field.name(),
+                DataType::Decimal32(9, *s), // max precision for 32-bit
+                field.is_nullable(),
+            )),
+            DataType::Decimal64(_, s) => FieldRef::new(Field::new(
+                field.name(),
+                DataType::Decimal64(18, *s), // max precision for 64-bit
+                field.is_nullable(),
+            )),
+            DataType::Decimal128(_, s) => FieldRef::new(Field::new(
+                field.name(),
+                DataType::Decimal128(38, *s), // max precision for 128-bit
+                field.is_nullable(),
+            )),
+            _ => Arc::clone(field),
+        };
+        new_fields.push(field);
     }
 
     SchemaRef::new(Schema::new(new_fields))
 }
 
-fn cudf_batch_compatibility_map(
+pub(crate) fn cast_to_target_schema(
     batch: RecordBatch,
     target_schema: SchemaRef,
 ) -> Result<RecordBatch, ArrowError> {
-    let mut new_cols = Vec::with_capacity(batch.num_columns());
-
-    let original_schema = batch.schema();
-    let original_fields = original_schema.fields();
-    let target_fields = target_schema.fields();
-
-    for ((col, original_field), target_field) in batch
+    let columns = batch
         .columns()
         .iter()
-        .zip(original_fields)
-        .zip(target_fields)
-    {
-        // CuDF does not support UTF8View, so we cast it to UTF8.
-        if original_field.data_type() != target_field.data_type() {
-            new_cols.push(arrow::compute::cast(&col, target_field.data_type())?);
-        } else {
-            new_cols.push(Arc::clone(col));
-        }
-    }
+        .zip(target_schema.fields())
+        .map(|(col, field)| arrow::compute::cast(col, field.data_type()))
+        .collect::<Result<Vec<_>, _>>()?;
 
-    RecordBatch::try_new(target_schema, new_cols)
+    RecordBatch::try_new(target_schema, columns)
 }

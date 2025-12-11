@@ -19,4 +19,12 @@ namespace libcudf_bridge {
         return inner.scale();
     }
 
+    std::unique_ptr<DataType> new_data_type(int32_t type_id) {
+        return std::make_unique<DataType>(type_id);
+    }
+
+    std::unique_ptr<DataType> new_data_type_with_scale(int32_t type_id, int32_t scale) {
+        return std::make_unique<DataType>(type_id, scale);
+    }
+
 } // namespace libcudf_bridge

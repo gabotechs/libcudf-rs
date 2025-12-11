@@ -1,5 +1,5 @@
 use crate::cudf_reference::CuDFRef;
-use crate::{CuDFColumnView, CuDFError, CuDFTable};
+use crate::{CuDFColumnView, CuDFError};
 use arrow::array::{ArrayRef, RecordBatch, StructArray};
 use arrow::ffi::{from_ffi, FFI_ArrowArray};
 use arrow_schema::ffi::FFI_ArrowSchema;

@@ -1,5 +1,5 @@
 use crate::column::CuDFColumn;
-use crate::data_type::arrow_type_to_cudf;
+use crate::data_type::arrow_type_to_cudf_data_type;
 use crate::{CuDFColumnViewOrScalar, CuDFError};
 use arrow_schema::{ArrowError, DataType};
 
@@ -89,7 +89,7 @@ pub fn cudf_binary_op(
     op: CuDFBinaryOp,
     output_type: &DataType,
 ) -> Result<CuDFColumnViewOrScalar, CuDFError> {
-    let Some(dt) = arrow_type_to_cudf(output_type) else {
+    let Some(dt) = arrow_type_to_cudf_data_type(output_type) else {
         return Err(ArrowError::NotYetImplemented(format!(
             "Output type {output_type} not supported in CuDF"
         )))?;
@@ -97,13 +97,13 @@ pub fn cudf_binary_op(
 
     let result = match (left, right) {
         (CuDFColumnViewOrScalar::ColumnView(lhs), CuDFColumnViewOrScalar::ColumnView(rhs)) => {
-            libcudf_sys::ffi::binary_operation_col_col(lhs.inner(), rhs.inner(), op as i32, dt)
+            libcudf_sys::ffi::binary_operation_col_col(lhs.inner(), rhs.inner(), op as i32, &dt)
         }
         (CuDFColumnViewOrScalar::ColumnView(lhs), CuDFColumnViewOrScalar::Scalar(rhs)) => {
-            libcudf_sys::ffi::binary_operation_col_scalar(lhs.inner(), rhs.inner(), op as i32, dt)
+            libcudf_sys::ffi::binary_operation_col_scalar(lhs.inner(), rhs.inner(), op as i32, &dt)
         }
         (CuDFColumnViewOrScalar::Scalar(lhs), CuDFColumnViewOrScalar::ColumnView(rhs)) => {
-            libcudf_sys::ffi::binary_operation_scalar_col(lhs.inner(), rhs.inner(), op as i32, dt)
+            libcudf_sys::ffi::binary_operation_scalar_col(lhs.inner(), rhs.inner(), op as i32, &dt)
         }
         (CuDFColumnViewOrScalar::Scalar(_), CuDFColumnViewOrScalar::Scalar(_)) => {
             return Err(ArrowError::InvalidArgumentError("".to_string()))?

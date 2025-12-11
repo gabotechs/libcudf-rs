@@ -1,6 +1,7 @@
 use crate::errors::cudf_to_df;
+use crate::physical::cudf_load::cast_to_target_schema;
 use arrow::array::RecordBatch;
-use datafusion::common::{exec_err, plan_err};
+use datafusion::common::{exec_err, plan_err, DataFusionError};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
@@ -64,8 +65,8 @@ impl ExecutionPlan for CuDFUnloadExec {
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
         let cudf_stream = self.input.execute(partition, context)?;
-        let schema = cudf_stream.schema();
-        let host_stream = cudf_stream.map(|batch_or_err| {
+        let target_schema = self.input.schema();
+        let host_stream = cudf_stream.map(move |batch_or_err| {
             let batch = match batch_or_err {
                 Ok(batch) => batch,
                 Err(err) => return Err(err),
@@ -73,18 +74,35 @@ impl ExecutionPlan for CuDFUnloadExec {
 
             let original_cols = batch.columns();
             let mut host_cols = Vec::with_capacity(original_cols.len());
-            for original_col in original_cols {
+            for (i, original_col) in original_cols.iter().enumerate() {
                 let Some(cudf_col) = original_col.as_any().downcast_ref::<CuDFColumnView>() else {
                     return exec_err!(
                         "Cannot move RecordBatch from CuDF to host: a column is not a CuDF array"
                     );
                 };
                 let arr = cudf_col.to_arrow_host().map_err(cudf_to_df)?;
-                host_cols.push(arr)
+                let field_name = target_schema
+                    .fields
+                    .get(i)
+                    .map_or(i.to_string(), |v| v.to_string());
+                host_cols.push((field_name, arr))
             }
-
-            Ok(RecordBatch::try_new(batch.schema(), host_cols)?)
+            let batch = RecordBatch::try_from_iter(host_cols).map_err(|err| {
+                DataFusionError::ArrowError(
+                    Box::new(err),
+                    Some("Error while unloading a RecordBatch from CuDF into host".to_string()),
+                )
+            })?;
+            cast_to_target_schema(batch, Arc::clone(&target_schema)).map_err(|err| {
+                DataFusionError::ArrowError(
+                    Box::new(err),
+                    Some("Error while casting RecordBatch to target schema from CuDF".to_string()),
+                )
+            })
         });
-        Ok(Box::pin(RecordBatchStreamAdapter::new(schema, host_stream)))
+        Ok(Box::pin(RecordBatchStreamAdapter::new(
+            self.input.schema(),
+            host_stream,
+        )))
     }
 }
