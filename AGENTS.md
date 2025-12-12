@@ -23,8 +23,9 @@ This project is divided in the following crates:
   layer on top of https://github.com/rapidsai/cudf so that it's accessible from Rust.
 - Any public entity should be documented, but be brief and concise while documenting it. Quality is way preferable
   than quantity.
-- [.cudf-build](.cudf-build/) contains the source code for https://github.com/rapidsai/cudf downloaded locally, so any
-  references to CuDF's code can be gathered from there.
+- The cuDF source code is downloaded during the build process and placed in the build output directory (`target/`). You
+  can
+  find the exact location with: `find target/ -type d -name "cudf-*" | grep -E "cudf-[0-9]+\.[0-9]+\.[0-9]+$" | head -1`
 
 ### libcudf-sys: The Thin Wrapper Layer
 
