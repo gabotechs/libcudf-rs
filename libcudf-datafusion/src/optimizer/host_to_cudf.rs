@@ -3,7 +3,6 @@ use crate::physical::{
     is_cudf_plan, CuDFCoalesceBatchesExec, CuDFFilterExec, CuDFLoadExec, CuDFProjectionExec,
     CuDFSortExec, CuDFUnloadExec,
 };
-use arrow_schema::SchemaRef;
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::config::ConfigOptions;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
@@ -11,7 +10,6 @@ use datafusion_physical_plan::aggregates::AggregateExec;
 use datafusion_physical_plan::coalesce_batches::CoalesceBatchesExec;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::projection::ProjectionExec;
-use datafusion_physical_plan::repartition::RepartitionExec;
 use datafusion_physical_plan::sorts::sort::SortExec;
 use datafusion_physical_plan::ExecutionPlan;
 use std::sync::Arc;
@@ -48,7 +46,10 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
 
             if let Some(node) = plan.as_any().downcast_ref::<CoalesceBatchesExec>() {
                 if is_cudf_plan(node.input().as_ref()) {
-                    cudf_node = Some(Arc::new(CuDFCoalesceBatchesExec::new(node.clone())));
+                    cudf_node = Some(Arc::new(CuDFCoalesceBatchesExec::from_input(
+                        node.input().clone(),
+                        cudf_config.batch_size,
+                    )));
                 }
             }
 
@@ -79,7 +80,7 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
                 }
 
                 if !plan_is_cudf && child_is_cudf && !child.as_any().is::<CuDFUnloadExec>() {
-                    let mut unload = if !child.as_any().is::<CoalesceBatchesExec>() {
+                    let mut unload = if !child.as_any().is::<CuDFCoalesceBatchesExec>() {
                         let child = Arc::new(CuDFCoalesceBatchesExec::from_input(
                             Arc::clone(child),
                             cudf_config.batch_size,

@@ -283,11 +283,10 @@ mod tests {
         CoalescePartitionsExec: fetch=3
           CuDFUnloadExec
             CuDFCoalesceBatchesExec: target_batch_size=81920
-              CuDFCoalesceBatchesExec: target_batch_size=8192, fetch=3
-                CuDFFilterExec: MinTemp@0 > 10
-                  CuDFLoadExec
-                    CoalesceBatchesExec: target_batch_size=81920
-                      DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=MinTemp@0 > 10, pruning_predicate=MinTemp_null_count@1 != row_count@2 AND MinTemp_max@0 > 10, required_guarantees=[]
+              CuDFFilterExec: MinTemp@0 > 10
+                CuDFLoadExec
+                  CoalesceBatchesExec: target_batch_size=81920
+                    DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=MinTemp@0 > 10, pruning_predicate=MinTemp_null_count@1 != row_count@2 AND MinTemp_max@0 > 10, required_guarantees=[]
         ");
 
         let cudf_results = plan.execute().await?;
