@@ -2,6 +2,9 @@
 
 Rust bindings for [libcudf](https://docs.rapids.ai/api/libcudf/stable/), the GPU-accelerated DataFrame library from RAPIDS.
 
+> [!NOTE]
+> This project currently does not have a license, and the intellectual property belongs to DataDog
+
 ## Overview
 
 This project provides safe, idiomatic Rust bindings to cuDF using the [cxx](https://cxx.rs/) library for seamless C++/Rust interoperability. cuDF enables GPU-accelerated operations on DataFrames, offering significant performance improvements for data processing tasks.
