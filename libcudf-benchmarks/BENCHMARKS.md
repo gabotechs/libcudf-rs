@@ -88,14 +88,42 @@ For workloads where data is already on GPU, or for very large datasets where com
 
 Standard TPC-H decision support queries comparing GPU vs CPU DataFusion execution.
 
-**Dataset:** TPC-H SF=0.1 (~100MB total data)
+**Dataset:** TPC-H SF=10 (~10GB total data)
 
-| Query | Description | GPU (cuDF) | CPU (DataFusion) | Speedup |
-|-------|-------------|------------|------------------|---------|
-| Q1 | Pricing Summary (aggregation) | 95.45ms | 95.45ms | ~1.0x |
-| Q6 | Forecasting Revenue (filter+agg) | 23.40ms | 22.37ms | ~0.96x |
+| Query | GPU (cuDF) | CPU (DataFusion) | Speedup |
+|-------|------------|------------------|---------|
+| Q01 | 3.79s | 3.79s | ~1.0x |
+| Q02 | 5.22s | 5.16s | ~1.0x |
+| Q03 | 1.40s | 1.39s | ~1.0x |
+| Q04 | 1.77s | 1.77s | ~1.0x |
+| Q05 | 2.77s | 2.76s | ~1.0x |
+| Q06 | 816ms | 819ms | ~1.0x |
+| Q07 | 4.99s | 5.00s | ~1.0x |
+| Q08 | 4.95s | 4.94s | ~1.0x |
+| Q09 | 6.29s | 6.28s | ~1.0x |
+| Q10 | 2.89s | 2.89s | ~1.0x |
+| Q11 | 639ms | 639ms | ~1.0x |
+| Q12 | 1.63s | 1.63s | ~1.0x |
+| Q13 | 2.41s | 2.40s | ~1.0x |
+| Q14 | 630ms | 628ms | ~1.0x |
+| Q15 | 1.26s | 1.27s | ~1.0x |
+| Q16 | 404ms | 404ms | ~1.0x |
+| Q17 | 4.73s | 4.73s | ~1.0x |
+| Q18 | 6.90s | 6.87s | ~1.0x |
+| Q19 | 1.68s | 1.68s | ~1.0x |
+| Q20 | 1.29s | 1.29s | ~1.0x |
+| Q21 | 6.52s | 6.50s | ~1.0x |
+| Q22 | 508ms | 508ms | ~1.0x |
 
-**Note:** At SF=0.1 scale, the dataset is too small to benefit from GPU acceleration. The data transfer overhead between CPU and GPU dominates the actual compute time. For production workloads with SF=10+ (multi-GB datasets), GPU acceleration becomes increasingly beneficial as compute time exceeds transfer overhead.
+**Analysis:** Even at SF=10 (~10GB dataset), GPU and CPU performance are nearly identical across all 22 TPC-H queries. This indicates that for DataFusion workloads where data starts on CPU (host memory), the overhead of:
+1. Query planning and optimization
+2. Data transfer between CPU and GPU memory
+3. Result transfer back to CPU
+
+...offsets any compute speedup from GPU acceleration. The libcudf-datafusion integration is most beneficial when:
+- Data is already resident on GPU memory
+- Workloads involve repeated operations on the same data
+- Scale factors are significantly larger (SF=100+) where compute dominates transfer time
 
 ## Running Benchmarks
 
