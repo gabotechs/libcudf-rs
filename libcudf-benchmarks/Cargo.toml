@@ -5,12 +5,16 @@ edition = "2021"
 
 [dependencies]
 libcudf-rs = { path = ".." }
+libcudf-datafusion = { path = "../libcudf-datafusion" }
 arrow = { version = "57", features = ["ffi"] }
 parquet = "57"
 tempfile = "3"
+datafusion = "51"
+tokio = { version = "1.41", features = ["rt-multi-thread"] }
+futures-util = "0.3"
 
 [dev-dependencies]
-criterion = { version = "0.7", features = ["html_reports"] }
+criterion = { version = "0.7", features = ["html_reports", "async_tokio"] }
 
 [[bench]]
 name = "arrow_conversion"
@@ -30,4 +34,8 @@ harness = false
 
 [[bench]]
 name = "parquet_benchmark"
+harness = false
+
+[[bench]]
+name = "datafusion_benchmark"
 harness = false
