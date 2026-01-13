@@ -10,6 +10,7 @@ arrow = { version = "57", features = ["ffi"] }
 parquet = "57"
 tempfile = "3"
 datafusion = "51"
+datafusion-physical-plan = "51"
 tokio = { version = "1.41", features = ["rt-multi-thread"] }
 futures-util = "0.3"
 

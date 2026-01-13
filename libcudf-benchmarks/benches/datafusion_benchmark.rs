@@ -5,11 +5,11 @@ use std::sync::Arc;
 use arrow::array::*;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
-use datafusion::execution::{SessionStateBuilder, TaskContext};
+use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_physical_plan::execute_stream;
 use futures_util::TryStreamExt;
-use libcudf_datafusion::optimizer::{CuDFConfig, HostToCuDFRule};
+use libcudf_datafusion::{CuDFConfig, HostToCuDFRule};
 use tokio::runtime::Runtime;
 
 const SIZES: [usize; 3] = [10_000, 100_000, 1_000_000];
@@ -62,7 +62,7 @@ async fn execute_query(ctx: &SessionContext, sql: &str) -> usize {
     let df = ctx.sql(sql).await.unwrap();
     let plan = df.create_physical_plan().await.unwrap();
     let stream = execute_stream(plan, ctx.task_ctx()).unwrap();
-    let batches = stream.try_collect::<Vec<_>>().await.unwrap();
+    let batches: Vec<RecordBatch> = stream.try_collect().await.unwrap();
     batches.iter().map(|b| b.num_rows()).sum()
 }
 
