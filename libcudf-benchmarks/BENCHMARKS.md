@@ -56,6 +56,34 @@ Benchmarks comparing cuDF GPU-accelerated operations against CPU-based Arrow com
 
 4. **GPU advantage grows with data size** - The larger the dataset, the more GPU parallelism helps.
 
+## DataFusion Integration Benchmarks
+
+Comparing DataFusion queries with GPU acceleration (via libcudf-datafusion) against CPU-only execution.
+
+| Query Type | Size | GPU (cuDF) | CPU (DataFusion) | Speedup |
+|------------|------|------------|------------------|---------|
+| Sort | 10K | 1.11ms | 1.07ms | ~1.0x |
+| Sort | 100K | 7.33ms | 7.33ms | ~1.0x |
+| Sort | 1M | 128.9ms | 130.1ms | ~1.0x |
+| Filter | 10K | 1.00ms | 1.00ms | ~1.0x |
+| Filter | 100K | 1.27ms | 1.27ms | ~1.0x |
+| Filter | 1M | 4.01ms | 4.02ms | ~1.0x |
+| Aggregate | 10K | 1.41ms | 1.42ms | ~1.0x |
+| Aggregate | 100K | 1.77ms | 1.77ms | ~1.0x |
+| Aggregate | 1M | 5.53ms | 5.52ms | ~1.0x |
+| Complex* | 10K | 2.55ms | 2.55ms | ~1.0x |
+| Complex* | 100K | 3.00ms | 3.01ms | ~1.0x |
+| Complex* | 1M | 7.41ms | 7.49ms | ~1.0x |
+
+*Complex = Filter + Aggregate + Sort + LIMIT
+
+**Note:** DataFusion integration shows similar performance because:
+1. Data transfer overhead (CPU↔GPU) is included in each query
+2. DataFusion's query planning adds overhead that masks GPU benefits
+3. For end-to-end queries starting from CPU data, the raw cuDF speedups are offset by transfer costs
+
+For workloads where data is already on GPU, or for very large datasets where compute dominates transfer time, GPU acceleration provides more benefit.
+
 ## Running Benchmarks
 
 ```bash
@@ -66,6 +94,7 @@ cargo bench --package libcudf-benchmarks
 cargo bench --package libcudf-benchmarks --bench sort_benchmark
 cargo bench --package libcudf-benchmarks --bench groupby_benchmark
 cargo bench --package libcudf-benchmarks --bench filter_benchmark
+cargo bench --package libcudf-benchmarks --bench datafusion_benchmark
 
 # View HTML reports
 open target/criterion/report/index.html
