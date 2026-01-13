@@ -13,6 +13,8 @@ datafusion = "51"
 datafusion-physical-plan = "51"
 tokio = { version = "1.41", features = ["rt-multi-thread"] }
 futures-util = "0.3"
+tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "e83365a5a9101906eb9f78c5607b83bc59849acf" }
+tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "e83365a5a9101906eb9f78c5607b83bc59849acf" }
 
 [dev-dependencies]
 criterion = { version = "0.7", features = ["html_reports", "async_tokio"] }
@@ -39,4 +41,8 @@ harness = false
 
 [[bench]]
 name = "datafusion_benchmark"
+harness = false
+
+[[bench]]
+name = "tpch_benchmark"
 harness = false
