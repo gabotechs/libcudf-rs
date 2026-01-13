@@ -6,10 +6,28 @@ edition = "2021"
 [dependencies]
 libcudf-rs = { path = ".." }
 arrow = { version = "57", features = ["ffi"] }
+parquet = "57"
+tempfile = "3"
 
 [dev-dependencies]
 criterion = { version = "0.7", features = ["html_reports"] }
 
 [[bench]]
 name = "arrow_conversion"
+harness = false
+
+[[bench]]
+name = "sort_benchmark"
+harness = false
+
+[[bench]]
+name = "groupby_benchmark"
+harness = false
+
+[[bench]]
+name = "filter_benchmark"
+harness = false
+
+[[bench]]
+name = "parquet_benchmark"
 harness = false
