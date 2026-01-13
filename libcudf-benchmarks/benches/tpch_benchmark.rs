@@ -22,26 +22,45 @@ use tpchgen_arrow::{
     SupplierArrow,
 };
 
-// Scale factor 0.1 produces ~100MB of data
-const SCALE_FACTOR: f64 = 0.1;
-const DATA_PARTS: i32 = 1;
+// Scale factor 10 produces ~10GB of data
+const SCALE_FACTOR: f64 = 10.0;
+const DATA_PARTS: i32 = 16;
 
-// Selected TPC-H queries representing different workload patterns:
-// Q1: Aggregation-heavy (sum, avg, count with groupby)
-// Q6: Filter + simple aggregation (scan-heavy)
-// Q14: Join + aggregation
+// All 22 TPC-H queries
 const BENCHMARK_QUERIES: &[(u8, &str)] = &[
-    (1, "Q1 - Pricing Summary (aggregation)"),
-    (6, "Q6 - Forecasting Revenue (filter+agg)"),
+    (1, "Q01"),
+    (2, "Q02"),
+    (3, "Q03"),
+    (4, "Q04"),
+    (5, "Q05"),
+    (6, "Q06"),
+    (7, "Q07"),
+    (8, "Q08"),
+    (9, "Q09"),
+    (10, "Q10"),
+    (11, "Q11"),
+    (12, "Q12"),
+    (13, "Q13"),
+    (14, "Q14"),
+    (15, "Q15"),
+    (16, "Q16"),
+    (17, "Q17"),
+    (18, "Q18"),
+    (19, "Q19"),
+    (20, "Q20"),
+    (21, "Q21"),
+    (22, "Q22"),
 ];
 
 static TPCH_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 fn get_data_dir() -> &'static PathBuf {
     TPCH_DATA_DIR.get_or_init(|| {
-        let dir = std::env::temp_dir().join("libcudf-benchmarks-tpch");
+        let dir = std::env::temp_dir().join(format!("libcudf-benchmarks-tpch-sf{}", SCALE_FACTOR as i32));
         if !dir.exists() {
+            eprintln!("Generating TPC-H SF={} data (~{}GB)...", SCALE_FACTOR, SCALE_FACTOR as i32);
             generate_tpch_data(&dir, SCALE_FACTOR, DATA_PARTS);
+            eprintln!("TPC-H data generation complete.");
         }
         dir
     })
@@ -148,6 +167,23 @@ async fn register_tables(ctx: &SessionContext) {
 }
 
 async fn execute_query(ctx: &SessionContext, sql: &str) -> usize {
+    // Q15 has three statements: CREATE VIEW, SELECT, DROP VIEW
+    if sql.to_lowercase().starts_with("create view") {
+        let queries: Vec<&str> = sql
+            .split(';')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        ctx.sql(queries[0]).await.unwrap().collect().await.unwrap();
+        let df = ctx.sql(queries[1]).await.unwrap();
+        let plan = df.create_physical_plan().await.unwrap();
+        let stream = execute_stream(plan, ctx.task_ctx()).unwrap();
+        let batches: Vec<RecordBatch> = stream.try_collect().await.unwrap();
+        ctx.sql(queries[2]).await.unwrap().collect().await.unwrap();
+        return batches.iter().map(|b| b.num_rows()).sum();
+    }
+
     let df = ctx.sql(sql).await.unwrap();
     let plan = df.create_physical_plan().await.unwrap();
     let stream = execute_stream(plan, ctx.task_ctx()).unwrap();
@@ -164,6 +200,9 @@ fn bench_tpch(c: &mut Criterion) {
     });
 
     let mut group = c.benchmark_group("tpch");
+    // Configure for longer-running queries
+    group.sample_size(10);
+    group.measurement_time(std::time::Duration::from_secs(30));
 
     for (query_num, query_name) in BENCHMARK_QUERIES {
         let sql = get_query(*query_num);
