@@ -1,5 +1,6 @@
 use crate::errors::cudf_to_df;
 use crate::expr::{columnar_value_to_cudf, expr_to_cudf_expr};
+use crate::physical::record_gpu_poll;
 use arrow::array::{Array, RecordBatch};
 use arrow_schema::{DataType, SchemaRef};
 use datafusion::common::{exec_err, internal_err, Statistics};
@@ -253,10 +254,7 @@ impl Stream for CuDFFilterExecStream {
                 }
             }
         }
-        // TODO(#21): record_poll triggers Array::to_data() -> GPU->CPU for CuDFColumnView.
-        // Replace with record_output(batch.num_rows()) once #21 is addressed.
-        // see https://github.com/gene-bordegaray/libcudf-rs/issues/21
-        self.metrics.baseline_metrics.record_poll(poll)
+        record_gpu_poll(&self.metrics.baseline_metrics, poll)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

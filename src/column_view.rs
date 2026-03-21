@@ -142,7 +142,16 @@ impl Array for CuDFColumnView {
     }
 
     fn to_data(&self) -> ArrayData {
-        // WARNING: This performs a full GPU to CPU data transfer.
+        // In debug/test builds this panics so implicit GPU->CPU copies are easily
+        // caught.
+        //
+        // A call to_arrow_host() explicitly rather than this method to separate implicit
+        // and explicit transfers.
+        debug_assert!(
+            false,
+            "CuDFColumnView::to_data(), implicit GPU→CPU copy detected. \
+             Call to_arrow_host() explicitly."
+        );
         self.to_arrow_host()
             .expect("Failed to convert GPU column to host Arrow")
             .to_data()
@@ -178,7 +187,6 @@ impl Array for CuDFColumnView {
                 if self.null_count() == 0 {
                     return None;
                 }
-
                 let null_bytes = self.inner().get_null_buffer();
                 let offset = self.inner().offset() as usize;
                 let length = self.inner().size();

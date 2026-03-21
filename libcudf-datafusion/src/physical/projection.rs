@@ -1,4 +1,5 @@
 use crate::expr::expr_to_cudf_expr;
+use crate::physical::record_gpu_poll;
 use arrow::array::RecordBatch;
 use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatchOptions;
@@ -190,10 +191,7 @@ impl Stream for CuDFProjectionStream {
             other => other,
         });
 
-        // TODO(#21): record_poll triggers Array::to_data() -> GPU->CPU for CuDFColumnView.
-        // Replace with record_output(batch.num_rows()) once #21 is addressed.
-        // see https://github.com/gene-bordegaray/libcudf-rs/issues/21
-        self.baseline_metrics.record_poll(poll)
+        record_gpu_poll(&self.baseline_metrics, poll)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
