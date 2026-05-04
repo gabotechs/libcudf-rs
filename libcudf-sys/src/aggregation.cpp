@@ -39,6 +39,30 @@ namespace libcudf_bridge {
         return result;
     }
 
+    std::unique_ptr<Aggregation> make_variance_aggregation(int32_t ddof) {
+        auto result = std::make_unique<Aggregation>();
+        result->inner = cudf::make_variance_aggregation<cudf::reduce_aggregation>(ddof);
+        return result;
+    }
+
+    std::unique_ptr<Aggregation> make_std_aggregation(int32_t ddof) {
+        auto result = std::make_unique<Aggregation>();
+        result->inner = cudf::make_std_aggregation<cudf::reduce_aggregation>(ddof);
+        return result;
+    }
+
+    std::unique_ptr<Aggregation> make_nunique_aggregation() {
+        auto result = std::make_unique<Aggregation>();
+        result->inner = cudf::make_nunique_aggregation<cudf::reduce_aggregation>();
+        return result;
+    }
+
+    std::unique_ptr<Aggregation> make_median_aggregation() {
+        auto result = std::make_unique<Aggregation>();
+        result->inner = cudf::make_median_aggregation<cudf::reduce_aggregation>();
+        return result;
+    }
+
     // Aggregation factory functions - direct cuDF mappings (for groupby)
     std::unique_ptr<Aggregation> make_sum_aggregation_groupby() {
         auto result = std::make_unique<Aggregation>();
@@ -69,6 +93,31 @@ namespace libcudf_bridge {
         result->inner = cudf::make_count_aggregation<cudf::groupby_aggregation>();
         return result;
     }
+
+    std::unique_ptr<Aggregation> make_variance_aggregation_groupby(int32_t ddof) {
+        auto result = std::make_unique<Aggregation>();
+        result->inner = cudf::make_variance_aggregation<cudf::groupby_aggregation>(ddof);
+        return result;
+    }
+
+    std::unique_ptr<Aggregation> make_std_aggregation_groupby(int32_t ddof) {
+        auto result = std::make_unique<Aggregation>();
+        result->inner = cudf::make_std_aggregation<cudf::groupby_aggregation>(ddof);
+        return result;
+    }
+
+    std::unique_ptr<Aggregation> make_nunique_aggregation_groupby() {
+        auto result = std::make_unique<Aggregation>();
+        result->inner = cudf::make_nunique_aggregation<cudf::groupby_aggregation>();
+        return result;
+    }
+
+    std::unique_ptr<Aggregation> make_median_aggregation_groupby() {
+        auto result = std::make_unique<Aggregation>();
+        result->inner = cudf::make_median_aggregation<cudf::groupby_aggregation>();
+        return result;
+    }
+
 
     // Reduction - direct cuDF mapping
     std::unique_ptr<Scalar> reduce(const Column &col, const Aggregation &agg, int32_t output_type_id) {

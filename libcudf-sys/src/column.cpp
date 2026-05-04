@@ -11,6 +11,7 @@
 #include <cudf/column/column.hpp>
 #include <cudf/interop.hpp>
 #include <cudf/copying.hpp>
+#include <cudf/unary.hpp>
 
 #include <memory>
 #include <nanoarrow/nanoarrow.h>
@@ -224,6 +225,16 @@ namespace libcudf_bridge {
         Column c;
         c.inner = std::move(col);
         return c;
+    }
+
+    // Cast a column to a different data type
+    std::unique_ptr<Column> cast_column(const ColumnView &input, const DataType &target_type) {
+        if (!input.inner) {
+            throw std::runtime_error("Cannot cast null column view");
+        }
+        auto result = std::make_unique<Column>();
+        result->inner = cudf::cast(*input.inner, target_type.inner);
+        return result;
     }
 
     // Extract a scalar from a column at the specified index

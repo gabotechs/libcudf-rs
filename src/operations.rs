@@ -1,4 +1,6 @@
-use crate::{CuDFColumnView, CuDFError, CuDFRef, CuDFTable, CuDFTableView};
+use crate::data_type::arrow_type_to_cudf_data_type;
+use crate::{CuDFColumn, CuDFColumnView, CuDFError, CuDFRef, CuDFTable, CuDFTableView};
+use arrow_schema::{ArrowError, DataType};
 use libcudf_sys::ffi;
 use std::sync::Arc;
 
@@ -133,4 +135,134 @@ pub fn slice_column(
         inner,
         Some(Arc::new(column.clone()) as Arc<dyn CuDFRef>),
     ))
+}
+
+/// Cast a column to a different data type on the GPU
+///
+/// Uses cuDF's native `cudf::cast()` to perform type conversion entirely on the GPU,
+/// avoiding any GPU->CPU->GPU round-trips.
+///
+/// # Arguments
+///
+/// * `column` - The column view to cast
+/// * `target_type` - The Arrow data type to cast to
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The target type is not supported by cuDF
+/// - The cast is not supported (e.g., string to numeric)
+/// - There is insufficient GPU memory
+pub fn cast(column: &CuDFColumnView, target_type: &DataType) -> Result<CuDFColumn, CuDFError> {
+    let cudf_dt = arrow_type_to_cudf_data_type(target_type).ok_or_else(|| {
+        CuDFError::ArrowError(ArrowError::NotYetImplemented(format!(
+            "Arrow type {} not supported in cuDF cast",
+            target_type
+        )))
+    })?;
+    let result = ffi::cast_column(column.inner(), &cudf_dt)?;
+    Ok(CuDFColumn::new(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow::array::*;
+
+    #[test]
+    fn test_cast_int32_to_int64() -> Result<(), Box<dyn std::error::Error>> {
+        let array = Int32Array::from(vec![1, 2, 3, 4, 5]);
+        let column = CuDFColumn::from_arrow_host(&array)?.into_view();
+
+        let casted = cast(&column, &DataType::Int64)?;
+        let result = casted.into_view().to_arrow_host()?;
+
+        let result = result.as_any().downcast_ref::<Int64Array>().unwrap();
+        assert_eq!(result.values(), &[1i64, 2, 3, 4, 5]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_int32_to_float64() -> Result<(), Box<dyn std::error::Error>> {
+        let array = Int32Array::from(vec![1, 2, 3]);
+        let column = CuDFColumn::from_arrow_host(&array)?.into_view();
+
+        let casted = cast(&column, &DataType::Float64)?;
+        let result = casted.into_view().to_arrow_host()?;
+
+        let result = result.as_any().downcast_ref::<Float64Array>().unwrap();
+        assert_eq!(result.values(), &[1.0, 2.0, 3.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_float64_to_int64() -> Result<(), Box<dyn std::error::Error>> {
+        let array = Float64Array::from(vec![1.9, 2.1, 3.5]);
+        let column = CuDFColumn::from_arrow_host(&array)?.into_view();
+
+        let casted = cast(&column, &DataType::Int64)?;
+        let result = casted.into_view().to_arrow_host()?;
+
+        let result = result.as_any().downcast_ref::<Int64Array>().unwrap();
+        // cuDF truncates toward zero
+        assert_eq!(result.values(), &[1i64, 2, 3]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_with_nulls() -> Result<(), Box<dyn std::error::Error>> {
+        let array = Int32Array::from(vec![Some(1), None, Some(3), None, Some(5)]);
+        let column = CuDFColumn::from_arrow_host(&array)?.into_view();
+
+        let casted = cast(&column, &DataType::Int64)?;
+        let view = casted.into_view();
+        let result = view.to_arrow_host()?;
+
+        let result = result.as_any().downcast_ref::<Int64Array>().unwrap();
+        assert_eq!(result.len(), 5);
+        assert!(result.is_valid(0));
+        assert!(result.is_null(1));
+        assert!(result.is_valid(2));
+        assert!(result.is_null(3));
+        assert!(result.is_valid(4));
+        assert_eq!(result.value(0), 1);
+        assert_eq!(result.value(2), 3);
+        assert_eq!(result.value(4), 5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_int64_to_uint64() -> Result<(), Box<dyn std::error::Error>> {
+        let array = Int64Array::from(vec![1, 2, 3]);
+        let column = CuDFColumn::from_arrow_host(&array)?.into_view();
+
+        let casted = cast(&column, &DataType::UInt64)?;
+        let result = casted.into_view().to_arrow_host()?;
+
+        let result = result.as_any().downcast_ref::<UInt64Array>().unwrap();
+        assert_eq!(result.values(), &[1u64, 2, 3]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_preserves_length() -> Result<(), Box<dyn std::error::Error>> {
+        let array = Int32Array::from(vec![10, 20, 30, 40, 50]);
+        let column = CuDFColumn::from_arrow_host(&array)?.into_view();
+
+        let casted = cast(&column, &DataType::Float32)?;
+        let view = casted.into_view();
+        assert_eq!(view.len(), 5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_unsupported_type_returns_error() -> Result<(), Box<dyn std::error::Error>> {
+        let array = Int32Array::from(vec![1, 2, 3]);
+        let column = CuDFColumn::from_arrow_host(&array)?.into_view();
+
+        // Interval types are not supported by cuDF
+        let result = cast(&column, &DataType::Null);
+        assert!(result.is_err());
+        Ok(())
+    }
 }

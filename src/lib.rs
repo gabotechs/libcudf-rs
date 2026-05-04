@@ -38,7 +38,7 @@ pub use cudf_array::*;
 pub use cudf_reference::CuDFRef;
 pub use errors::{CuDFError, Result};
 pub use group_by::*;
-pub use operations::{apply_boolean_mask, gather, slice_column};
+pub use operations::{apply_boolean_mask, cast, gather, slice_column};
 pub use scalar::CuDFScalar;
 pub use sort::{sort, sort_by_all, stable_sorted_order, SortOrder};
 pub use table::*;

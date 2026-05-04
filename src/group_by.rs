@@ -3,10 +3,11 @@ use crate::errors::Result;
 use crate::table_view::CuDFTableView;
 use crate::{CuDFColumn, CuDFColumnView, CuDFTable};
 use cxx::UniquePtr;
-use libcudf_sys::ffi;
 use libcudf_sys::ffi::{
-    aggregation_request_create, make_count_aggregation_groupby, make_max_aggregation_groupby,
-    make_mean_aggregation_groupby, make_min_aggregation_groupby, make_sum_aggregation_groupby,
+    self, aggregation_request_create, make_count_aggregation_groupby, make_max_aggregation_groupby,
+    make_mean_aggregation_groupby, make_median_aggregation_groupby, make_min_aggregation_groupby,
+    make_nunique_aggregation_groupby, make_std_aggregation_groupby, make_sum_aggregation_groupby,
+    make_variance_aggregation_groupby,
 };
 use std::sync::Arc;
 
@@ -127,8 +128,22 @@ pub enum AggregationOp {
     MAX,
     /// Arithmetic mean
     MEAN,
-    /// Count of values
+    /// Count of non-null values
     COUNT,
+    /// Variance with delta degrees of freedom
+    ///
+    /// - `ddof = 0`: Population std dev
+    /// - `ddof = 1`: Sample std dev
+    VARIANCE { ddof: i32 },
+    /// Standard deviation with delta degrees of freedom
+    ///
+    /// - `ddof = 0`: Population std dev
+    /// - `ddof = 1`: Sample std dev
+    STD { ddof: i32 },
+    /// Count of distinct, non-null values
+    NUNIQUE,
+    /// Median value
+    MEDIAN,
 }
 
 impl AggregationOp {
@@ -150,6 +165,203 @@ impl AggregationOp {
             MAX => Aggregation::new(make_max_aggregation_groupby()),
             MEAN => Aggregation::new(make_mean_aggregation_groupby()),
             COUNT => Aggregation::new(make_count_aggregation_groupby()),
+            VARIANCE { ddof } => Aggregation::new(make_variance_aggregation_groupby(*ddof)),
+            STD { ddof } => Aggregation::new(make_std_aggregation_groupby(*ddof)),
+            NUNIQUE => Aggregation::new(make_nunique_aggregation_groupby()),
+            MEDIAN => Aggregation::new(make_median_aggregation_groupby()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow::array::{make_array, Array, Float64Array, Int32Array, Int64Array};
+    use arrow::datatypes::{DataType, Field, Schema};
+    use arrow::record_batch::RecordBatch;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_sum_integers() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // SUM([1, 2, 3, 4, 5]) = 15
+        let values = Int32Array::from(vec![1, 2, 3, 4, 5]);
+        let result = run_single_group_agg::<Int64Array>(&values, AggregationOp::SUM)?;
+        assert_eq!(result.value(0), 15);
+        Ok(())
+    }
+
+    #[test]
+    fn test_sum_with_nulls() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // SUM([1, NULL, 3, NULL, 5]) = 9
+        let values = Int32Array::from(vec![Some(1), None, Some(3), None, Some(5)]);
+        let result = run_single_group_agg::<Int64Array>(&values, AggregationOp::SUM)?;
+        assert_eq!(result.value(0), 9);
+        Ok(())
+    }
+
+    #[test]
+    fn test_min() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // MIN([5, 2, 8, 1, 9]) = 1
+        let values = Int32Array::from(vec![5, 2, 8, 1, 9]);
+        let result = run_single_group_agg::<Int32Array>(&values, AggregationOp::MIN)?;
+        assert_eq!(result.value(0), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_max() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // MAX([5, 2, 8, 1, 9]) = 9
+        let values = Int32Array::from(vec![5, 2, 8, 1, 9]);
+        let result = run_single_group_agg::<Int32Array>(&values, AggregationOp::MAX)?;
+        assert_eq!(result.value(0), 9);
+        Ok(())
+    }
+
+    #[test]
+    fn test_mean() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // MEAN([10, 20, 30, 40, 50]) = 30
+        let values = Float64Array::from(vec![10.0, 20.0, 30.0, 40.0, 50.0]);
+        let result = run_single_group_agg::<Float64Array>(&values, AggregationOp::MEAN)?;
+        assert!((result.value(0) - 30.0).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_count() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // COUNT([1, 2, 3, 4, 5]) = 5
+        let values = Int32Array::from(vec![1, 2, 3, 4, 5]);
+        let result = run_single_group_agg::<Int32Array>(&values, AggregationOp::COUNT)?;
+        assert_eq!(result.value(0), 5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_count_excludes_nulls() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // COUNT([1, NULL, 3, NULL, 5]) = 3
+        let values = Int32Array::from(vec![Some(1), None, Some(3), None, Some(5)]);
+        let result = run_single_group_agg::<Int32Array>(&values, AggregationOp::COUNT)?;
+        assert_eq!(result.value(0), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_variance_sample() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // VARIANCE([1, 2, 3, 4, 5]) with ddof=1 = 2.5
+        let values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+        let result =
+            run_single_group_agg::<Float64Array>(&values, AggregationOp::VARIANCE { ddof: 1 })?;
+        assert!((result.value(0) - 2.5).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_std_sample() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // STD([1, 2, 3, 4, 5]) with ddof=1 = sqrt(2.5)
+        let values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+        let result = run_single_group_agg::<Float64Array>(&values, AggregationOp::STD { ddof: 1 })?;
+        let expected = (2.5_f64).sqrt();
+        assert!((result.value(0) - expected).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_nunique() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // NUNIQUE([1, 2, 2, 3, 3, 3]) = 3
+        let values = Int32Array::from(vec![1, 2, 2, 3, 3, 3]);
+        let result = run_single_group_agg::<Int32Array>(&values, AggregationOp::NUNIQUE)?;
+        assert_eq!(result.value(0), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_median() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // MEDIAN([1, 2, 3, 4, 5]) = 3
+        let values = Int32Array::from(vec![1, 2, 3, 4, 5]);
+        let result = run_single_group_agg::<Float64Array>(&values, AggregationOp::MEDIAN)?;
+        assert!((result.value(0) - 3.0).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_multiple_groups() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // Group 1: [1, 2, 3] sums to 6.
+        // Group 2: [10, 20] sums to 30.
+        let values = Int32Array::from(vec![1, 2, 3, 10, 20]);
+        let keys = Int32Array::from(vec![1, 1, 1, 2, 2]);
+
+        let values_col = CuDFColumn::from_arrow_host(&values)?;
+        let schema = Arc::new(Schema::new(vec![Field::new("key", DataType::Int32, false)]));
+        let keys_batch = RecordBatch::try_new(schema, vec![Arc::new(keys)])?;
+        let keys_table = CuDFTable::from_arrow_host(keys_batch)?;
+        let groupby = CuDFGroupBy::from_table_view(keys_table.into_view());
+
+        let mut request = AggregationRequest::from_column_view(values_col.into_view());
+        request.add(AggregationOp::SUM.group_by());
+
+        let (result_keys, results) = groupby.aggregate(&[request])?;
+
+        assert_eq!(result_keys.num_rows(), 2);
+
+        let sum_col = results
+            .into_iter()
+            .next()
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        let sum_array = sum_col.into_view().to_arrow_host()?;
+        let sum_values = sum_array.as_any().downcast_ref::<Int64Array>().unwrap();
+
+        // Should have sums [6, 30] in some order
+        let sum1 = sum_values.value(0);
+        let sum2 = sum_values.value(1);
+        assert!(
+            (sum1 == 6 && sum2 == 30) || (sum1 == 30 && sum2 == 6),
+            "Expected sums [6, 30], got [{}, {}]",
+            sum1,
+            sum2
+        );
+
+        Ok(())
+    }
+
+    fn make_keys_table(keys: &dyn Array) -> Result<CuDFTable> {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "key",
+            keys.data_type().clone(),
+            false,
+        )]));
+        let keys_data = keys.to_data();
+        let batch = RecordBatch::try_new(schema, vec![make_array(keys_data)])?;
+        CuDFTable::from_arrow_host(batch)
+    }
+
+    fn run_single_group_agg<T: Array + Clone + 'static>(
+        values: &dyn Array,
+        agg_op: AggregationOp,
+    ) -> Result<Arc<T>> {
+        let n = values.len();
+        let keys = Int32Array::from(vec![1; n]);
+
+        let values_col = CuDFColumn::from_arrow_host(values)?;
+        let keys_table = make_keys_table(&keys)?;
+        let groupby = CuDFGroupBy::from_table_view(keys_table.into_view());
+
+        let mut request = AggregationRequest::from_column_view(values_col.into_view());
+        request.add(agg_op.group_by());
+
+        let (_result_keys, results) = groupby.aggregate(&[request])?;
+        let result_col = results
+            .into_iter()
+            .next()
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        let result_array = result_col.into_view().to_arrow_host()?;
+
+        Ok(Arc::new(
+            (*result_array.as_any().downcast_ref::<T>().unwrap()).clone(),
+        ))
     }
 }
