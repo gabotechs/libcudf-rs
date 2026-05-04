@@ -3,6 +3,18 @@
 //! This crate provides unsafe bindings to the cuDF C++ library.
 //! For a safe, idiomatic Rust API, use the `libcudf-rs` crate instead.
 
+use arrow::ffi::FFI_ArrowArray;
+
+/// FFI bindings to cuDF C++ library
+///
+/// This is a thin wrapper over cuDF C++ APIs. Safety documentation is provided
+/// at the higher-level `libcudf-rs` wrapper layer where safe APIs are exposed.
+///
+/// The cxx macro generates code that clippy cannot see source documentation for,
+/// so we allow missing_safety_doc here. All safety contracts are documented in:
+/// - The C++ cuDF library headers
+/// - The safe wrapper functions in `libcudf-rs`
+#[allow(clippy::missing_safety_doc)]
 #[cxx::bridge(namespace = "libcudf_bridge")]
 pub mod ffi {
     // Opaque C++ types
@@ -95,6 +107,9 @@ pub mod ffi {
         /// Get the number of columns in the helper
         fn len(self: &ColumnVectorHelper) -> usize;
 
+        /// Check if the helper contains no columns
+        fn is_empty(self: &ColumnVectorHelper) -> bool;
+
         /// Release and take ownership of a column at the specified index
         fn release(self: Pin<&mut ColumnVectorHelper>, index: usize) -> UniquePtr<Column>;
 
@@ -113,6 +128,9 @@ pub mod ffi {
 
         /// Get the number of aggregation requests
         fn len(self: &GroupByResult) -> usize;
+
+        /// Check if there are no aggregation results
+        fn is_empty(self: &GroupByResult) -> bool;
 
         /// Release and take ownership of the aggregation result at the specified index
         fn release_result(
@@ -147,12 +165,24 @@ pub mod ffi {
         fn column(self: &TableView, index: i32) -> UniquePtr<ColumnView>;
 
         /// Get the table view schema as an FFI ArrowSchema
+        ///
+        /// # Safety
+        ///
+        /// `out_schema_ptr` must point to a valid `ArrowSchema`. Caller must release it.
         unsafe fn to_arrow_schema(self: &TableView, out_schema_ptr: *mut u8);
 
         /// Get the table view data as an FFI ArrowArray
+        ///
+        /// # Safety
+        ///
+        /// `out_array_ptr` must point to a valid `ArrowArray`. Caller must release it.
         unsafe fn to_arrow_array(self: &TableView, out_array_ptr: *mut u8);
 
         /// Clone this table view
+        ///
+        /// Note: Cannot implement `Clone` trait due to cxx FFI limitations.
+        /// This creates a deep copy of the view structure (not the underlying data).
+        #[allow(clippy::should_implement_trait)]
         fn clone(self: &TableView) -> UniquePtr<TableView>;
 
         // Column methods
@@ -170,6 +200,10 @@ pub mod ffi {
         fn view(self: &Column) -> UniquePtr<ColumnView>;
 
         /// Get the column view data as an FFI ArrowArray
+        ///
+        /// # Safety
+        ///
+        /// `out_array_ptr` must point to a valid `ArrowArray`. Caller must release it.
         unsafe fn to_arrow_array(self: &ColumnView, out_array_ptr: *mut u8);
 
         /// Get the raw device pointer to the column view's data
@@ -179,6 +213,10 @@ pub mod ffi {
         fn data_type(self: &ColumnView) -> UniquePtr<DataType>;
 
         /// Clone this column view
+        ///
+        /// Note: Cannot implement `Clone` trait due to cxx FFI limitations.
+        /// This creates a deep copy of the view structure (not the underlying data).
+        #[allow(clippy::should_implement_trait)]
         fn clone(self: &ColumnView) -> UniquePtr<ColumnView>;
 
         /// Get the offset of the current ColumnView in case it was a slice of another one
@@ -186,6 +224,15 @@ pub mod ffi {
 
         /// Get the number of null values in the column
         fn null_count(self: &ColumnView) -> i32;
+
+        /// Get buffer memory size (data + offsets, no null mask)
+        fn get_buffer_memory_size(self: &ColumnView) -> usize;
+
+        /// Get total array memory size (data + offsets + null mask + children)
+        fn get_array_memory_size(self: &ColumnView) -> usize;
+
+        /// Transfer the null buffer
+        fn get_null_buffer(self: &ColumnView) -> Vec<u8>;
 
         // DataType methods
         /// Get the type_id
@@ -195,6 +242,13 @@ pub mod ffi {
         fn scale(self: &DataType) -> i32;
 
         // Scalar methods
+        /// Get the scalar data as an FFI ArrowArray
+        ///
+        /// # Safety
+        ///
+        /// `out_array_ptr` must point to a valid `ArrowArray`. Caller must release it.
+        unsafe fn to_arrow_array(self: &Scalar, out_array_ptr: *mut u8);
+
         /// Check if the scalar is valid (not null)
         fn is_valid(self: &Scalar) -> bool;
 
@@ -202,6 +256,10 @@ pub mod ffi {
         fn data_type(self: &Scalar) -> UniquePtr<DataType>;
 
         /// Clone this scalar (deep copy)
+        ///
+        /// Note: Cannot implement `Clone` trait due to cxx FFI limitations.
+        /// This creates a deep copy of the scalar and its data.
+        #[allow(clippy::should_implement_trait)]
         fn clone(self: &Scalar) -> UniquePtr<Scalar>;
 
         // Factory functions
@@ -254,10 +312,7 @@ pub mod ffi {
         ///
         /// Reorders the rows of `source_table` according to the indices in `gather_map`.
         /// The resulting table will have the same number of rows as `gather_map` has elements.
-        fn gather(
-            source_table: &TableView,
-            gather_map: &ColumnView,
-        ) -> Result<UniquePtr<Table>>;
+        fn gather(source_table: &TableView, gather_map: &ColumnView) -> Result<UniquePtr<Table>>;
 
         /// Create a sliced view of a column
         ///
@@ -433,12 +488,20 @@ pub mod ffi {
         // Arrow interop - direct cuDF calls
 
         /// Convert an Arrow DeviceArray to a cuDF table
+        ///
+        /// # Safety
+        ///
+        /// Pointers must be valid Arrow C Data Interface structures.
         unsafe fn table_from_arrow_host(
             schema_ptr: *const u8,
             device_array_ptr: *const u8,
         ) -> Result<UniquePtr<Table>>;
 
         /// Convert an Arrow array to a cuDF column
+        ///
+        /// # Safety
+        ///
+        /// Pointers must be valid Arrow C Data Interface structures.
         unsafe fn column_from_arrow(
             schema_ptr: *const u8,
             array_ptr: *const u8,
@@ -628,6 +691,105 @@ pub struct ArrowDeviceArray {
     pub sync_event: *mut std::ffi::c_void,
     /// Reserved bytes for future expansion
     pub reserved: [i64; 3],
+}
+
+/// Arrow C Device Data Interface device types
+///
+/// These values correspond to the device types defined in the Arrow C Device
+/// Data Interface specification.
+///
+/// See: <https://arrow.apache.org/docs/format/CDeviceDataInterface.html>
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum ArrowDeviceType {
+    Cpu = 1,
+    Cuda = 2,
+    CudaHost = 3,
+    OpenCL = 4,
+    Vulkan = 5,
+    Metal = 6,
+    VulkanHost = 7,
+    OpenCLHost = 8,
+    CudaManaged = 9,
+    OneAPI = 10,
+    WebGPU = 11,
+    Hexagon = 12,
+}
+
+impl ArrowDeviceType {
+    /// Device ID for CPU devices (-1 indicates no specific device)
+    pub const CPU_DEVICE_ID: i64 = -1;
+}
+
+impl From<ArrowDeviceType> for i32 {
+    fn from(dt: ArrowDeviceType) -> i32 {
+        dt as i32
+    }
+}
+
+impl ArrowDeviceArray {
+    /// Create a new CPU-resident ArrowDeviceArray
+    ///
+    /// Initializes an empty array structure for CPU (host) memory.
+    /// The device_id is set to -1 (no specific device) and device_type to CPU.
+    pub fn new_cpu() -> Self {
+        Self {
+            array: arrow::ffi::FFI_ArrowArray::empty(),
+            device_id: ArrowDeviceType::CPU_DEVICE_ID,
+            device_type: ArrowDeviceType::Cpu.into(),
+            sync_event: std::ptr::null_mut(),
+            reserved: [0; 3],
+        }
+    }
+
+    /// Create a new CUDA device ArrowDeviceArray
+    ///
+    /// Initializes an empty array structure for CUDA GPU memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - The CUDA device ID (0, 1, 2, etc.)
+    pub fn new_cuda(device_id: i64) -> Self {
+        Self {
+            array: arrow::ffi::FFI_ArrowArray::empty(),
+            device_id,
+            device_type: ArrowDeviceType::Cuda.into(),
+            sync_event: std::ptr::null_mut(),
+            reserved: [0; 3],
+        }
+    }
+
+    /// Sets the array field (builder pattern)
+    ///
+    /// # Arguments
+    ///
+    /// * `array` - The Arrow C FFI array structure
+    pub fn with_array(mut self, array: FFI_ArrowArray) -> Self {
+        self.array = array;
+        self
+    }
+
+    /// Sets the sync event field (builder pattern)
+    ///
+    /// # Arguments
+    ///
+    /// * `sync_event` - Pointer to a synchronization event (e.g., CUDA event)
+    pub fn with_sync_event(mut self, sync_event: *mut std::ffi::c_void) -> Self {
+        self.sync_event = sync_event;
+        self
+    }
+
+    /// Sets the device ID field (builder pattern)
+    ///
+    /// Useful for changing the device ID after initial construction.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - The device ID (-1 for CPU, 0+ for GPU devices)
+    pub fn with_device_id(mut self, device_id: i64) -> Self {
+        self.device_id = device_id;
+        self
+    }
 }
 
 // Thread safety implementations for cuDF types
@@ -854,12 +1016,8 @@ mod tests {
         let col2 = table_view.column(2);
 
         let output_type = ffi::new_data_type(TypeId::Float64 as i32);
-        let result = ffi::binary_operation_col_col(
-            &col1,
-            &col2,
-            BinaryOperator::Add as i32,
-            &output_type,
-        )?;
+        let result =
+            ffi::binary_operation_col_col(&col1, &col2, BinaryOperator::Add as i32, &output_type)?;
 
         assert_eq!(result.size(), col1.size());
         assert_eq!(result.size(), col2.size());
@@ -877,12 +1035,8 @@ mod tests {
         let col2 = table_view.column(2);
 
         let output_type = ffi::new_data_type(TypeId::Float64 as i32);
-        let result = ffi::binary_operation_col_col(
-            &col1,
-            &col2,
-            BinaryOperator::Mul as i32,
-            &output_type,
-        )?;
+        let result =
+            ffi::binary_operation_col_col(&col1, &col2, BinaryOperator::Mul as i32, &output_type)?;
 
         assert_eq!(result.size(), col1.size());
         assert_snapshot!(pretty_column(&result.view(), DataType::Float64)?);

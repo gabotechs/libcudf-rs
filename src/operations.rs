@@ -35,10 +35,7 @@ use std::sync::Arc;
 /// let sorted = gather(&view, &indices_view)?;
 /// # Ok::<(), libcudf_rs::CuDFError>(())
 /// ```
-pub fn gather(
-    table: &CuDFTableView,
-    gather_map: &CuDFColumnView,
-) -> Result<CuDFTable, CuDFError> {
+pub fn gather(table: &CuDFTableView, gather_map: &CuDFColumnView) -> Result<CuDFTable, CuDFError> {
     let inner = ffi::gather(table.inner(), gather_map.inner())?;
     Ok(CuDFTable::from_inner(inner))
 }

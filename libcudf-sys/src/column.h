@@ -11,6 +11,11 @@
 namespace libcudf_bridge {
     struct DataType;
 
+    // Helper functions for memory size calculations
+    size_t calculate_buffer_memory_size(const cudf::column_view& view);
+    size_t calculate_null_mask_size(const cudf::column_view& view);
+    size_t calculate_array_memory_size(const cudf::column_view& view);
+
     // Opaque wrapper for cuDF column_view
     struct ColumnView {
         std::unique_ptr<cudf::column_view> inner;
@@ -39,6 +44,15 @@ namespace libcudf_bridge {
 
         // Returns how many nulls this column has
         [[nodiscard]] int32_t null_count() const;
+
+        // Get buffer memory size (data + offsets, no null mask)
+        [[nodiscard]] size_t get_buffer_memory_size() const;
+
+        // Get total array memory size (data + offsets + null mask + children)
+        [[nodiscard]] size_t get_array_memory_size() const;
+
+        // Transfer the null buffer
+        [[nodiscard]] rust::Vec<uint8_t> get_null_buffer() const;
     };
 
     // Opaque wrapper for cuDF column
@@ -76,4 +90,5 @@ namespace libcudf_bridge {
 
     // Extract a scalar from a column at the specified index
     std::unique_ptr<Scalar> get_element(const ColumnView &column, size_t index);
+
 } // namespace libcudf_bridge

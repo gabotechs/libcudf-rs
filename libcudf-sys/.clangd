@@ -2,7 +2,7 @@
 # This config is scoped to the libcudf-sys directory only
 
 CompileFlags:
-  CompilationDatabase: .
+  CompilationDatabase: ..
   Add:
     - -ferror-limit=0
   Remove:

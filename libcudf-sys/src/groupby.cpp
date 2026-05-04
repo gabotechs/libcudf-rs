@@ -15,6 +15,10 @@ namespace libcudf_bridge {
         return columns.size();
     }
 
+    bool ColumnVectorHelper::is_empty() const {
+        return columns.empty();
+    }
+
     std::unique_ptr<Column> ColumnVectorHelper::release(size_t index) {
         if (index >= columns.size()) {
             throw std::out_of_range("Index out of bounds");
@@ -90,6 +94,10 @@ namespace libcudf_bridge {
 
     size_t GroupByResult::len() const {
         return results.size();
+    }
+
+    bool GroupByResult::is_empty() const {
+        return results.empty();
     }
 
     std::unique_ptr<ColumnVectorHelper> GroupByResult::release_result(size_t index) {

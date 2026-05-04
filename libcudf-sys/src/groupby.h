@@ -17,6 +17,7 @@ namespace libcudf_bridge {
         ~ColumnVectorHelper();
 
         [[nodiscard]] size_t len() const;
+        [[nodiscard]] bool is_empty() const;
         [[nodiscard]] std::unique_ptr<Column> release(size_t index);
     };
 
@@ -32,6 +33,8 @@ namespace libcudf_bridge {
         [[nodiscard]] std::unique_ptr<Table> release_keys();
 
         [[nodiscard]] size_t len() const;
+
+        [[nodiscard]] bool is_empty() const;
 
         [[nodiscard]] std::unique_ptr<ColumnVectorHelper> release_result(size_t index);
     };

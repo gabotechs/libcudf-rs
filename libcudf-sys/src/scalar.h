@@ -21,6 +21,9 @@ namespace libcudf_bridge {
 
         ~Scalar();
 
+        // Get the scalar's data as an FFI Arrow Array
+        void to_arrow_array(uint8_t *out_array_ptr) const;
+
         // Check if the scalar is valid (not null)
         [[nodiscard]] bool is_valid() const;
 

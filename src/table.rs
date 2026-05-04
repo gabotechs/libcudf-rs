@@ -145,13 +145,7 @@ impl CuDFTable {
         let ffi_array = FFI_ArrowArray::new(&array_data);
         let ffi_schema = FFI_ArrowSchema::try_from(schema)?;
 
-        let device_array = ArrowDeviceArray {
-            array: ffi_array,
-            device_id: -1,
-            device_type: 1, // CPU
-            sync_event: std::ptr::null_mut(),
-            reserved: [0; 3],
-        };
+        let device_array = ArrowDeviceArray::new_cpu().with_array(ffi_array);
 
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;

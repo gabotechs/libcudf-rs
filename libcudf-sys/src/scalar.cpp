@@ -2,8 +2,12 @@
 #include "data_type.h"
 #include "libcudf-sys/src/lib.rs.h"
 
+#include <cudf/interop.hpp>
 #include <cudf/scalar/scalar.hpp>
+#include <cudf/column/column_factories.hpp>
 #include <cudf/types.hpp>
+#include <nanoarrow/nanoarrow.h>
+#include <nanoarrow/nanoarrow_device.h>
 #include <stdexcept>
 
 namespace libcudf_bridge {
@@ -13,6 +17,19 @@ namespace libcudf_bridge {
 
     Scalar::~Scalar() = default;
 
+    // Get the scalar's data as an FFI Arrow Array
+    void Scalar::to_arrow_array(uint8_t *out_array_ptr) const {
+        if (!inner) {
+            throw std::runtime_error("Cannot convert null column view to arrow array");
+        }
+        std::unique_ptr<cudf::column> single_element_col = cudf::make_column_from_scalar(*inner, 1);
+        auto device_array_unique = cudf::to_arrow_host(single_element_col->view());
+        auto *out_array = reinterpret_cast<ArrowDeviceArray*>(out_array_ptr);
+        *out_array = *device_array_unique.get();
+        device_array_unique.release();
+    }
+
+    // Check if the scalar is valid (not null)
     bool Scalar::is_valid() const {
         if (!inner) {
             return false;
@@ -20,6 +37,7 @@ namespace libcudf_bridge {
         return inner->is_valid();
     }
 
+    // Get the data type of the scalar
     [[nodiscard]] std::unique_ptr<DataType> Scalar::data_type() const {
         auto dtype = inner->type();
         auto type_id = static_cast<int32_t>(dtype.id());
@@ -34,6 +52,7 @@ namespace libcudf_bridge {
         }
     }
 
+    // Clone this scalar (deep copy)
     [[nodiscard]] std::unique_ptr<Scalar> Scalar::clone() const {
         auto cloned = std::make_unique<Scalar>();
 
