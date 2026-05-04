@@ -31,6 +31,7 @@ mod operations;
 mod pinned_pool;
 mod scalar;
 mod sort;
+mod stream;
 mod table;
 mod table_view;
 
@@ -47,6 +48,7 @@ pub use operations::{apply_boolean_mask, cast, gather, slice_column};
 pub use pinned_pool::PinnedPoolConfig;
 pub use scalar::CuDFScalar;
 pub use sort::{sort, sort_by_all, stable_sorted_order, SortOrder};
+pub use stream::{CuDFStream, CuDFStreamFlags};
 pub use table::*;
 pub use table_view::*;
 

@@ -31,6 +31,7 @@ pub mod ffi {
         include!("libcudf-sys/src/binaryop.h");
         include!("libcudf-sys/src/sorting.h");
         include!("libcudf-sys/src/join.h");
+        include!("libcudf-sys/src/stream.h");
 
         /// A set of cuDF columns of the same size
         ///
@@ -78,6 +79,22 @@ pub mod ffi {
         /// The groupby object is constructed with a set of key columns and can perform
         /// various aggregations on value columns based on those keys.
         type GroupBy;
+
+        /// Opaque owning wrapper for an RMM CUDA stream.
+        type CudaStream;
+
+        /// Return whether this wrapper still owns an underlying CUDA stream.
+        ///
+        /// In C++, you could do something like
+        /// ```ignore
+        /// CudaStream a = CudaStream();
+        /// CudaStream b(std::move(a));
+        /// ```
+        /// This would transfer ownership of the stream from `a` to `b`, making `a` invalid.
+        ///
+        /// However, there's no ffi API available right now to do this via rust, so there's no
+        /// need to worry about invalidating a stream at the moment.
+        fn is_valid(self: &CudaStream) -> bool;
 
         // GroupBy methods - direct cuDF class methods
 
@@ -605,6 +622,12 @@ pub mod ffi {
         /// Allocations at or below `threshold_bytes` use pinned memory. Larger
         /// allocations remain pageable.
         fn set_host_pinned_threshold(threshold_bytes: usize);
+
+        /// Create a CUDA stream using the default creation flag.
+        fn cuda_stream_create() -> UniquePtr<CudaStream>;
+
+        /// Create a CUDA stream with explicit creation flags.
+        fn cuda_stream_create_with_flags(flags: u32) -> UniquePtr<CudaStream>;
     }
 }
 
@@ -957,6 +980,12 @@ unsafe impl Send for ffi::GroupByResult {}
 /// SAFETY: GroupByResult can be accessed from multiple threads.
 unsafe impl Sync for ffi::GroupByResult {}
 
+/// SAFETY: CUDA stream handles can be transferred between threads.
+unsafe impl Send for ffi::CudaStream {}
+
+/// SAFETY: Shared references to the opaque stream wrapper are safe.
+unsafe impl Sync for ffi::CudaStream {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -968,6 +997,10 @@ mod tests {
     use arrow_schema::{ArrowError, DataType};
     use insta::assert_snapshot;
     use std::fmt::Display;
+    use std::sync::Arc;
+
+    const CUDA_STREAM_FLAG_BLOCKING: u32 = 1;
+    const CUDA_STREAM_FLAG_NON_BLOCKING: u32 = 1;
 
     // Sorting tests
     #[test]
@@ -1310,6 +1343,35 @@ mod tests {
         ");
 
         Ok(())
+    }
+
+    // CUDA Stream tests
+
+    // Test the various methods of creating streams. Assert that each method yields a valid stream.
+    #[test]
+    fn test_cuda_stream_create() {
+        let stream = ffi::cuda_stream_create();
+        assert!(stream.is_valid());
+
+        let stream = ffi::cuda_stream_create_with_flags(CUDA_STREAM_FLAG_BLOCKING);
+        assert!(stream.is_valid());
+
+        let stream = ffi::cuda_stream_create_with_flags(CUDA_STREAM_FLAG_NON_BLOCKING);
+        assert!(stream.is_valid());
+    }
+
+    // Test that streams are Send and Sync.
+    #[test]
+    fn test_cuda_stream_send_sync() {
+        let stream = Arc::new(ffi::cuda_stream_create());
+
+        let handle = std::thread::spawn({
+            let stream = Arc::clone(&stream);
+            move || stream.is_valid()
+        });
+
+        assert!(handle.join().expect("moved stream should be valid"));
+        assert!(stream.is_valid());
     }
 
     fn pretty_table(table_view: &ffi::TableView) -> Result<impl Display + use<>, ArrowError> {
