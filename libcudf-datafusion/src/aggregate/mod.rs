@@ -572,15 +572,14 @@ mod integration {
           CuDFProjectionExec: expr=[RainToday@0 as RainToday, sum(weather.Rainfall)@1 as total]
             CuDFAggregateExec: mode=FinalPartitioned, group_by=[RainToday@RainToday@0], aggr_expr=[sum(weather.Rainfall)]
               CuDFLoadExec
-                CoalesceBatchesExec: target_batch_size=8192
-                  RepartitionExec: partitioning=Hash([RainToday@0], 4), input_partitions=4
-                    RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=3
-                      CuDFUnloadExec
-                        CuDFCoalesceBatchesExec: target_batch_size=81920
-                          CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@1], aggr_expr=[sum(weather.Rainfall)]
-                            CuDFLoadExec
-                              CoalesceBatchesExec: target_batch_size=81920
-                                DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[Rainfall, RainToday], file_type=parquet
+                CoalesceBatchesExec: target_batch_size=81920
+                  RepartitionExec: partitioning=Hash([RainToday@0], 4), input_partitions=3
+                    CuDFUnloadExec
+                      CuDFCoalesceBatchesExec: target_batch_size=81920
+                        CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@1], aggr_expr=[sum(weather.Rainfall)]
+                          CuDFLoadExec
+                            CoalesceBatchesExec: target_batch_size=81920
+                              DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[Rainfall, RainToday], file_type=parquet
         ");
         Ok(())
     }
@@ -594,15 +593,14 @@ mod integration {
           CuDFProjectionExec: expr=[RainToday@0 as RainToday, count(Int64(1))@1 as n]
             CuDFAggregateExec: mode=FinalPartitioned, group_by=[RainToday@RainToday@0], aggr_expr=[count(Int64(1))]
               CuDFLoadExec
-                CoalesceBatchesExec: target_batch_size=8192
-                  RepartitionExec: partitioning=Hash([RainToday@0], 4), input_partitions=4
-                    RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=3
-                      CuDFUnloadExec
-                        CuDFCoalesceBatchesExec: target_batch_size=81920
-                          CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@0], aggr_expr=[count(Int64(1))]
-                            CuDFLoadExec
-                              CoalesceBatchesExec: target_batch_size=81920
-                                DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[RainToday], file_type=parquet
+                CoalesceBatchesExec: target_batch_size=81920
+                  RepartitionExec: partitioning=Hash([RainToday@0], 4), input_partitions=3
+                    CuDFUnloadExec
+                      CuDFCoalesceBatchesExec: target_batch_size=81920
+                        CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@0], aggr_expr=[count(Int64(1))]
+                          CuDFLoadExec
+                            CoalesceBatchesExec: target_batch_size=81920
+                              DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[RainToday], file_type=parquet
         ");
         Ok(())
     }
@@ -628,15 +626,14 @@ mod integration {
           CuDFProjectionExec: expr=[RainToday@0 as RainToday, count(Int64(1))@1 as n, sum(weather.Rainfall)@2 as total, avg(weather.MaxTemp)@3 as avg_max, min(weather.MinTemp)@4 as lo, max(weather.MaxTemp)@5 as hi]
             CuDFAggregateExec: mode=FinalPartitioned, group_by=[RainToday@RainToday@0], aggr_expr=[count(Int64(1)), sum(weather.Rainfall), avg(weather.MaxTemp), min(weather.MinTemp), max(weather.MaxTemp)]
               CuDFLoadExec
-                CoalesceBatchesExec: target_batch_size=8192
-                  RepartitionExec: partitioning=Hash([RainToday@0], 4), input_partitions=4
-                    RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=3
-                      CuDFUnloadExec
-                        CuDFCoalesceBatchesExec: target_batch_size=81920
-                          CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@3], aggr_expr=[count(Int64(1)), sum(weather.Rainfall), avg(weather.MaxTemp), min(weather.MinTemp), max(weather.MaxTemp)]
-                            CuDFLoadExec
-                              CoalesceBatchesExec: target_batch_size=81920
-                                DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp, Rainfall, RainToday], file_type=parquet
+                CoalesceBatchesExec: target_batch_size=81920
+                  RepartitionExec: partitioning=Hash([RainToday@0], 4), input_partitions=3
+                    CuDFUnloadExec
+                      CuDFCoalesceBatchesExec: target_batch_size=81920
+                        CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@3], aggr_expr=[count(Int64(1)), sum(weather.Rainfall), avg(weather.MaxTemp), min(weather.MinTemp), max(weather.MaxTemp)]
+                          CuDFLoadExec
+                            CoalesceBatchesExec: target_batch_size=81920
+                              DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp, Rainfall, RainToday], file_type=parquet
         ");
         Ok(())
     }
