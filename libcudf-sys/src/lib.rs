@@ -443,6 +443,18 @@ pub mod ffi {
         /// Create a COUNT aggregation
         fn make_count_aggregation() -> UniquePtr<Aggregation>;
 
+        /// Create a VARIANCE aggregation
+        fn make_variance_aggregation(ddof: i32) -> UniquePtr<Aggregation>;
+
+        /// Create a STD aggregation
+        fn make_std_aggregation(ddof: i32) -> UniquePtr<Aggregation>;
+
+        /// Create a NUNIQUE aggregation
+        fn make_nunique_aggregation() -> UniquePtr<Aggregation>;
+
+        /// Create a MEDIAN aggregation
+        fn make_median_aggregation() -> UniquePtr<Aggregation>;
+
         // Aggregation factory functions - direct cuDF mappings (for groupby)
 
         /// Create a SUM aggregation for groupby operations
@@ -459,6 +471,18 @@ pub mod ffi {
 
         /// Create a COUNT aggregation for groupby operations
         fn make_count_aggregation_groupby() -> UniquePtr<Aggregation>;
+
+        /// Create a VARIANCE aggregation for groupby operations
+        fn make_variance_aggregation_groupby(ddof: i32) -> UniquePtr<Aggregation>;
+
+        /// Create a STD aggregation for groupby operations
+        fn make_std_aggregation_groupby(ddof: i32) -> UniquePtr<Aggregation>;
+
+        /// Create a NUNIQUE aggregation for groupby operations
+        fn make_nunique_aggregation_groupby() -> UniquePtr<Aggregation>;
+
+        /// Create a MEDIAN aggregation for groupby operations
+        fn make_median_aggregation_groupby() -> UniquePtr<Aggregation>;
 
         // Reduction - direct cuDF mapping
 
@@ -506,6 +530,9 @@ pub mod ffi {
             schema_ptr: *const u8,
             array_ptr: *const u8,
         ) -> Result<UniquePtr<Column>>;
+
+        /// Cast a column to a different data type using GPU-native cudf::cast
+        fn cast_column(input: &ColumnView, target_type: &DataType) -> Result<UniquePtr<Column>>;
 
         /// Extract a scalar from a column at the specified index
         fn get_element(column: &ColumnView, index: usize) -> UniquePtr<Scalar>;

@@ -91,4 +91,7 @@ namespace libcudf_bridge {
     // Extract a scalar from a column at the specified index
     std::unique_ptr<Scalar> get_element(const ColumnView &column, size_t index);
 
+    // Cast a column to a different data type
+    std::unique_ptr<Column> cast_column(const ColumnView &input, const DataType &target_type);
+
 } // namespace libcudf_bridge
