@@ -1,4 +1,4 @@
-use crate::aggregate::{CuDFAggregateExec, CuDFAggregateUDF};
+use crate::aggregate::try_as_cudf_aggregate;
 use crate::optimizer::CuDFConfig;
 use crate::physical::{
     is_cudf_plan, try_as_cudf_hash_join, CuDFCoalesceBatchesExec, CuDFFilterExec, CuDFLoadExec,
@@ -6,7 +6,7 @@ use crate::physical::{
 };
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::config::ConfigOptions;
-use datafusion::error::{DataFusionError, Result};
+use datafusion::error::DataFusionError;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion_physical_plan::aggregates::AggregateExec;
 use datafusion_physical_plan::coalesce_batches::CoalesceBatchesExec;
@@ -25,35 +25,6 @@ fn try_as_cudf<T: ExecutionPlan + 'static>(
         Err(DataFusionError::NotImplemented(_)) => Ok(None),
         Err(e) => Err(e),
     }
-}
-
-fn try_as_cudf_aggregate(node: &AggregateExec) -> Result<Option<Arc<dyn ExecutionPlan>>> {
-    if node.group_expr().expr().is_empty() {
-        return Ok(None);
-    }
-    if !node.group_expr().is_single() {
-        return Ok(None);
-    }
-    for expr in node.aggr_expr() {
-        if expr.is_distinct() || !expr.order_bys().is_empty() {
-            return Ok(None);
-        }
-        if expr
-            .fun()
-            .inner()
-            .as_any()
-            .downcast_ref::<CuDFAggregateUDF>()
-            .is_none()
-        {
-            return Ok(None);
-        }
-    }
-    Ok(Some(Arc::new(CuDFAggregateExec::try_new(
-        node.input().clone(),
-        *node.mode(),
-        node.group_expr().clone(),
-        node.aggr_expr().to_vec(),
-    )?)))
 }
 
 #[derive(Debug)]

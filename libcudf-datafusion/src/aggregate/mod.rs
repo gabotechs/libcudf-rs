@@ -1,3 +1,4 @@
+use crate::expr::expr_to_cudf_expr;
 use arrow_schema::Schema;
 use datafusion::error::Result;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -172,6 +173,47 @@ impl ExecutionPlan for CuDFAggregateExec {
         Ok(Box::pin(stream))
     }
 }
+
+/// Try to convert an `AggregateExec` to a `CuDFAggregateExec`.
+///
+/// Returns `Ok(None)` if any part of the aggregate is not supported by the GPU
+/// implementation so the optimizer can keep the original CPU aggregate.
+pub(crate) fn try_as_cudf_aggregate(
+    node: &AggregateExec,
+) -> Result<Option<Arc<dyn ExecutionPlan>>> {
+    if node.group_expr().expr().is_empty() {
+        return Ok(None);
+    }
+    if !node.group_expr().is_single() {
+        return Ok(None);
+    }
+    for expr in node.aggr_expr() {
+        if expr.is_distinct() || !expr.order_bys().is_empty() {
+            return Ok(None);
+        }
+        if expr
+            .fun()
+            .inner()
+            .as_any()
+            .downcast_ref::<CuDFAggregateUDF>()
+            .is_none()
+        {
+            return Ok(None);
+        }
+        for input_expr in expr.expressions() {
+            if expr_to_cudf_expr(input_expr.as_ref()).is_err() {
+                return Ok(None);
+            }
+        }
+    }
+    Ok(Some(Arc::new(CuDFAggregateExec::try_new(
+        node.input().clone(),
+        *node.mode(),
+        node.group_expr().clone(),
+        node.aggr_expr().to_vec(),
+    )?)))
+}
+
 #[cfg(test)]
 mod test {
     use crate::aggregate::op::avg::avg;
@@ -648,6 +690,22 @@ mod integration {
         assert!(
             !gpu.plan.contains("CuDFAggregateExec"),
             "expected CPU fallback"
+        );
+        assert_eq!(cpu.pretty_print, gpu.pretty_print);
+        Ok(())
+    }
+
+    /// Aggregates with unsupported argument expressions must also fall back to CPU.
+    #[tokio::test]
+    async fn test_unsupported_agg_arg_falls_back_to_cpu() -> Result<(), Box<dyn Error>> {
+        let tf = TestFramework::new().await;
+        let sql = r#"SELECT "RainToday", COUNT(SUBSTR("RainTomorrow", 1, 1)) as n FROM weather GROUP BY "RainToday" ORDER BY "RainToday""#;
+        let gpu = tf.execute(&format!("SET cudf.enable=true; {sql}")).await?;
+        let cpu = tf.execute(sql).await?;
+        assert!(
+            !gpu.plan.contains("CuDFAggregateExec"),
+            "unsupported aggregate argument should keep AggregateExec:\n{}",
+            gpu.plan
         );
         assert_eq!(cpu.pretty_print, gpu.pretty_print);
         Ok(())

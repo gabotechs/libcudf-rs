@@ -56,7 +56,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "cuDF aggregate path currently leaves Utf8/Utf8View mismatch in downstream comparison"]
     async fn test_tpch_8() -> Result<(), Box<dyn Error>> {
         test_tpch_query(get_test_tpch_query(8)).await
     }
@@ -79,13 +78,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "cuDF aggregate path currently panics converting decimal aggregate state back through Arrow"]
     async fn test_tpch_11() -> Result<(), Box<dyn Error>> {
         test_tpch_query(get_test_tpch_query(11)).await
     }
 
     #[tokio::test]
-    #[ignore = "cuDF aggregate path currently leaves Utf8/Utf8View mismatch in downstream comparison"]
     async fn test_tpch_12() -> Result<(), Box<dyn Error>> {
         test_tpch_query(get_test_tpch_query(12)).await
     }
