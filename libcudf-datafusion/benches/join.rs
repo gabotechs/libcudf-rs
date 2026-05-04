@@ -2,7 +2,9 @@ use arrow::array::{Int32Array, Int64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use libcudf_rs::{inner_join, left_join, left_semi_join, CuDFTable, CuDFTableView};
+use libcudf_rs::{
+    configure_default_pools, inner_join, left_join, left_semi_join, CuDFTable, CuDFTableView,
+};
 use std::hint::black_box;
 use std::sync::Arc;
 
@@ -51,6 +53,7 @@ fn gpu_views(left_n: usize, right_m: usize) -> (CuDFTableView, CuDFTableView) {
 }
 
 fn bench_inner_join(c: &mut Criterion) {
+    configure_default_pools();
     let mut group = c.benchmark_group("join/inner");
 
     for &(left_n, right_m) in SIZES {

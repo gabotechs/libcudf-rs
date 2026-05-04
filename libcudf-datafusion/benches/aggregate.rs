@@ -8,7 +8,7 @@ use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_physical_plan::{execute_stream, ExecutionPlan};
 use futures_util::TryStreamExt;
 use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
-use libcudf_datafusion::{CuDFConfig, HostToCuDFRule};
+use libcudf_datafusion::{configure_default_pools, CuDFConfig, HostToCuDFRule};
 use std::hint::black_box;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -84,6 +84,7 @@ async fn build_plan(ctx: &SessionContext, sql: &str) -> Arc<dyn ExecutionPlan> {
 }
 
 fn bench_group(c: &mut Criterion, group_name: &str, sql: &str) {
+    configure_default_pools();
     let rt = Runtime::new().unwrap();
     let mut group = c.benchmark_group(group_name);
 

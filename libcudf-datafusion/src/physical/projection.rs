@@ -1,4 +1,5 @@
 use crate::expr::expr_to_cudf_expr;
+use crate::physical::record_gpu_poll;
 use arrow::array::RecordBatch;
 use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatchOptions;
@@ -186,7 +187,7 @@ impl Stream for CuDFProjectionStream {
             other => other,
         });
 
-        self.baseline_metrics.record_poll(poll)
+        record_gpu_poll(&self.baseline_metrics, poll)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

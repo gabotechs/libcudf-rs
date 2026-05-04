@@ -1,6 +1,7 @@
 #![allow(deprecated)]
 
 use crate::errors::cudf_to_df;
+use crate::physical::record_gpu_poll;
 use arrow::array::RecordBatch;
 use arrow_schema::SchemaRef;
 use datafusion::common::{internal_err, Statistics};
@@ -127,7 +128,7 @@ impl Stream for CoalesceBatchesStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let poll = self.poll_next_inner(cx);
-        self.baseline_metrics.record_poll(poll)
+        record_gpu_poll(&self.baseline_metrics, poll)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

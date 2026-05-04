@@ -69,6 +69,14 @@ harness = false
 name = "join"
 harness = false
 
+[[bench]]
+name = "load_unload"
+harness = false
+
+[[bench]]
+name = "tpch_pipeline"
+harness = false
+
 [[bin]]
 name = "cli"
 path = "bin/cli.rs"

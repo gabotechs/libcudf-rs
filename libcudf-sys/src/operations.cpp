@@ -7,7 +7,12 @@
 #include <cudf/copying.hpp>
 #include <cudf/interop.hpp>
 #include <cudf/stream_compaction.hpp>
+#include <cudf/utilities/pinned_memory.hpp>
 #include <cudf/version_config.hpp>
+
+#include <rmm/mr/device/cuda_memory_resource.hpp>
+#include <rmm/mr/device/per_device_resource.hpp>
+#include <rmm/mr/device/pool_memory_resource.hpp>
 
 #include <nanoarrow/nanoarrow.h>
 
@@ -115,6 +120,25 @@ namespace libcudf_bridge {
                 << CUDF_VERSION_MINOR << "."
                 << CUDF_VERSION_PATCH;
         return {version.str()};
+    }
+
+    bool config_device_memory_pool(size_t initial_bytes, size_t max_bytes) {
+        static std::unique_ptr<rmm::mr::cuda_memory_resource> base_mr;
+        static std::unique_ptr<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>> pool_mr;
+        if (pool_mr) return false;
+        base_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
+        pool_mr = std::make_unique<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>>(
+            base_mr.get(), initial_bytes, max_bytes);
+        rmm::mr::set_current_device_resource(pool_mr.get());
+        return true;
+    }
+
+    bool config_pinned_memory_resource(size_t pool_size_bytes) {
+        return cudf::config_default_pinned_memory_resource({.pool_size = pool_size_bytes});
+    }
+
+    void set_host_pinned_threshold(size_t threshold_bytes) {
+        cudf::set_allocate_host_as_pinned_threshold(threshold_bytes);
     }
 
     // Arrow interop - convert Arrow data to cuDF table

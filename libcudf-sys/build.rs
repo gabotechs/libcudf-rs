@@ -55,6 +55,7 @@ fn main() {
         .include(OUT_DIR.join("libcudf").join("include").join("rapids"))
         .include(OUT_DIR.join("librmm").join("include"))
         .include(OUT_DIR.join("librmm").join("include").join("rapids"))
+        .include(OUT_DIR.join("rapids_logger").join("include"))
         .include(OUT_DIR.join("libkvikio").join("include"))
         // Include shared libraries from the CUDA installation present in the system
         .include(CUDA_ROOT.join("include"))
@@ -243,6 +244,7 @@ fn setup_library_paths(lib_dir: &Path, project_root: &Path) {
     println!("cargo:rustc-link-lib=dylib=cudart");
     println!("cargo:rustc-link-lib=dylib=rmm");
     println!("cargo:rustc-link-lib=dylib=kvikio");
+    println!("cargo:rustc-link-lib=dylib=rapids_logger");
 
     // Set rpath
     println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");

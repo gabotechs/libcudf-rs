@@ -32,4 +32,11 @@ namespace libcudf_bridge {
 
     // Utility functions
     rust::String get_cudf_version();
+
+    // Pinned-memory pool configuration
+    bool config_pinned_memory_resource(size_t pool_size_bytes);
+    void set_host_pinned_threshold(size_t threshold_bytes);
+
+    // Device-memory pool configuration
+    bool config_device_memory_pool(size_t initial_bytes, size_t max_bytes);
 } // namespace libcudf_bridge

@@ -1,13 +1,13 @@
 use crate::errors::cudf_to_df;
 use arrow::array::RecordBatch;
 use arrow_schema::{DataType, Field, FieldRef, Schema, SchemaRef};
-use datafusion::common::{exec_err, internal_datafusion_err, plan_err, DataFusionError};
+use datafusion::common::{plan_err, DataFusionError};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures_util::StreamExt;
-use libcudf_rs::CuDFColumnView;
+use libcudf_rs::CuDFTableView;
 use std::any::Any;
 use std::fmt::Formatter;
 use std::sync::Arc;
@@ -89,24 +89,15 @@ impl ExecutionPlan for CuDFUnloadExec {
                 Err(err) => return Err(err),
             };
 
-            let original_cols = batch.columns();
-            let mut host_cols = Vec::with_capacity(original_cols.len());
-            for (i, original_col) in original_cols.iter().enumerate() {
-                let Some(cudf_col) = original_col.as_any().downcast_ref::<CuDFColumnView>() else {
-                    return exec_err!(
-                        "Cannot move RecordBatch from CuDF to host: a column is not a CuDF array"
-                    );
-                };
-                let arr = cudf_col.to_arrow_host().map_err(cudf_to_df)?;
-                let target_field = target_schema
-                    .fields
-                    .get(i)
-                    .ok_or_else(|| internal_datafusion_err!("Could not find field {i}"))?;
-
-                let arr = arrow::compute::cast(&arr, target_field.data_type())?;
-                host_cols.push((target_field.name(), arr))
-            }
-            RecordBatch::try_from_iter(host_cols).map_err(|err| {
+            let view = CuDFTableView::from_record_batch(&batch).map_err(cudf_to_df)?;
+            let host_batch = view.to_arrow_host().map_err(cudf_to_df)?;
+            let columns = host_batch
+                .columns()
+                .iter()
+                .zip(target_schema.fields())
+                .map(|(col, field)| arrow::compute::cast(col, field.data_type()))
+                .collect::<Result<Vec<_>, _>>()?;
+            RecordBatch::try_new(target_schema.clone(), columns).map_err(|err| {
                 DataFusionError::ArrowError(
                     Box::new(err),
                     Some("Error while unloading a RecordBatch from CuDF into host".to_string()),
