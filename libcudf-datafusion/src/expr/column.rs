@@ -62,22 +62,21 @@ mod tests {
     async fn test_column_in_expressions() -> Result<(), Box<dyn std::error::Error>> {
         let tf = TestFramework::new().await;
 
+        tf.execute(
+            r#"CREATE TABLE temps (min_temp DOUBLE, max_temp DOUBLE) AS VALUES
+                (6.6, 13.1),
+                (-1.6, 11.5)"#,
+        )
+        .await?;
+
         let host_sql = r#"
             SELECT
-                "MinTemp" + "MaxTemp" as sum_temps,
-                "MinTemp" * 2 as doubled_min,
-                "MaxTemp" - 10.0 as offset_max
-            FROM weather
-            ORDER BY "MinTemp"
-            LIMIT 2
+                min_temp + max_temp as sum_temps,
+                min_temp * 2 as doubled_min,
+                max_temp - 10.0 as offset_max
+            FROM temps
         "#;
-        let cudf_sql = format!(
-            r#"
-            SET datafusion.execution.target_partitions=1;
-            SET cudf.enable=true;
-            {host_sql}
-        "#
-        );
+        let cudf_sql = format!("SET cudf.enable=true; {host_sql}");
 
         let result = tf.execute(&cudf_sql).await?;
         assert_contains!(result.plan, "CuDF");
@@ -85,8 +84,8 @@ mod tests {
         +-----------+-------------+--------------------+
         | sum_temps | doubled_min | offset_max         |
         +-----------+-------------+--------------------+
-        | 7.8       | -10.6       | 3.0999999999999996 |
-        | 10.7      | -7.4        | 4.4                |
+        | 19.7      | 13.2        | 3.0999999999999996 |
+        | 9.9       | -3.2        | 1.5                |
         +-----------+-------------+--------------------+
         ");
 
