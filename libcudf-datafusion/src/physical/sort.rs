@@ -5,6 +5,7 @@ use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::LexOrdering;
 use datafusion_physical_plan::execution_plan::CardinalityEffect;
+use datafusion_physical_plan::expressions::Column;
 use datafusion_physical_plan::sorts::sort::SortExec;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{
@@ -14,7 +15,7 @@ use delegate::delegate;
 use futures::Stream;
 use futures_util::{ready, StreamExt};
 use libcudf_rs::{
-    gather, slice_column, sort_by_all, stable_sorted_order, CuDFTable, CuDFTableView, SortOrder,
+    gather, slice_column, sort, stable_sorted_order, CuDFTable, CuDFTableView, SortOrder,
 };
 use std::any::Any;
 use std::fmt::Formatter;
@@ -139,8 +140,8 @@ impl Stream for CuDFSortStream {
                 let concatenated = CuDFTable::concat(views).map_err(cudf_to_df)?;
                 let table_view = concatenated.into_view();
 
-                let sort_orders = extract_sort_params(&self.ordering, table_view.num_columns());
-                let sorted = sort_by_all(&table_view, &sort_orders).map_err(cudf_to_df)?;
+                let (key_columns, sort_orders) = extract_sort_params(&self.ordering);
+                let sorted = sort(&table_view, &key_columns, &sort_orders).map_err(cudf_to_df)?;
 
                 let result = sorted.into_view().to_record_batch().map_err(cudf_to_df);
 
@@ -188,12 +189,17 @@ impl Stream for CuDFTopKStream {
 
                 // Keep only top K rows to avoid accumulating all data
                 if merged_table.num_rows() > self.limit {
-                    let sort_orders =
-                        extract_sort_params(&self.ordering, merged_table.num_columns());
+                    let (key_columns, sort_orders) = extract_sort_params(&self.ordering);
+                    let key_views = key_columns
+                        .iter()
+                        .map(|&i| merged_table.column(i as i32))
+                        .collect();
+                    let keys_view =
+                        CuDFTableView::from_column_views(key_views).map_err(cudf_to_df)?;
 
                     // Get sorted indices
                     let indices =
-                        stable_sorted_order(&merged_table, &sort_orders).map_err(cudf_to_df)?;
+                        stable_sorted_order(&keys_view, &sort_orders).map_err(cudf_to_df)?;
 
                     // Slice to keep only top K indices
                     let indices_view = Arc::new(indices).view();
@@ -220,8 +226,9 @@ impl Stream for CuDFTopKStream {
 
                 // At this point we have <= K rows accumulated from all batches
                 // Just sort them to get the final top K result
-                let sort_orders = extract_sort_params(&self.ordering, result.num_columns());
-                let sorted_result = sort_by_all(&result, &sort_orders).map_err(cudf_to_df)?;
+                let (key_columns, sort_orders) = extract_sort_params(&self.ordering);
+                let sorted_result =
+                    sort(&result, &key_columns, &sort_orders).map_err(cudf_to_df)?;
 
                 let batch = sorted_result
                     .into_view()
@@ -233,25 +240,25 @@ impl Stream for CuDFTopKStream {
     }
 }
 
-fn extract_sort_params(ordering: &LexOrdering, num_columns: usize) -> Vec<SortOrder> {
-    let mut sort_orders: Vec<SortOrder> = ordering
+fn extract_sort_params(ordering: &LexOrdering) -> (Vec<usize>, Vec<SortOrder>) {
+    ordering
         .iter()
-        .map(
-            |expr| match (expr.options.descending, expr.options.nulls_first) {
+        .map(|expr| {
+            let col_idx = expr
+                .expr
+                .as_any()
+                .downcast_ref::<Column>()
+                .map(|c| c.index())
+                .unwrap_or(0);
+            let sort_order = match (expr.options.descending, expr.options.nulls_first) {
                 (false, true) => SortOrder::AscendingNullsFirst,
                 (false, false) => SortOrder::AscendingNullsLast,
                 (true, true) => SortOrder::DescendingNullsFirst,
                 (true, false) => SortOrder::DescendingNullsLast,
-            },
-        )
-        .collect();
-
-    // Pad with default sort order for remaining columns (they won't affect the sort)
-    while sort_orders.len() < num_columns {
-        sort_orders.push(SortOrder::AscendingNullsLast);
-    }
-
-    sort_orders
+            };
+            (col_idx, sort_order)
+        })
+        .unzip()
 }
 
 #[cfg(test)]

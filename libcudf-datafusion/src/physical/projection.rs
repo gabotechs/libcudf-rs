@@ -4,7 +4,6 @@ use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatchOptions;
 use datafusion::config::ConfigOptions;
 use datafusion::error::DataFusionError;
-use datafusion::execution::context::DataFilePaths;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::equivalence::ProjectionMapping;
 use datafusion::physical_expr::projection::ProjectionExprs;
@@ -216,27 +215,41 @@ mod tests {
         let tf = TestFramework::new().await;
 
         let plan = tf
-            .plan(r#" SET cudf.enable=true; SELECT "MinTemp" + 1 FROM weather LIMIT 1"#)
+            .plan(
+                r#" SET cudf.enable=true;
+                    SELECT "MinTemp" + 1 FROM weather
+                    ORDER BY "MinTemp"
+                    LIMIT 1"#,
+            )
             .await?;
 
-        assert_snapshot!(plan.display(), @r"
+        assert_snapshot!(plan.display(), @"
         CuDFUnloadExec
-          CuDFProjectionExec: expr=[MinTemp@0 + 1 as weather.MinTemp + Int64(1)]
+          CuDFProjectionExec: expr=[weather.MinTemp + Int64(1)@0 as weather.MinTemp + Int64(1)]
             CuDFLoadExec
               CoalesceBatchesExec: target_batch_size=81920
-                RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-                  DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000002.parquet]]}, projection=[MinTemp], limit=1, file_type=parquet
+                SortPreservingMergeExec: [MinTemp@1 ASC NULLS LAST], fetch=1
+                  CuDFUnloadExec
+                    CuDFCoalesceBatchesExec: target_batch_size=81920
+                      CuDFSortExec: TopK(fetch=1), expr=[MinTemp@1 ASC NULLS LAST], preserve_partitioning=[true]
+                        CuDFLoadExec
+                          CoalesceBatchesExec: target_batch_size=81920
+                            DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp@0 + 1 as weather.MinTemp + Int64(1), MinTemp], file_type=parquet, predicate=DynamicFilter [ empty ]
         ");
         let result = plan.execute().await?;
-        assert_snapshot!(result.pretty_print, @r"
+        assert_snapshot!(result.pretty_print, @"
         +----------------------------+
         | weather.MinTemp + Int64(1) |
         +----------------------------+
-        | 7.6                        |
+        | -4.3                       |
         +----------------------------+
         ");
         let host_result = tf
-            .execute(r#"SELECT "MinTemp" + 1 FROM weather LIMIT 1"#)
+            .execute(
+                r#"SELECT "MinTemp" + 1 FROM weather
+                   ORDER BY "MinTemp"
+                   LIMIT 1"#,
+            )
             .await?;
         assert_eq!(host_result.pretty_print, result.pretty_print);
         Ok(())

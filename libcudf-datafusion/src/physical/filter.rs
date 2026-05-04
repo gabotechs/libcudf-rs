@@ -275,29 +275,30 @@ mod tests {
             SELECT "MinTemp", "MaxTemp"
             FROM weather
             WHERE "MinTemp" > 10.0
-            LIMIT 3
+            ORDER BY "MinTemp" LIMIT 3
         "#;
         let cudf_sql = format!(r#" SET cudf.enable=true; {host_sql} "#);
 
         let plan = tf.plan(&cudf_sql).await?;
-        assert_snapshot!(plan.display(), @r"
-        CoalescePartitionsExec: fetch=3
+        assert_snapshot!(plan.display(), @"
+        SortPreservingMergeExec: [MinTemp@0 ASC NULLS LAST], fetch=3
           CuDFUnloadExec
             CuDFCoalesceBatchesExec: target_batch_size=81920
-              CuDFFilterExec: MinTemp@0 > 10
-                CuDFLoadExec
-                  CoalesceBatchesExec: target_batch_size=81920
-                    DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=MinTemp@0 > 10, pruning_predicate=MinTemp_null_count@1 != row_count@2 AND MinTemp_max@0 > 10, required_guarantees=[]
+              CuDFSortExec: TopK(fetch=3), expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[true]
+                CuDFFilterExec: MinTemp@0 > 10
+                  CuDFLoadExec
+                    CoalesceBatchesExec: target_batch_size=81920
+                      DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=MinTemp@0 > 10 AND DynamicFilter [ empty ], pruning_predicate=MinTemp_null_count@1 != row_count@2 AND MinTemp_max@0 > 10, required_guarantees=[]
         ");
 
         let cudf_results = plan.execute().await?;
-        assert_snapshot!(cudf_results.pretty_print, @r"
+        assert_snapshot!(cudf_results.pretty_print, @"
         +---------+---------+
         | MinTemp | MaxTemp |
         +---------+---------+
-        | 14.0    | 26.9    |
-        | 13.7    | 23.4    |
-        | 13.3    | 15.5    |
+        | 10.1    | 27.9    |
+        | 10.1    | 28.2    |
+        | 10.1    | 31.2    |
         +---------+---------+
         ");
 
