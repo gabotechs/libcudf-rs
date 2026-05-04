@@ -336,6 +336,15 @@ impl Stream {
 
     /// Evaluate each aggregate function's argument expressions on a batch,
     /// returning GPU column views suitable for `partial_requests` / `merge_requests`.
+    ///
+    /// `aggregate_args` holds raw DataFusion expressions (not cuDF-wrapped ones), so
+    /// `evaluate_many` can return plain Arrow arrays. Non-GPU arrays are uploaded at this
+    /// boundary.
+    ///
+    /// TODO: A cleaner design would store cuDF expressions in `aggregate_args` (mirroring how
+    /// `CuDFFilterExec` stores a `CuDFExpr`), but requires `cudf::make_column_from_scalar`
+    /// in `libcudf-sys` to broadcast `CuDFScalar` literals to full column length. The boundary
+    /// upload here is equivalent work and avoids adding that FFI surface for now.
     fn evaluate_batch_arguments(&self, batch: &RecordBatch) -> Result<Vec<Vec<CuDFColumnView>>> {
         let evaluated_arguments = evaluate_many(&self.aggregate_args, batch)?;
 
@@ -344,10 +353,12 @@ impl Stream {
             .map(|args| {
                 args.iter()
                     .map(|arg| {
-                        let Some(view) = arg.as_any().downcast_ref::<CuDFColumnView>() else {
-                            return internal_err!("Expected Array to be of type CuDFColumnView");
-                        };
-                        Ok(view.clone())
+                        if let Some(view) = arg.as_any().downcast_ref::<CuDFColumnView>() {
+                            return Ok(view.clone());
+                        }
+                        CuDFColumn::from_arrow_host(arg.as_ref())
+                            .map(|col| col.into_view())
+                            .map_err(cudf_to_df)
                     })
                     .collect()
             })

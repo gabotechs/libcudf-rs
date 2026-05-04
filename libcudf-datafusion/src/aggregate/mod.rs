@@ -184,13 +184,16 @@ mod test {
     use crate::physical::{CuDFLoadExec, CuDFUnloadExec};
     use arrow::array::record_batch;
     use arrow::util::pretty::pretty_format_batches;
+    use arrow_schema::SchemaRef;
+    use datafusion::common::ScalarValue;
     use datafusion::execution::TaskContext;
     use datafusion::physical_expr::aggregate::AggregateExprBuilder;
     use datafusion_expr::AggregateUDF;
     use datafusion_physical_plan::aggregates::{AggregateMode, PhysicalGroupBy};
-    use datafusion_physical_plan::expressions::col;
+    use datafusion_physical_plan::expressions::{col, Literal};
     use datafusion_physical_plan::test::TestMemoryExec;
     use datafusion_physical_plan::ExecutionPlan;
+    use datafusion_physical_plan::PhysicalExpr;
     use futures_util::TryStreamExt;
     use std::error::Error;
     use std::sync::Arc;
@@ -199,10 +202,11 @@ mod test {
     /// TestMemoryExec -> CuDFLoadExec -> CuDFAggregateExec -> CuDFUnloadExec.
     ///
     /// Sends 3 identical batches (to exercise cross-batch rolling merge) and
-    /// groups by column "c".
+    /// groups by column "c". `build_args` receives the batch schema and returns
+    /// the argument expressions for the aggregate function.
     async fn run_group_by_test(
         agg_fn: Arc<AggregateUDF>,
-        agg_column: &str,
+        build_args: impl FnOnce(&SchemaRef) -> datafusion::error::Result<Vec<Arc<dyn PhysicalExpr>>>,
         agg_alias: &str,
     ) -> Result<String, Box<dyn Error>> {
         let batch = record_batch!(
@@ -224,7 +228,7 @@ mod test {
 
         let group_by = PhysicalGroupBy::new_single(vec![(col("c", &schema)?, "c".to_string())]);
 
-        let agg = AggregateExprBuilder::new(agg_fn, vec![col(agg_column, &schema)?])
+        let agg = AggregateExprBuilder::new(agg_fn, build_args(&schema)?)
             .schema(schema)
             .alias(agg_alias)
             .build()?;
@@ -249,7 +253,7 @@ mod test {
 
     #[tokio::test]
     async fn test_group_by_sum() -> Result<(), Box<dyn Error>> {
-        let output = run_group_by_test(sum(), "a", "SUM(a)").await?;
+        let output = run_group_by_test(sum(), |s| Ok(vec![col("a", s)?]), "SUM(a)").await?;
 
         // Note: cuDF's SUM always returns Int64 for integer inputs
         assert_snapshot!(output, @r"
@@ -266,7 +270,7 @@ mod test {
 
     #[tokio::test]
     async fn test_group_by_min() -> Result<(), Box<dyn Error>> {
-        let output = run_group_by_test(min(), "a", "MIN(a)").await?;
+        let output = run_group_by_test(min(), |s| Ok(vec![col("a", s)?]), "MIN(a)").await?;
 
         assert_snapshot!(output, @r"
         +-------+--------+
@@ -282,7 +286,7 @@ mod test {
 
     #[tokio::test]
     async fn test_group_by_max() -> Result<(), Box<dyn Error>> {
-        let output = run_group_by_test(max(), "a", "MAX(a)").await?;
+        let output = run_group_by_test(max(), |s| Ok(vec![col("a", s)?]), "MAX(a)").await?;
 
         assert_snapshot!(output, @r"
         +-------+--------+
@@ -298,7 +302,7 @@ mod test {
 
     #[tokio::test]
     async fn test_group_by_count() -> Result<(), Box<dyn Error>> {
-        let output = run_group_by_test(count(), "a", "COUNT(a)").await?;
+        let output = run_group_by_test(count(), |s| Ok(vec![col("a", s)?]), "COUNT(a)").await?;
 
         assert_snapshot!(output, @r"
         +-------+----------+
@@ -312,9 +316,27 @@ mod test {
         Ok(())
     }
 
+    /// COUNT with a literal argument — the exact code path hit by COUNT(*) = COUNT(lit(1)).
+    #[tokio::test]
+    async fn test_group_by_count_literal_arg() -> Result<(), Box<dyn Error>> {
+        let lit_one: Arc<dyn PhysicalExpr> = Arc::new(Literal::new(ScalarValue::Int32(Some(1))));
+        let output = run_group_by_test(count(), |_| Ok(vec![lit_one.clone()]), "COUNT(*)").await?;
+
+        assert_snapshot!(output, @r"
+        +-------+----------+
+        | c     | COUNT(*) |
+        +-------+----------+
+        | world | 3        |
+        | hello | 6        |
+        +-------+----------+
+        ");
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_group_by_avg() -> Result<(), Box<dyn Error>> {
-        let output = run_group_by_test(avg(), "a", "AVG(a)").await?;
+        let output = run_group_by_test(avg(), |s| Ok(vec![col("a", s)?]), "AVG(a)").await?;
 
         assert_snapshot!(output, @r"
         +-------+--------+
@@ -452,5 +474,52 @@ mod integration {
         "#,
         )
         .await
+    }
+
+    #[tokio::test]
+    async fn test_count_star() -> Result<(), Box<dyn Error>> {
+        check(
+            r#"
+            SELECT "RainToday", COUNT(*) as n
+            FROM weather
+            GROUP BY "RainToday"
+            ORDER BY "RainToday"
+        "#,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_count_star_mixed() -> Result<(), Box<dyn Error>> {
+        check(
+            r#"
+            SELECT "RainToday", COUNT(*) as n, SUM("Rainfall") as total
+            FROM weather
+            GROUP BY "RainToday"
+            ORDER BY "RainToday"
+        "#,
+        )
+        .await
+    }
+
+    /// Aggregates with unsupported functions (non-CuDFAggregateUDF) must fall back to CPU.
+    #[tokio::test]
+    async fn test_unsupported_agg_falls_back_to_cpu() -> Result<(), Box<dyn Error>> {
+        let tf = TestFramework::new().await;
+        // BOOL_OR is not a CuDFAggregateUDF, so the aggregate must run on CPU.
+        let sql = r#"
+            SELECT "RainToday", BOOL_OR("RainTomorrow" = 'Yes') as any_rain
+            FROM weather
+            GROUP BY "RainToday"
+            ORDER BY "RainToday"
+        "#;
+        let cudf = tf.execute(&format!("SET cudf.enable=true; {sql}")).await?;
+        let cpu = tf.execute(sql).await?;
+        assert!(
+            !cudf.plan.contains("CuDFAggregateExec"),
+            "expected CPU fallback"
+        );
+        assert_eq!(cpu.pretty_print, cudf.pretty_print);
+        Ok(())
     }
 }
