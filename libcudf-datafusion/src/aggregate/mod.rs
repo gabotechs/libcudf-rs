@@ -146,6 +146,10 @@ impl ExecutionPlan for CuDFAggregateExec {
 }
 #[cfg(test)]
 mod test {
+    use crate::aggregate::op::avg::avg;
+    use crate::aggregate::op::count::count;
+    use crate::aggregate::op::max::max;
+    use crate::aggregate::op::min::min;
     use crate::aggregate::op::sum::sum;
     use crate::aggregate::CuDFAggregateExec;
     use crate::assert_snapshot;
@@ -154,6 +158,7 @@ mod test {
     use arrow::util::pretty::pretty_format_batches;
     use datafusion::execution::TaskContext;
     use datafusion::physical_expr::aggregate::AggregateExprBuilder;
+    use datafusion_expr::AggregateUDF;
     use datafusion_physical_plan::aggregates::PhysicalGroupBy;
     use datafusion_physical_plan::expressions::col;
     use datafusion_physical_plan::test::TestMemoryExec;
@@ -162,8 +167,12 @@ mod test {
     use std::error::Error;
     use std::sync::Arc;
 
-    #[tokio::test]
-    async fn test_group_by_sum() -> Result<(), Box<dyn Error>> {
+    /// Helper function to run a group-by aggregation test
+    async fn run_group_by_test(
+        agg_fn: Arc<AggregateUDF>,
+        agg_column: &str,
+        agg_alias: &str,
+    ) -> Result<String, Box<dyn Error>> {
         let batch = record_batch!(
             ("a", Int64, [1, 4, 3]),
             ("b", Float64, [Some(4.0), None, Some(5.0)]),
@@ -183,12 +192,12 @@ mod test {
 
         let group_by = PhysicalGroupBy::new_single(vec![(col("c", &schema)?, "c".to_string())]);
 
-        let sum = AggregateExprBuilder::new(sum(), vec![col("a", &schema)?])
+        let agg = AggregateExprBuilder::new(agg_fn, vec![col(agg_column, &schema)?])
             .schema(schema)
-            .alias("SUM(a)")
+            .alias(agg_alias)
             .build()?;
 
-        let aggregate = CuDFAggregateExec::try_new(Arc::new(load), group_by, vec![Arc::new(sum)])?;
+        let aggregate = CuDFAggregateExec::try_new(Arc::new(load), group_by, vec![Arc::new(agg)])?;
 
         let unload = CuDFUnloadExec::new(Arc::new(aggregate));
 
@@ -198,6 +207,12 @@ mod test {
         let batches = result.try_collect::<Vec<_>>().await?;
 
         let output = pretty_format_batches(&batches)?.to_string();
+        Ok(output)
+    }
+
+    #[tokio::test]
+    async fn test_group_by_sum() -> Result<(), Box<dyn Error>> {
+        let output = run_group_by_test(sum(), "a", "SUM(a)").await?;
 
         // Note: cuDF's SUM always returns Int64 for integer inputs
         assert_snapshot!(output, @r"
@@ -206,6 +221,70 @@ mod test {
         +-------+--------+
         | world | 9      |
         | hello | 15     |
+        +-------+--------+
+        ");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_group_by_min() -> Result<(), Box<dyn Error>> {
+        let output = run_group_by_test(min(), "a", "MIN(a)").await?;
+
+        assert_snapshot!(output, @r"
+        +-------+--------+
+        | c     | MIN(a) |
+        +-------+--------+
+        | world | 3      |
+        | hello | 1      |
+        +-------+--------+
+        ");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_group_by_max() -> Result<(), Box<dyn Error>> {
+        let output = run_group_by_test(max(), "a", "MAX(a)").await?;
+
+        assert_snapshot!(output, @r"
+        +-------+--------+
+        | c     | MAX(a) |
+        +-------+--------+
+        | world | 3      |
+        | hello | 4      |
+        +-------+--------+
+        ");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_group_by_count() -> Result<(), Box<dyn Error>> {
+        let output = run_group_by_test(count(), "a", "COUNT(a)").await?;
+
+        assert_snapshot!(output, @r"
+        +-------+----------+
+        | c     | COUNT(a) |
+        +-------+----------+
+        | world | 3        |
+        | hello | 6        |
+        +-------+----------+
+        ");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_group_by_avg() -> Result<(), Box<dyn Error>> {
+        let output = run_group_by_test(avg(), "a", "AVG(a)").await?;
+
+        assert_snapshot!(output, @r"
+        +-------+--------+
+        | c     | AVG(a) |
+        +-------+--------+
+        | world | 3.0    |
+        | hello | 2.5    |
         +-------+--------+
         ");
 
