@@ -1,5 +1,5 @@
 use datafusion::error::Result;
-use libcudf_rs::{AggregationRequest, CuDFColumnView};
+use libcudf_rs::{AggregationRequest, CuDFColumn, CuDFColumnView};
 use std::fmt::Debug;
 
 pub mod avg;
@@ -9,41 +9,39 @@ pub mod min;
 pub mod sum;
 pub mod udf;
 
-/// GPU aggregation operation trait for two-phase aggregation.
+/// GPU aggregation operation backed by cuDF.
 ///
-/// This trait defines the contract for aggregation operations that can be executed
-/// on the GPU using cuDF's group-by functionality. Aggregations follow a two-phase
-/// pattern to support distributed and streaming execution:
+/// Each implementation defines a three-phase lifecycle that mirrors DataFusion's
+/// Partial/Final model:
 ///
-/// 1. **Partial Phase**: Each input batch is aggregated independently, producing
-///    partial results (e.g., partial sums, counts).
+/// 1. **partial** — aggregate raw input rows into per-group intermediate state
+/// 2. **merge** — combine intermediate states (from multiple batches or partitions)
+/// 3. **finalize** — convert merged state into the final output column
 ///
-/// 2. **Final Phase**: Partial results are concatenated and re-aggregated to produce
-///    the final output. The `merge` function combines the final aggregation results
-///    into a single column.
-///
-/// # Example
-///
-/// For SUM aggregation:
-/// - `partial_requests`: Returns a SUM aggregation request for the input column
-/// - `final_requests`: Returns a SUM aggregation request for the partial sums
-/// - `merge`: Returns the single summed column (identity operation for SUM)
+/// Column ordering in `partial_requests` must match the DataFusion UDF's
+/// `state_fields()` order, since the Partial->Final schema contract is positional.
 pub trait CuDFAggregationOp: Debug + Send + Sync {
-    /// Creates cuDF aggregation requests for the partial phase.
-    ///
-    /// Takes the input columns and returns aggregation requests to compute
-    /// partial results for each input batch.
+    /// Number of intermediate state columns this op produces.
+    /// Must match the DataFusion UDF's `state_fields().len()`.
+    fn num_state_columns(&self) -> usize;
+
+    /// Build cuDF aggregation requests for raw input data.
     fn partial_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>>;
 
-    /// Creates cuDF aggregation requests for the final phase.
+    /// Normalize state columns produced by `partial_requests` so their types are
+    /// compatible with `merge_requests` for subsequent merge cycles, and match the
+    /// DataFusion UDF's `state_fields()` contract when emitting `Partial` mode output.
     ///
-    /// Takes the concatenated partial result columns and returns aggregation
-    /// requests to compute the final aggregation.
-    fn final_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>>;
+    /// Override when the cuDF operation used in `partial_requests` returns a narrower
+    /// type than the one used in `merge_requests` (e.g. COUNT → Int32, SUM → Int64).
+    /// Default is a no-op.
+    fn normalize_partial_state(&self, cols: Vec<CuDFColumn>) -> Result<Vec<CuDFColumn>> {
+        Ok(cols)
+    }
 
-    /// Merges the final aggregation result columns into a single output column.
-    ///
-    /// For most aggregations this is an identity operation (returning the single
-    /// result column), but some aggregations may need to combine multiple columns.
-    fn merge(&self, args: &[CuDFColumnView]) -> Result<CuDFColumnView>;
+    /// Build cuDF aggregation requests that combine intermediate state columns.
+    fn merge_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>>;
+
+    /// Convert merged state columns into the final output column.
+    fn finalize(&self, args: &[CuDFColumnView]) -> Result<CuDFColumnView>;
 }

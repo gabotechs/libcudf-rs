@@ -17,26 +17,40 @@ pub fn sum() -> Arc<AggregateUDF> {
 pub struct CuDFSum;
 
 impl CuDFAggregationOp for CuDFSum {
-    fn partial_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {
-        self.final_requests(args)
+    fn num_state_columns(&self) -> usize {
+        1
     }
 
-    fn final_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {
+    fn partial_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {
         if args.len() != 1 {
-            return exec_err!("SUM expects 1 argument, got {}", args.len());
+            return exec_err!("SUM expects 1 argument, received: {}", args.len());
         }
 
         let mut request = AggregationRequest::from_column_view(args[0].clone());
         request.add(AggregationOp::SUM.group_by());
-
         Ok(vec![request])
     }
 
-    fn merge(&self, args: &[CuDFColumnView]) -> Result<CuDFColumnView> {
-        if args.len() != 1 {
-            return exec_err!("SUM merge expects 1 argument, got {}", args.len());
+    fn merge_requests(&self, state_cols: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {
+        if state_cols.len() != 1 {
+            return exec_err!(
+                "SUM merge expects 1 state column, received: {}",
+                state_cols.len()
+            );
         }
 
-        Ok(args[0].clone())
+        let mut request = AggregationRequest::from_column_view(state_cols[0].clone());
+        request.add(AggregationOp::SUM.group_by());
+        Ok(vec![request])
+    }
+
+    fn finalize(&self, state_cols: &[CuDFColumnView]) -> Result<CuDFColumnView> {
+        if state_cols.len() != 1 {
+            return exec_err!(
+                "SUM finalize expects 1 state column, received: {}",
+                state_cols.len()
+            );
+        }
+        Ok(state_cols[0].clone())
     }
 }

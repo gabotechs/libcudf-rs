@@ -3276,6 +3276,7 @@ dependencies = [
  "arrow-schema",
  "async-trait",
  "clap",
+ "criterion",
  "datafusion",
  "datafusion-cli",
  "datafusion-expr",

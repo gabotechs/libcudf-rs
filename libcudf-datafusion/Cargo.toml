@@ -51,6 +51,7 @@ tpch = ["integration"]
 
 [dev-dependencies]
 tokio = { version = "1.41", features = ["full"] }
+criterion = { version = "0.7", features = ["html_reports"] }
 
 # integration tests deps
 insta = { version = "1.43.1", features = ["filters"] }
@@ -59,6 +60,10 @@ tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "31d51
 parquet = { version = "58" }
 pretty_assertions = { version = "1.4" }
 
+
+[[bench]]
+name = "aggregate"
+harness = false
 
 [[bin]]
 name = "cli"

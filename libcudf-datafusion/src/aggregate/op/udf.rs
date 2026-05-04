@@ -13,6 +13,11 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+/// Wraps a DataFusion CPU aggregate UDF with a GPU-backed [`CuDFAggregationOp`].
+///
+/// Delegates all DataFusion metadata (schema, `state_fields`, accumulator) to the
+/// original CPU UDF so that schema contracts are preserved. The `gpu()` accessor
+/// provides the cuDF implementation used at execution time.
 #[derive(Debug)]
 pub struct CuDFAggregateUDF {
     inner: Arc<dyn AggregateUDFImpl>,

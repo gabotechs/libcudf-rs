@@ -1,4 +1,6 @@
+use crate::aggregate::{avg, count, max, min, sum};
 use crate::optimizer::{CuDFConfig, HostToCuDFRule};
+use arrow::array::RecordBatch;
 use arrow::util::pretty::pretty_format_batches;
 use datafusion::error::DataFusionError;
 use datafusion::execution::{SessionStateBuilder, TaskContext};
@@ -24,6 +26,14 @@ impl TestFramework {
             .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
             .build();
         let ctx = SessionContext::from(state);
+
+        // Register GPU-backed aggregate UDFs so SQL queries route to the cuDF path.
+        ctx.register_udaf((*avg()).clone());
+        ctx.register_udaf((*count()).clone());
+        ctx.register_udaf((*max()).clone());
+        ctx.register_udaf((*min()).clone());
+        ctx.register_udaf((*sum()).clone());
+
         let mut base = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         base.pop();
         ctx.register_parquet(
@@ -71,6 +81,7 @@ impl TestPlan {
         Ok(SqlResult {
             pretty_print: pretty_format_batches(&batches)?.to_string(),
             plan: self.display(),
+            batches,
         })
     }
 
@@ -82,4 +93,5 @@ impl TestPlan {
 pub struct SqlResult {
     pub pretty_print: String,
     pub plan: String,
+    pub batches: Vec<RecordBatch>,
 }
