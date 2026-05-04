@@ -1,5 +1,7 @@
 pub mod insta;
+#[cfg(test)]
 mod session_context;
 pub mod tpch;
 
-pub(crate) use session_context::{check_query_results, sort_batches, SqlResult, TestFramework};
+#[cfg(test)]
+pub(crate) use session_context::{check_query_results, sort_batches, TestFramework};
