@@ -6,6 +6,7 @@ use datafusion::common::{exec_err, internal_err, Statistics};
 use datafusion::config::ConfigOptions;
 use datafusion::error::DataFusionError;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
+use datafusion::physical_expr::projection::ProjectionRef;
 use datafusion_physical_plan::execution_plan::CardinalityEffect;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::filter_pushdown::{FilterDescription, FilterPushdownPhase};
@@ -36,14 +37,14 @@ pub struct CuDFFilterExec {
     /// Execution metrics
     metrics: ExecutionPlanMetricsSet,
     /// The projection indices of the columns in the output schema of join
-    projection: Option<Vec<usize>>,
+    projection: Option<ProjectionRef>,
 }
 
 impl CuDFFilterExec {
     pub fn try_new(host_exec: FilterExec) -> Result<Self, DataFusionError> {
         let predicate = expr_to_cudf_expr(host_exec.predicate().as_ref())?;
         let input = Arc::clone(host_exec.input());
-        let projection = host_exec.projection().cloned();
+        let projection = host_exec.projection().clone();
         Ok(Self {
             host_exec,
             predicate,
@@ -102,7 +103,7 @@ impl ExecutionPlan for CuDFFilterExec {
 
     delegate! {
         to self.host_exec {
-            fn properties(&self) -> &PlanProperties;
+            fn properties(&self) -> &Arc<PlanProperties>;
             fn maintains_input_order(&self) -> Vec<bool>;
             fn benefits_from_input_partitioning(&self) -> Vec<bool>;
             fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>>;
@@ -127,7 +128,7 @@ struct CuDFFilterExecStream {
     /// Runtime metrics recording
     metrics: CuDFFilterExecMetrics,
     /// The projection indices of the columns in the input schema
-    projection: Option<Vec<usize>>,
+    projection: Option<ProjectionRef>,
 }
 
 /// The metrics for `FilterExec`
@@ -152,7 +153,7 @@ impl CuDFFilterExecMetrics {
 fn filter_and_project(
     batch: &RecordBatch,
     predicate: &Arc<dyn PhysicalExpr>,
-    projection: Option<&Vec<usize>>,
+    projection: Option<&ProjectionRef>,
     output_schema: &SchemaRef,
 ) -> Result<RecordBatch, DataFusionError> {
     // Evaluate the predicate to get a boolean mask (CuDF array on GPU)

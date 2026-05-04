@@ -15,22 +15,22 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct CuDFUnloadExec {
     input: Arc<dyn ExecutionPlan>,
-    properties: PlanProperties,
+    properties: Arc<PlanProperties>,
 }
 
 impl CuDFUnloadExec {
     pub fn new(input: Arc<dyn ExecutionPlan>) -> Self {
         Self {
-            properties: input.properties().clone(),
+            properties: Arc::clone(input.properties()),
             input,
         }
     }
 
     pub fn with_target_schema(&self, target_schema: SchemaRef) -> Self {
-        let mut properties = self.properties.clone();
+        let mut properties = self.properties.as_ref().clone();
         properties.eq_properties = EquivalenceProperties::new(target_schema);
         Self {
-            properties,
+            properties: Arc::new(properties),
             input: Arc::clone(&self.input),
         }
     }
@@ -51,7 +51,7 @@ impl ExecutionPlan for CuDFUnloadExec {
         self
     }
 
-    fn properties(&self) -> &PlanProperties {
+    fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
 

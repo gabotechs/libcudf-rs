@@ -122,7 +122,7 @@ impl Debug for CuDFColumnView {
     }
 }
 
-impl Array for CuDFColumnView {
+unsafe impl Array for CuDFColumnView {
     fn as_any(&self) -> &dyn Any {
         self
     }

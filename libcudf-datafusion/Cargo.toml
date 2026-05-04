@@ -11,9 +11,9 @@ authors = [
 libcudf-rs = { path = ".." }
 arrow = { workspace = true }
 arrow-schema = { workspace = true }
-datafusion = "51"
-datafusion-expr = "51"
-datafusion-physical-plan = "51"
+datafusion = "53"
+datafusion-expr = "53"
+datafusion-physical-plan = "53"
 futures = "0.3"
 async-trait = "0.1"
 tokio = { version = "1.41", features = ["rt", "macros"] }
@@ -22,14 +22,14 @@ delegate = "0.13"
 
 # integration tests deps
 insta = { version = "1.43.1", features = ["filters"], optional = true }
-tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "e83365a5a9101906eb9f78c5607b83bc59849acf", optional = true }
-tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "e83365a5a9101906eb9f78c5607b83bc59849acf", optional = true }
-parquet = { version = "57", optional = true }
+tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "31d515c4a2c16a8d434b2c80c197a78d9e64e8b6", optional = true }
+tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "31d515c4a2c16a8d434b2c80c197a78d9e64e8b6", optional = true }
+parquet = { version = "58", optional = true }
 pretty_assertions = { version = "1.4", optional = true }
 
 #cli deps
 clap = { version = "4", features = ["derive"], optional = true }
-datafusion-cli = { version = "51", optional = true }
+datafusion-cli = { version = "53", optional = true }
 env_logger = { version = "0.11", optional = true }
 dirs = { version = "6", optional = true }
 
@@ -54,9 +54,9 @@ tokio = { version = "1.41", features = ["full"] }
 
 # integration tests deps
 insta = { version = "1.43.1", features = ["filters"] }
-tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "e83365a5a9101906eb9f78c5607b83bc59849acf" }
-tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "e83365a5a9101906eb9f78c5607b83bc59849acf" }
-parquet = { version = "57" }
+tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "31d515c4a2c16a8d434b2c80c197a78d9e64e8b6" }
+tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "31d515c4a2c16a8d434b2c80c197a78d9e64e8b6" }
+parquet = { version = "58" }
 pretty_assertions = { version = "1.4" }
 
 

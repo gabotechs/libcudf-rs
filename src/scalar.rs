@@ -79,7 +79,7 @@ impl Clone for CuDFScalar {
     }
 }
 
-impl Array for CuDFScalar {
+unsafe impl Array for CuDFScalar {
     fn as_any(&self) -> &dyn Any {
         self
     }

@@ -28,7 +28,7 @@ use std::task::{Context, Poll};
 pub struct CuDFProjectionExec {
     host_exec: ProjectionExec,
     cudf_exprs: ProjectionExprs,
-    properties: PlanProperties,
+    properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
 
@@ -57,7 +57,7 @@ impl CuDFProjectionExec {
         Ok(Self {
             host_exec,
             cudf_exprs: projection_exprs,
-            properties,
+            properties: Arc::new(properties),
             metrics: ExecutionPlanMetricsSet::new(),
         })
     }
@@ -127,7 +127,7 @@ impl ExecutionPlan for CuDFProjectionExec {
         }))
     }
 
-    fn properties(&self) -> &PlanProperties {
+    fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
 
@@ -224,7 +224,7 @@ mod tests {
           CuDFProjectionExec: expr=[MinTemp@0 + 1 as weather.MinTemp + Int64(1)]
             CuDFLoadExec
               CoalesceBatchesExec: target_batch_size=81920
-                RepartitionExec: partitioning=RoundRobinBatch(16), input_partitions=1
+                RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
                   DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000002.parquet]]}, projection=[MinTemp], limit=1, file_type=parquet
         ");
         let result = plan.execute().await?;

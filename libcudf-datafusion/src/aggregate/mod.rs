@@ -22,7 +22,7 @@ pub struct CuDFAggregateExec {
     group_by: PhysicalGroupBy,
     aggr_expr: Vec<Arc<AggregateFunctionExpr>>,
 
-    plan_properties: PlanProperties,
+    plan_properties: Arc<PlanProperties>,
 }
 
 impl CuDFAggregateExec {
@@ -60,14 +60,14 @@ impl CuDFAggregateExec {
         let group_by_expr_mapping =
             ProjectionMapping::try_new(group_by.expr().into_iter().cloned(), &input.schema())?;
 
-        let plan_properties = AggregateExec::compute_properties(
+        let plan_properties = Arc::new(AggregateExec::compute_properties(
             &input,
             output_schema,
             &group_by_expr_mapping,
             &AggregateMode::Single,
             &InputOrderMode::Linear,
             &aggr_expr,
-        )?;
+        )?);
 
         Ok(Self {
             input,
@@ -108,7 +108,7 @@ impl ExecutionPlan for CuDFAggregateExec {
         self
     }
 
-    fn properties(&self) -> &PlanProperties {
+    fn properties(&self) -> &Arc<PlanProperties> {
         &self.plan_properties
     }
 

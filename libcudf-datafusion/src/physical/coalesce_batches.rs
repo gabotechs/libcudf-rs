@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use crate::errors::cudf_to_df;
 use arrow::array::RecordBatch;
 use arrow_schema::SchemaRef;
@@ -97,7 +99,7 @@ impl ExecutionPlan for CuDFCoalesceBatchesExec {
 
     delegate! {
         to self.inner {
-            fn properties(&self) -> &PlanProperties;
+            fn properties(&self) -> &Arc<PlanProperties>;
             fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>>;
             fn partition_statistics(&self, partition: Option<usize>) -> Result<Statistics, DataFusionError>;
             fn fetch(&self) -> Option<usize>;

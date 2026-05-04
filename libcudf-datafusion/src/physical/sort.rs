@@ -1,6 +1,6 @@
 use crate::errors::cudf_to_df;
 use arrow::array::{Array, RecordBatch};
-use datafusion::common::{internal_err, Statistics};
+use datafusion::common::Statistics;
 use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::LexOrdering;
@@ -97,7 +97,7 @@ impl ExecutionPlan for CuDFSortExec {
 
     delegate! {
         to self.inner {
-            fn properties(&self) -> &PlanProperties;
+            fn properties(&self) -> &Arc<PlanProperties>;
             fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>>;
             fn partition_statistics(&self, partition: Option<usize>) -> Result<Statistics, DataFusionError>;
             fn fetch(&self) -> Option<usize>;

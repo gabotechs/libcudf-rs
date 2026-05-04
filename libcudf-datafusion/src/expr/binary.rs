@@ -90,13 +90,17 @@ impl PhysicalExpr for CuDFBinaryExpr {
         // Cast the result if needed to match the expected output type.
         if let ColumnarValue::Array(arr) = &result {
             if arr.data_type() != &expected_output_type {
-                if let (DataType::Decimal128(_, result_scale), DataType::Decimal128(_expected_prec, expected_scale)) =
-                    (arr.data_type(), &expected_output_type) {
+                if let (
+                    DataType::Decimal128(_, result_scale),
+                    DataType::Decimal128(_expected_prec, expected_scale),
+                ) = (arr.data_type(), &expected_output_type)
+                {
                     if result_scale == expected_scale {
                         // Same scale, just different precision. Arrow's cast doesn't handle this,
                         // so we manually change the precision metadata while keeping the same i128 values.
                         let decimal_array = arr.as_primitive::<arrow::datatypes::Decimal128Type>();
-                        let casted = decimal_array.clone()
+                        let casted = decimal_array
+                            .clone()
                             .with_precision_and_scale(*_expected_prec, *expected_scale)
                             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
                         result = ColumnarValue::Array(Arc::new(casted));
@@ -189,6 +193,7 @@ fn map_op(op: &Operator) -> Option<CuDFBinaryOp> {
         Operator::Question => None,
         Operator::QuestionAnd => None,
         Operator::QuestionPipe => None,
+        Operator::Colon => None,
     }
 }
 

@@ -17,17 +17,17 @@ use std::sync::Arc;
 pub struct CuDFLoadExec {
     input: Arc<dyn ExecutionPlan>,
 
-    properties: PlanProperties,
+    properties: Arc<PlanProperties>,
 }
 
 impl CuDFLoadExec {
     pub fn try_new(input: Arc<dyn ExecutionPlan>) -> Result<Self, DataFusionError> {
-        let properties = PlanProperties::new(
+        let properties = Arc::new(PlanProperties::new(
             EquivalenceProperties::new(cudf_schema_compatibility_map(input.schema())),
             input.properties().partitioning.clone(),
             input.properties().emission_type,
             input.properties().boundedness,
-        );
+        ));
         Ok(Self { input, properties })
     }
 }
@@ -47,7 +47,7 @@ impl ExecutionPlan for CuDFLoadExec {
         self
     }
 
-    fn properties(&self) -> &PlanProperties {
+    fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
 
