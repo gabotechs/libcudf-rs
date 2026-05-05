@@ -1,4 +1,5 @@
 use crate::errors::cudf_to_df;
+use crate::optimizer::CuDFConfig;
 use arrow::array::{Array, RecordBatch};
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Schema, SchemaRef};
 use datafusion::common::{exec_err, plan_err, ScalarValue};
@@ -8,7 +9,7 @@ use datafusion::physical_expr::EquivalenceProperties;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures_util::stream::StreamExt;
-use libcudf_rs::{is_cudf_array, CuDFTable};
+use libcudf_rs::{is_cudf_array, pin_record_batch, synchronize_default_stream, CuDFTable};
 use std::any::Any;
 use std::fmt::Formatter;
 use std::sync::Arc;
@@ -74,6 +75,12 @@ impl ExecutionPlan for CuDFLoadExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
+        let pinned_input = context
+            .session_config()
+            .options()
+            .extensions
+            .get::<CuDFConfig>()
+            .map_or(true, |cfg| cfg.pinned_input);
         let host_stream = self.input.execute(partition, context)?;
         let target_schema = self.schema();
 
@@ -89,7 +96,28 @@ impl ExecutionPlan for CuDFLoadExec {
                 );
             }
             let schema = batch.schema();
-            let table = CuDFTable::from_arrow_host(batch).map_err(cudf_to_df)?;
+            // When `pinned_input` is enabled, stage the host batch through
+            // pinned (page-locked) memory so the upload is a direct DMA
+            // without the driver's pageable-staging step. The pinned source
+            // must outlive the async copy, so the default stream is
+            // synchronized before the pinned batch is dropped at the end of
+            // this closure.
+            //
+            // TODO(memory-tracking): the bytes we pin here are not registered
+            // against DataFusion's `MemoryPool`, so they don't show up in
+            // `EXPLAIN ANALYZE` and won't trigger backpressure if a query has
+            // a memory cap. The OS-level `RLIMIT_MEMLOCK` / `cudaMallocHost`
+            // failure path is the current safety net. Worth wiring through a
+            // `MemoryReservation` (try_grow / shrink per batch) if someone
+            // starts configuring per-query memory caps for cuDF operators.
+            let table = if pinned_input {
+                let pinned_batch = pin_record_batch(batch).map_err(cudf_to_df)?;
+                let table = CuDFTable::from_arrow_host(pinned_batch).map_err(cudf_to_df)?;
+                synchronize_default_stream().map_err(cudf_to_df)?;
+                table
+            } else {
+                CuDFTable::from_arrow_host(batch).map_err(cudf_to_df)?
+            };
             let cudf_cols: Vec<Arc<dyn Array>> = table
                 .into_columns()
                 .into_iter()

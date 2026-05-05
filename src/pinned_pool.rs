@@ -10,6 +10,20 @@
 /// allocations use pageable memory. The pool backs those eligible pinned
 /// allocations.
 ///
+/// # Which transfer path this helps
+///
+/// This pool only accelerates the **download path** (device → host, e.g.
+/// `to_arrow_host`), because that is where cuDF *allocates* the host
+/// destination buffer and can satisfy it from the pinned pool. With a pinned
+/// destination, the GPU can DMA directly into the buffer and `cudaMemcpyAsync`
+/// is fully asynchronous.
+///
+/// It does **not** help the **upload path** (host → device, e.g.
+/// `from_arrow_host`). On uploads the source is a user-owned Arrow buffer
+/// (typically pageable Rust `Vec` storage), and cuDF doesn't allocate it.
+/// Pinning that side is the job of [`crate::pin_record_batch`], which copies
+/// the input into pinned memory backed by [`crate::PinnedHostBuffer`].
+///
 /// ## Pageable host allocation
 ///
 /// Pageable host memory may require CUDA to stage data through temporary pinned
@@ -41,10 +55,6 @@
 /// cuDF host allocation > threshold:
 ///   [pageable allocation ---------------------------------------------]
 /// ```
-///
-/// This primarily helps paths where cuDF owns internal host buffers, such as
-/// GPU-to-host conversion and staging work. It does not pin user-owned Arrow
-/// input buffers automatically.
 pub struct PinnedPoolConfig {
     /// Bytes of page-locked host RAM to reserve upfront.
     ///

@@ -32,6 +32,7 @@ pub mod ffi {
         include!("libcudf-sys/src/sorting.h");
         include!("libcudf-sys/src/join.h");
         include!("libcudf-sys/src/stream.h");
+        include!("libcudf-sys/src/pinned_host.h");
 
         /// A set of cuDF columns of the same size
         ///
@@ -628,6 +629,27 @@ pub mod ffi {
 
         /// Create a CUDA stream with explicit creation flags.
         fn cuda_stream_create_with_flags(flags: u32) -> UniquePtr<CudaStream>;
+        
+        /// Owning wrapper for a pinned host allocation. See `pinned_host.h`.
+        type PinnedHostAlloc;
+
+        /// Raw pointer (as integer) to the start of the pinned allocation.
+        /// Returned as `usize` because cxx does not currently expose `*mut u8`
+        /// return values across the bridge.
+        fn data(self: &PinnedHostAlloc) -> usize;
+
+        /// Allocation size in bytes.
+        fn len(self: &PinnedHostAlloc) -> usize;
+
+        /// Allocate `bytes` of pinned host memory via `cudaMallocHost`.
+        fn pinned_host_alloc(bytes: usize) -> Result<UniquePtr<PinnedHostAlloc>>;
+
+        /// Release a pinned host allocation. Consumes the unique-ptr, calls
+        /// `cudaFreeHost`, and surfaces any error back as a `Result::Err`.
+        fn pinned_host_free(alloc: UniquePtr<PinnedHostAlloc>) -> Result<()>;
+
+        /// Block until all work on the CUDA default stream has completed.
+        fn cuda_default_stream_synchronize() -> Result<()>;
     }
 }
 
