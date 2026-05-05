@@ -81,6 +81,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 cargo run --example basic_usage
 ```
 
+### DataFusion Execution Batch Size
+
+For cuDF-backed DataFusion workloads, configure batch size through DataFusion's
+existing `execution.batch_size` setting. Start GPU runs at `65_536` rows and
+tune with benchmarks for the target workload and GPU:
+
+```rust
+use datafusion::execution::SessionStateBuilder;
+use datafusion::prelude::SessionConfig;
+use libcudf_datafusion::SessionStateBuilderExt;
+
+let config = SessionConfig::new().with_batch_size(65_536);
+let state = SessionStateBuilder::new()
+    .with_default_features()
+    .with_config(config)
+    .with_cudf_planner()
+    .build();
+```
+
+This is DataFusion's global execution batch size, not a cuDF-only operator
+limit. Some cuDF operators process one incoming `RecordBatch` at a time, while
+joins, full sorts, and aggregate chunks can materialize larger intermediate GPU
+tables.
+
 ## Architecture
 
 This project uses the `cxx` crate to provide safe interoperability between Rust and C++:

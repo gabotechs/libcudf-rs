@@ -106,7 +106,8 @@ That writes to:
 
 ## Harness Options
 
-Common options are forwarded to both CPU and GPU runs:
+Common options are forwarded to both CPU and GPU runs, except for execution
+batch size, which can be configured independently:
 
 ```bash
 target/release/dfbench harness \
@@ -117,6 +118,11 @@ target/release/dfbench harness \
   --batch-size 8192 \
   --warmup
 ```
+
+`--batch-size` sets DataFusion's `execution.batch_size`. The harness passes
+this value to the CPU run. GPU runs use `65536` by default; pass
+`--gpu-execution-batch-size` to override that value for the target workload and
+GPU.
 
 Capture physical plans for selected queries:
 

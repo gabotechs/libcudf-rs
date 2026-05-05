@@ -8,6 +8,8 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 use structopt::StructOpt;
 
+const DEFAULT_GPU_EXECUTION_BATCH_SIZE: usize = 65_536;
+
 /// Run paired CPU/GPU benchmarks and write a reproducible report.
 ///
 /// This is a thin harness around the existing `run` subcommand. It does not
@@ -31,9 +33,13 @@ pub struct HarnessOpt {
     #[structopt(short = "n", long = "partitions")]
     partitions: Option<usize>,
 
-    /// DataFusion input batch size.
+    /// DataFusion execution batch size for the CPU run.
     #[structopt(short = "s", long = "batch-size")]
     batch_size: Option<usize>,
+
+    /// DataFusion execution batch size for the GPU run.
+    #[structopt(long = "gpu-execution-batch-size")]
+    gpu_execution_batch_size: Option<usize>,
 
     /// Run each query once before timed iterations.
     #[structopt(long)]
@@ -69,7 +75,8 @@ struct HarnessMetadata {
     queries: Vec<String>,
     iterations: usize,
     partitions: Option<usize>,
-    batch_size: Option<usize>,
+    cpu_execution_batch_size: Option<usize>,
+    gpu_execution_batch_size: Option<usize>,
     warmup: bool,
     plan_queries: Vec<String>,
     profile_queries: Vec<String>,
@@ -126,10 +133,26 @@ impl HarnessOpt {
         reset_dir(&cpu_dir)?;
         reset_dir(&gpu_dir)?;
 
-        let cpu_args =
-            self.dfbench_run_args(false, false, None, self.iterations, Some(&cpu_dir), true);
-        let gpu_args =
-            self.dfbench_run_args(true, false, None, self.iterations, Some(&gpu_dir), true);
+        let cpu_execution_batch_size = self.cpu_execution_batch_size();
+        let gpu_execution_batch_size = self.gpu_execution_batch_size();
+        let cpu_args = self.dfbench_run_args(
+            false,
+            cpu_execution_batch_size,
+            false,
+            None,
+            self.iterations,
+            Some(&cpu_dir),
+            true,
+        );
+        let gpu_args = self.dfbench_run_args(
+            true,
+            gpu_execution_batch_size,
+            false,
+            None,
+            self.iterations,
+            Some(&gpu_dir),
+            true,
+        );
 
         run_logged(&exe, &cpu_args, &logs_dir.join("cpu.log"))?;
 
@@ -144,7 +167,8 @@ impl HarnessOpt {
             queries: self.query.clone(),
             iterations: self.iterations,
             partitions: self.partitions,
-            batch_size: self.batch_size,
+            cpu_execution_batch_size,
+            gpu_execution_batch_size,
             warmup: self.warmup,
             plan_queries: self.plan_query.clone(),
             profile_queries: self.profile_query.clone(),
@@ -179,6 +203,7 @@ impl HarnessOpt {
     fn dfbench_run_args(
         &self,
         gpu: bool,
+        batch_size: Option<usize>,
         debug: bool,
         query: Option<&str>,
         iterations: usize,
@@ -197,7 +222,7 @@ impl HarnessOpt {
             args.push("--partitions".to_string());
             args.push(partitions.to_string());
         }
-        if let Some(batch_size) = self.batch_size {
+        if let Some(batch_size) = batch_size {
             args.push("--batch-size".to_string());
             args.push(batch_size.to_string());
         }
@@ -234,6 +259,17 @@ impl HarnessOpt {
         args
     }
 
+    fn cpu_execution_batch_size(&self) -> Option<usize> {
+        self.batch_size
+    }
+
+    fn gpu_execution_batch_size(&self) -> Option<usize> {
+        Some(
+            self.gpu_execution_batch_size
+                .unwrap_or(DEFAULT_GPU_EXECUTION_BATCH_SIZE),
+        )
+    }
+
     fn capture_plan_logs(&self, exe: &Path, run_dir: &Path) -> Result<()> {
         if self.plan_query.is_empty() {
             return Ok(());
@@ -242,14 +278,30 @@ impl HarnessOpt {
         let plans_dir = run_dir.join("plans");
         fs::create_dir_all(&plans_dir)?;
         for query in &self.plan_query {
-            let cpu_args = self.dfbench_run_args(false, true, Some(query), 1, None, false);
+            let cpu_args = self.dfbench_run_args(
+                false,
+                self.cpu_execution_batch_size(),
+                true,
+                Some(query),
+                1,
+                None,
+                false,
+            );
             run_logged(
                 exe,
                 &cpu_args,
                 &plans_dir.join(format!("{query}_cpu_debug.log")),
             )?;
 
-            let gpu_args = self.dfbench_run_args(true, true, Some(query), 1, None, false);
+            let gpu_args = self.dfbench_run_args(
+                true,
+                self.gpu_execution_batch_size(),
+                true,
+                Some(query),
+                1,
+                None,
+                false,
+            );
             run_logged(
                 exe,
                 &gpu_args,
@@ -280,7 +332,15 @@ impl HarnessOpt {
                 profile_base.display().to_string(),
                 exe.display().to_string(),
             ];
-            args.extend(self.dfbench_run_args(true, false, Some(query), 1, None, false));
+            args.extend(self.dfbench_run_args(
+                true,
+                self.gpu_execution_batch_size(),
+                false,
+                Some(query),
+                1,
+                None,
+                false,
+            ));
             run_logged(
                 Path::new("nsys"),
                 &args,
@@ -344,7 +404,14 @@ fn write_report(run_dir: &Path, metadata: &HarnessMetadata) -> Result<()> {
     }
     report.push_str(&format!("- iterations: `{}`\n", metadata.iterations));
     report.push_str(&format!("- partitions: `{:?}`\n", metadata.partitions));
-    report.push_str(&format!("- batch size: `{:?}`\n", metadata.batch_size));
+    report.push_str(&format!(
+        "- cpu execution batch size: `{:?}`\n",
+        metadata.cpu_execution_batch_size
+    ));
+    report.push_str(&format!(
+        "- gpu execution batch size: `{:?}`\n",
+        metadata.gpu_execution_batch_size
+    ));
     report.push_str(&format!("- warmup: `{}`\n\n", metadata.warmup));
 
     report.push_str("## Commands\n\n");
@@ -690,5 +757,94 @@ mod tests {
         assert_eq!(dataset_path_component("tpch_sf1"), "tpch_sf1");
         assert_eq!(dataset_path_component("nested/tpch"), "nested_tpch");
         assert_eq!(dataset_path_component(r"nested\tpch"), "nested_tpch");
+    }
+
+    #[test]
+    fn run_args_use_gpu_execution_batch_size_override() {
+        let opt = harness_opt(Some(8192), Some(131072));
+
+        let cpu_args = opt.dfbench_run_args(
+            false,
+            opt.cpu_execution_batch_size(),
+            false,
+            None,
+            3,
+            Some(Path::new("/tmp/cpu")),
+            true,
+        );
+        let gpu_args = opt.dfbench_run_args(
+            true,
+            opt.gpu_execution_batch_size(),
+            false,
+            None,
+            3,
+            Some(Path::new("/tmp/gpu")),
+            true,
+        );
+
+        assert!(contains_arg_pair(&cpu_args, "--batch-size", "8192"));
+        assert!(contains_arg_pair(&gpu_args, "--batch-size", "131072"));
+
+        let default_opt = harness_opt(Some(8192), None);
+        let default_gpu_args = default_opt.dfbench_run_args(
+            true,
+            default_opt.gpu_execution_batch_size(),
+            false,
+            None,
+            3,
+            Some(Path::new("/tmp/gpu")),
+            true,
+        );
+        assert!(contains_arg_pair(
+            &default_gpu_args,
+            "--batch-size",
+            "65536"
+        ));
+
+        let no_batch_opt = harness_opt(None, None);
+        let cpu_args = no_batch_opt.dfbench_run_args(
+            false,
+            no_batch_opt.cpu_execution_batch_size(),
+            false,
+            None,
+            3,
+            Some(Path::new("/tmp/cpu")),
+            true,
+        );
+        let gpu_args = no_batch_opt.dfbench_run_args(
+            true,
+            no_batch_opt.gpu_execution_batch_size(),
+            false,
+            None,
+            3,
+            Some(Path::new("/tmp/gpu")),
+            true,
+        );
+        assert!(!cpu_args.iter().any(|arg| arg == "--batch-size"));
+        assert!(contains_arg_pair(&gpu_args, "--batch-size", "65536"));
+    }
+
+    fn harness_opt(
+        batch_size: Option<usize>,
+        gpu_execution_batch_size: Option<usize>,
+    ) -> HarnessOpt {
+        HarnessOpt {
+            dataset: "tpch_sf1".to_string(),
+            query: Vec::new(),
+            iterations: 3,
+            partitions: Some(4),
+            batch_size,
+            gpu_execution_batch_size,
+            warmup: false,
+            output: PathBuf::from("/tmp/bench-results"),
+            run_id: None,
+            plan_query: Vec::new(),
+            profile_query: Vec::new(),
+        }
+    }
+
+    fn contains_arg_pair(args: &[String], key: &str, value: &str) -> bool {
+        args.windows(2)
+            .any(|pair| pair[0] == key && pair[1] == value)
     }
 }
