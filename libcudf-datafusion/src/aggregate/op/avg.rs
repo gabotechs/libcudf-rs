@@ -1,11 +1,9 @@
 use crate::aggregate::op::udf::CuDFAggregateUDF;
 use crate::aggregate::CuDFAggregationOp;
-use crate::decimal::decimal_div;
+use crate::decimal::{decimal_count_type_for, decimal_div, is_supported_decimal};
 use crate::errors::cudf_to_df;
 use arrow::array::Array;
-use arrow_schema::{
-    DataType, DECIMAL128_MAX_PRECISION, DECIMAL32_MAX_PRECISION, DECIMAL64_MAX_PRECISION,
-};
+use arrow_schema::DataType;
 use datafusion::common::exec_err;
 use datafusion::error::Result;
 use datafusion::functions_aggregate::average::Avg;
@@ -36,15 +34,12 @@ impl CuDFAggregationOp for CuDFAvg {
         input_types: &[DataType],
         output_type: &DataType,
     ) -> bool {
-        let expected_len = match mode {
-            AggregateMode::Final | AggregateMode::FinalPartitioned => 2,
-            _ => 1,
-        };
-        input_types.len() == expected_len
-            && !matches!(output_type, DataType::Decimal256(_, _))
-            && input_types
-                .iter()
-                .all(|dt| !matches!(dt, DataType::Decimal256(_, _)))
+        match mode {
+            AggregateMode::Final | AggregateMode::FinalPartitioned => {
+                supports_final_input_types(input_types, output_type)
+            }
+            _ => supports_raw_input_types(input_types, output_type),
+        }
     }
 
     fn partial_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {
@@ -99,7 +94,7 @@ impl CuDFAggregationOp for CuDFAvg {
             );
         }
 
-        if is_decimal(output_type) {
+        if is_supported_decimal(output_type) {
             return finalize_decimal_avg(&state_cols[1], &state_cols[0], output_type);
         }
 
@@ -126,7 +121,7 @@ fn finalize_decimal_avg(
     output_type: &DataType,
 ) -> Result<CuDFColumnView> {
     let sum_type = sum.data_type().clone();
-    let count_type = decimal_count_type(&sum_type)?;
+    let count_type = decimal_count_type_for(&sum_type)?;
     let count = libcudf_rs::cast(count, &count_type)
         .map_err(cudf_to_df)?
         .into_view();
@@ -147,19 +142,32 @@ fn finalize_decimal_avg(
     }
 }
 
-fn decimal_count_type(sum_type: &DataType) -> Result<DataType> {
-    let data_type = match sum_type {
-        DataType::Decimal32(_, _) => DataType::Decimal32(DECIMAL32_MAX_PRECISION, 0),
-        DataType::Decimal64(_, _) => DataType::Decimal64(DECIMAL64_MAX_PRECISION, 0),
-        DataType::Decimal128(_, _) => DataType::Decimal128(DECIMAL128_MAX_PRECISION, 0),
-        _ => return exec_err!("AVG decimal finalize requires decimal sum, got {sum_type}"),
+fn supports_raw_input_types(input_types: &[DataType], output_type: &DataType) -> bool {
+    let [input_type] = input_types else {
+        return false;
     };
-    Ok(data_type)
+
+    supports_avg_type_pair(input_type, output_type)
 }
 
-fn is_decimal(dt: &DataType) -> bool {
-    matches!(
-        dt,
-        DataType::Decimal32(_, _) | DataType::Decimal64(_, _) | DataType::Decimal128(_, _)
-    )
+fn supports_final_input_types(input_types: &[DataType], output_type: &DataType) -> bool {
+    let [count_type, sum_type] = input_types else {
+        return false;
+    };
+
+    count_type.is_integer() && supports_avg_type_pair(sum_type, output_type)
+}
+
+fn supports_avg_type_pair(input_type: &DataType, output_type: &DataType) -> bool {
+    match (
+        is_supported_decimal(input_type),
+        is_supported_decimal(output_type),
+    ) {
+        (true, true) => true,
+        (true, false) | (false, true) => false,
+        (false, false) => {
+            !matches!(input_type, DataType::Decimal256(_, _))
+                && !matches!(output_type, DataType::Decimal256(_, _))
+        }
+    }
 }

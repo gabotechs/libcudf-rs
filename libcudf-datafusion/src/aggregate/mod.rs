@@ -795,11 +795,11 @@ mod integration {
         tf.execute(
             r#"CREATE TABLE decimal_sales (
                 k VARCHAR,
-                price DECIMAL(10, 2)
+                price DECIMAL(12, 4)
             ) AS VALUES
-                ('a', 10.00),
-                ('a', 20.00),
-                ('b', 30.00)"#,
+                ('a', 10.0100),
+                ('a', 20.0200),
+                ('b', 30.0300)"#,
         )
         .await?;
 

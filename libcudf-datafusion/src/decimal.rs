@@ -12,9 +12,17 @@ pub(crate) fn is_decimal_division(
     lhs_type: &DataType,
     rhs_type: &DataType,
 ) -> bool {
-    decimal_parts(output_type).is_some()
-        && decimal_parts(lhs_type).is_some()
-        && decimal_parts(rhs_type).is_some()
+    is_supported_decimal(output_type)
+        && is_supported_decimal(lhs_type)
+        && is_supported_decimal(rhs_type)
+}
+
+pub(crate) fn is_supported_decimal(data_type: &DataType) -> bool {
+    decimal_parts(data_type).is_some()
+}
+
+pub(crate) fn decimal_count_type_for(data_type: &DataType) -> Result<DataType, DataFusionError> {
+    decimal_type_with_scale(data_type, 0)
 }
 
 pub(crate) fn decimal_div(
@@ -72,7 +80,7 @@ fn rescale_decimal(
     }
 }
 
-fn decimal_parts(data_type: &DataType) -> Option<(u8, i8)> {
+pub(crate) fn decimal_parts(data_type: &DataType) -> Option<(u8, i8)> {
     match data_type {
         DataType::Decimal32(precision, scale)
         | DataType::Decimal64(precision, scale)
