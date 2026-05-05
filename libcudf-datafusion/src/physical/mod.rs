@@ -5,7 +5,6 @@ use datafusion_physical_plan::metrics::BaselineMetrics;
 use datafusion_physical_plan::ExecutionPlan;
 use std::task::Poll;
 
-mod coalesce_batches;
 mod cudf_load;
 mod cudf_unload;
 mod filter;
@@ -13,7 +12,6 @@ mod hash_join;
 mod projection;
 mod sort;
 
-pub use coalesce_batches::CuDFCoalesceBatchesExec;
 pub(crate) use cudf_load::normalize_scalar_for_cudf;
 pub use cudf_load::CuDFLoadExec;
 pub use cudf_unload::CuDFUnloadExec;
@@ -46,6 +44,5 @@ pub fn is_cudf_plan(plan: &dyn ExecutionPlan) -> bool {
         || any.is::<CuDFLoadExec>()
         || any.is::<CuDFUnloadExec>()
         || any.is::<CuDFProjectionExec>()
-        || any.is::<CuDFCoalesceBatchesExec>()
         || any.is::<CuDFSortExec>()
 }

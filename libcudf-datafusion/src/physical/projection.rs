@@ -220,18 +220,15 @@ mod tests {
             )
             .await?;
 
-        assert_snapshot!(plan.display(), @"
+        assert_snapshot!(plan.display(), @r"
         CuDFUnloadExec
           CuDFProjectionExec: expr=[weather.MinTemp + Int64(1)@0 as weather.MinTemp + Int64(1)]
             CuDFLoadExec
-              CoalesceBatchesExec: target_batch_size=81920
-                SortPreservingMergeExec: [MinTemp@1 ASC NULLS LAST], fetch=1
-                  CuDFUnloadExec
-                    CuDFCoalesceBatchesExec: target_batch_size=81920
-                      CuDFSortExec: TopK(fetch=1), expr=[MinTemp@1 ASC NULLS LAST], preserve_partitioning=[true]
-                        CuDFLoadExec
-                          CoalesceBatchesExec: target_batch_size=81920
-                            DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp@0 + 1 as weather.MinTemp + Int64(1), MinTemp], file_type=parquet, predicate=DynamicFilter [ empty ]
+              SortPreservingMergeExec: [MinTemp@1 ASC NULLS LAST], fetch=1
+                CuDFUnloadExec
+                  CuDFSortExec: TopK(fetch=1), expr=[MinTemp@1 ASC NULLS LAST], preserve_partitioning=[true]
+                    CuDFLoadExec
+                      DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp@0 + 1 as weather.MinTemp + Int64(1), MinTemp], file_type=parquet, predicate=DynamicFilter [ empty ]
         ");
         let result = plan.execute().await?;
         assert_snapshot!(result.pretty_print, @"

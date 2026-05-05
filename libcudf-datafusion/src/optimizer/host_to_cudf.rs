@@ -1,15 +1,14 @@
 use crate::aggregate::try_as_cudf_aggregate;
 use crate::optimizer::CuDFConfig;
 use crate::physical::{
-    is_cudf_plan, try_as_cudf_hash_join, CuDFCoalesceBatchesExec, CuDFFilterExec, CuDFLoadExec,
-    CuDFProjectionExec, CuDFSortExec, CuDFUnloadExec,
+    is_cudf_plan, try_as_cudf_hash_join, CuDFFilterExec, CuDFLoadExec, CuDFProjectionExec,
+    CuDFSortExec, CuDFUnloadExec,
 };
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::config::ConfigOptions;
 use datafusion::error::DataFusionError;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion_physical_plan::aggregates::AggregateExec;
-use datafusion_physical_plan::coalesce_batches::CoalesceBatchesExec;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::joins::HashJoinExec;
 use datafusion_physical_plan::projection::ProjectionExec;
@@ -57,15 +56,6 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
                 cudf_node = Some(Arc::new(CuDFSortExec::try_new(node.clone())?));
             }
 
-            if let Some(node) = plan.as_any().downcast_ref::<CoalesceBatchesExec>() {
-                if is_cudf_plan(node.input().as_ref()) {
-                    cudf_node = Some(Arc::new(CuDFCoalesceBatchesExec::from_input(
-                        node.input().clone(),
-                        cudf_config.batch_size,
-                    )));
-                }
-            }
-
             if let Some(node) = plan.as_any().downcast_ref::<HashJoinExec>() {
                 cudf_node = try_as_cudf_hash_join(node)?;
             }
@@ -87,29 +77,13 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
                 let child_is_cudf = is_cudf_plan(child.as_ref());
 
                 if plan_is_cudf && !child_is_cudf && !plan.as_any().is::<CuDFLoadExec>() {
-                    if !child.as_any().is::<CoalesceBatchesExec>() {
-                        let child = Arc::new(CoalesceBatchesExec::new(
-                            Arc::clone(child),
-                            cudf_config.batch_size,
-                        ));
-                        new_children.push(Arc::new(CuDFLoadExec::try_new(child)?));
-                    } else {
-                        new_children.push(Arc::new(CuDFLoadExec::try_new(Arc::clone(child))?));
-                    }
+                    new_children.push(Arc::new(CuDFLoadExec::try_new(Arc::clone(child))?));
                     changed = true;
                     continue;
                 }
 
                 if !plan_is_cudf && child_is_cudf && !child.as_any().is::<CuDFUnloadExec>() {
-                    let mut unload = if !child.as_any().is::<CuDFCoalesceBatchesExec>() {
-                        let child = Arc::new(CuDFCoalesceBatchesExec::from_input(
-                            Arc::clone(child),
-                            cudf_config.batch_size,
-                        ));
-                        CuDFUnloadExec::new(child)
-                    } else {
-                        CuDFUnloadExec::new(Arc::clone(child))
-                    };
+                    let mut unload = CuDFUnloadExec::new(Arc::clone(child));
                     // Aggregations will expect a specific schema in, which is the one that was
                     // established while the node was placed there. As we are dealing with type
                     // incompatibilities in CuDF, we are tweaking the schema we return, and

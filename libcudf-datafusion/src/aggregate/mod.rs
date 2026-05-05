@@ -436,19 +436,16 @@ mod integration {
     async fn test_sum() -> Result<(), Box<dyn Error>> {
         let sql = r#"SELECT "RainToday", SUM("Rainfall") as total_rain FROM weather GROUP BY "RainToday""#;
         let result = check_query_results(sql, 1).await?;
-        assert_snapshot!(result.plan, @"
+        assert_snapshot!(result.plan, @r"
         CuDFUnloadExec
           CuDFProjectionExec: expr=[RainToday@0 as RainToday, sum(weather.Rainfall)@1 as total_rain]
             CuDFAggregateExec: mode=Final, group_by=[RainToday@RainToday@0], aggr_expr=[sum(weather.Rainfall)]
               CuDFLoadExec
-                CoalesceBatchesExec: target_batch_size=81920
-                  CoalescePartitionsExec
-                    CuDFUnloadExec
-                      CuDFCoalesceBatchesExec: target_batch_size=81920
-                        CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@1], aggr_expr=[sum(weather.Rainfall)]
-                          CuDFLoadExec
-                            CoalesceBatchesExec: target_batch_size=81920
-                              DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[Rainfall, RainToday], file_type=parquet
+                CoalescePartitionsExec
+                  CuDFUnloadExec
+                    CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@1], aggr_expr=[sum(weather.Rainfall)]
+                      CuDFLoadExec
+                        DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[Rainfall, RainToday], file_type=parquet
         ");
         Ok(())
     }
@@ -457,19 +454,16 @@ mod integration {
     async fn test_count() -> Result<(), Box<dyn Error>> {
         let sql = r#"SELECT "RainToday", COUNT("Rainfall") as n FROM weather GROUP BY "RainToday""#;
         let result = check_query_results(sql, 1).await?;
-        assert_snapshot!(result.plan, @"
+        assert_snapshot!(result.plan, @r"
         CuDFUnloadExec
           CuDFProjectionExec: expr=[RainToday@0 as RainToday, count(weather.Rainfall)@1 as n]
             CuDFAggregateExec: mode=Final, group_by=[RainToday@RainToday@0], aggr_expr=[count(weather.Rainfall)]
               CuDFLoadExec
-                CoalesceBatchesExec: target_batch_size=81920
-                  CoalescePartitionsExec
-                    CuDFUnloadExec
-                      CuDFCoalesceBatchesExec: target_batch_size=81920
-                        CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@1], aggr_expr=[count(weather.Rainfall)]
-                          CuDFLoadExec
-                            CoalesceBatchesExec: target_batch_size=81920
-                              DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[Rainfall, RainToday], file_type=parquet
+                CoalescePartitionsExec
+                  CuDFUnloadExec
+                    CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@1], aggr_expr=[count(weather.Rainfall)]
+                      CuDFLoadExec
+                        DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[Rainfall, RainToday], file_type=parquet
         ");
         Ok(())
     }
@@ -491,19 +485,16 @@ mod integration {
             ))
             .await?;
         assert_batches_approx_eq(&sort_batches(&gpu.batches), &sort_batches(&cpu.batches), 10);
-        assert_snapshot!(gpu.plan, @"
+        assert_snapshot!(gpu.plan, @r"
         CuDFUnloadExec
           CuDFProjectionExec: expr=[RainToday@0 as RainToday, avg(weather.MinTemp)@1 as avg_min]
             CuDFAggregateExec: mode=Final, group_by=[RainToday@RainToday@0], aggr_expr=[avg(weather.MinTemp)]
               CuDFLoadExec
-                CoalesceBatchesExec: target_batch_size=81920
-                  CoalescePartitionsExec
-                    CuDFUnloadExec
-                      CuDFCoalesceBatchesExec: target_batch_size=81920
-                        CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@1], aggr_expr=[avg(weather.MinTemp)]
-                          CuDFLoadExec
-                            CoalesceBatchesExec: target_batch_size=81920
-                              DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, RainToday], file_type=parquet
+                CoalescePartitionsExec
+                  CuDFUnloadExec
+                    CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@1], aggr_expr=[avg(weather.MinTemp)]
+                      CuDFLoadExec
+                        DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, RainToday], file_type=parquet
         ");
         Ok(())
     }
@@ -512,19 +503,16 @@ mod integration {
     async fn test_min_max() -> Result<(), Box<dyn Error>> {
         let sql = r#"SELECT "RainToday", MIN("MinTemp") as lo, MAX("MaxTemp") as hi FROM weather GROUP BY "RainToday""#;
         let result = check_query_results(sql, 1).await?;
-        assert_snapshot!(result.plan, @"
+        assert_snapshot!(result.plan, @r"
         CuDFUnloadExec
           CuDFProjectionExec: expr=[RainToday@0 as RainToday, min(weather.MinTemp)@1 as lo, max(weather.MaxTemp)@2 as hi]
             CuDFAggregateExec: mode=Final, group_by=[RainToday@RainToday@0], aggr_expr=[min(weather.MinTemp), max(weather.MaxTemp)]
               CuDFLoadExec
-                CoalesceBatchesExec: target_batch_size=81920
-                  CoalescePartitionsExec
-                    CuDFUnloadExec
-                      CuDFCoalesceBatchesExec: target_batch_size=81920
-                        CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@2], aggr_expr=[min(weather.MinTemp), max(weather.MaxTemp)]
-                          CuDFLoadExec
-                            CoalesceBatchesExec: target_batch_size=81920
-                              DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp, RainToday], file_type=parquet
+                CoalescePartitionsExec
+                  CuDFUnloadExec
+                    CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@2], aggr_expr=[min(weather.MinTemp), max(weather.MaxTemp)]
+                      CuDFLoadExec
+                        DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp, RainToday], file_type=parquet
         ");
         Ok(())
     }
@@ -545,19 +533,16 @@ mod integration {
             ))
             .await?;
         assert_batches_approx_eq(&sort_batches(&gpu.batches), &sort_batches(&cpu.batches), 10);
-        assert_snapshot!(gpu.plan, @"
+        assert_snapshot!(gpu.plan, @r"
         CuDFUnloadExec
           CuDFProjectionExec: expr=[RainToday@0 as RainToday, count(weather.Rainfall)@1 as n, sum(weather.Rainfall)@2 as total, avg(weather.MaxTemp)@3 as avg_max, min(weather.MinTemp)@4 as lo, max(weather.MaxTemp)@5 as hi]
             CuDFAggregateExec: mode=Final, group_by=[RainToday@RainToday@0], aggr_expr=[count(weather.Rainfall), sum(weather.Rainfall), avg(weather.MaxTemp), min(weather.MinTemp), max(weather.MaxTemp)]
               CuDFLoadExec
-                CoalesceBatchesExec: target_batch_size=81920
-                  CoalescePartitionsExec
-                    CuDFUnloadExec
-                      CuDFCoalesceBatchesExec: target_batch_size=81920
-                        CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@3], aggr_expr=[count(weather.Rainfall), sum(weather.Rainfall), avg(weather.MaxTemp), min(weather.MinTemp), max(weather.MaxTemp)]
-                          CuDFLoadExec
-                            CoalesceBatchesExec: target_batch_size=81920
-                              DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp, Rainfall, RainToday], file_type=parquet
+                CoalescePartitionsExec
+                  CuDFUnloadExec
+                    CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@3], aggr_expr=[count(weather.Rainfall), sum(weather.Rainfall), avg(weather.MaxTemp), min(weather.MinTemp), max(weather.MaxTemp)]
+                      CuDFLoadExec
+                        DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp, Rainfall, RainToday], file_type=parquet
         ");
         Ok(())
     }
@@ -566,19 +551,16 @@ mod integration {
     async fn test_count_star() -> Result<(), Box<dyn Error>> {
         let sql = r#"SELECT "RainToday", COUNT(*) as n FROM weather GROUP BY "RainToday""#;
         let result = check_query_results(sql, 1).await?;
-        assert_snapshot!(result.plan, @"
+        assert_snapshot!(result.plan, @r"
         CuDFUnloadExec
           CuDFProjectionExec: expr=[RainToday@0 as RainToday, count(Int64(1))@1 as n]
             CuDFAggregateExec: mode=Final, group_by=[RainToday@RainToday@0], aggr_expr=[count(Int64(1))]
               CuDFLoadExec
-                CoalesceBatchesExec: target_batch_size=81920
-                  CoalescePartitionsExec
-                    CuDFUnloadExec
-                      CuDFCoalesceBatchesExec: target_batch_size=81920
-                        CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@0], aggr_expr=[count(Int64(1))]
-                          CuDFLoadExec
-                            CoalesceBatchesExec: target_batch_size=81920
-                              DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[RainToday], file_type=parquet
+                CoalescePartitionsExec
+                  CuDFUnloadExec
+                    CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@0], aggr_expr=[count(Int64(1))]
+                      CuDFLoadExec
+                        DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[RainToday], file_type=parquet
         ");
         Ok(())
     }
@@ -587,19 +569,16 @@ mod integration {
     async fn test_count_star_mixed() -> Result<(), Box<dyn Error>> {
         let sql = r#"SELECT "RainToday", COUNT(*) as n, SUM("Rainfall") as total FROM weather GROUP BY "RainToday""#;
         let result = check_query_results(sql, 1).await?;
-        assert_snapshot!(result.plan, @"
+        assert_snapshot!(result.plan, @r"
         CuDFUnloadExec
           CuDFProjectionExec: expr=[RainToday@0 as RainToday, count(Int64(1))@1 as n, sum(weather.Rainfall)@2 as total]
             CuDFAggregateExec: mode=Final, group_by=[RainToday@RainToday@0], aggr_expr=[count(Int64(1)), sum(weather.Rainfall)]
               CuDFLoadExec
-                CoalesceBatchesExec: target_batch_size=81920
-                  CoalescePartitionsExec
-                    CuDFUnloadExec
-                      CuDFCoalesceBatchesExec: target_batch_size=81920
-                        CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@1], aggr_expr=[count(Int64(1)), sum(weather.Rainfall)]
-                          CuDFLoadExec
-                            CoalesceBatchesExec: target_batch_size=81920
-                              DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[Rainfall, RainToday], file_type=parquet
+                CoalescePartitionsExec
+                  CuDFUnloadExec
+                    CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@1], aggr_expr=[count(Int64(1)), sum(weather.Rainfall)]
+                      CuDFLoadExec
+                        DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[Rainfall, RainToday], file_type=parquet
         ");
         Ok(())
     }
@@ -609,19 +588,16 @@ mod integration {
         let sql =
             r#"SELECT "RainToday", SUM("Rainfall") as total FROM weather GROUP BY "RainToday""#;
         let result = check_query_results(sql, 4).await?;
-        assert_snapshot!(result.plan, @"
+        assert_snapshot!(result.plan, @r"
         CuDFUnloadExec
           CuDFProjectionExec: expr=[RainToday@0 as RainToday, sum(weather.Rainfall)@1 as total]
             CuDFAggregateExec: mode=FinalPartitioned, group_by=[RainToday@RainToday@0], aggr_expr=[sum(weather.Rainfall)]
               CuDFLoadExec
-                CoalesceBatchesExec: target_batch_size=81920
-                  RepartitionExec: partitioning=Hash([RainToday@0], 4), input_partitions=3
-                    CuDFUnloadExec
-                      CuDFCoalesceBatchesExec: target_batch_size=81920
-                        CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@1], aggr_expr=[sum(weather.Rainfall)]
-                          CuDFLoadExec
-                            CoalesceBatchesExec: target_batch_size=81920
-                              DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[Rainfall, RainToday], file_type=parquet
+                RepartitionExec: partitioning=Hash([RainToday@0], 4), input_partitions=3
+                  CuDFUnloadExec
+                    CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@1], aggr_expr=[sum(weather.Rainfall)]
+                      CuDFLoadExec
+                        DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[Rainfall, RainToday], file_type=parquet
         ");
         Ok(())
     }
@@ -630,19 +606,16 @@ mod integration {
     async fn test_multi_partition_count_star() -> Result<(), Box<dyn Error>> {
         let sql = r#"SELECT "RainToday", COUNT(*) as n FROM weather GROUP BY "RainToday""#;
         let result = check_query_results(sql, 4).await?;
-        assert_snapshot!(result.plan, @"
+        assert_snapshot!(result.plan, @r"
         CuDFUnloadExec
           CuDFProjectionExec: expr=[RainToday@0 as RainToday, count(Int64(1))@1 as n]
             CuDFAggregateExec: mode=FinalPartitioned, group_by=[RainToday@RainToday@0], aggr_expr=[count(Int64(1))]
               CuDFLoadExec
-                CoalesceBatchesExec: target_batch_size=81920
-                  RepartitionExec: partitioning=Hash([RainToday@0], 4), input_partitions=3
-                    CuDFUnloadExec
-                      CuDFCoalesceBatchesExec: target_batch_size=81920
-                        CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@0], aggr_expr=[count(Int64(1))]
-                          CuDFLoadExec
-                            CoalesceBatchesExec: target_batch_size=81920
-                              DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[RainToday], file_type=parquet
+                RepartitionExec: partitioning=Hash([RainToday@0], 4), input_partitions=3
+                  CuDFUnloadExec
+                    CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@0], aggr_expr=[count(Int64(1))]
+                      CuDFLoadExec
+                        DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[RainToday], file_type=parquet
         ");
         Ok(())
     }
@@ -663,19 +636,16 @@ mod integration {
             ))
             .await?;
         assert_batches_approx_eq(&sort_batches(&gpu.batches), &sort_batches(&cpu.batches), 10);
-        assert_snapshot!(gpu.plan, @"
+        assert_snapshot!(gpu.plan, @r"
         CuDFUnloadExec
           CuDFProjectionExec: expr=[RainToday@0 as RainToday, count(Int64(1))@1 as n, sum(weather.Rainfall)@2 as total, avg(weather.MaxTemp)@3 as avg_max, min(weather.MinTemp)@4 as lo, max(weather.MaxTemp)@5 as hi]
             CuDFAggregateExec: mode=FinalPartitioned, group_by=[RainToday@RainToday@0], aggr_expr=[count(Int64(1)), sum(weather.Rainfall), avg(weather.MaxTemp), min(weather.MinTemp), max(weather.MaxTemp)]
               CuDFLoadExec
-                CoalesceBatchesExec: target_batch_size=81920
-                  RepartitionExec: partitioning=Hash([RainToday@0], 4), input_partitions=3
-                    CuDFUnloadExec
-                      CuDFCoalesceBatchesExec: target_batch_size=81920
-                        CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@3], aggr_expr=[count(Int64(1)), sum(weather.Rainfall), avg(weather.MaxTemp), min(weather.MinTemp), max(weather.MaxTemp)]
-                          CuDFLoadExec
-                            CoalesceBatchesExec: target_batch_size=81920
-                              DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp, Rainfall, RainToday], file_type=parquet
+                RepartitionExec: partitioning=Hash([RainToday@0], 4), input_partitions=3
+                  CuDFUnloadExec
+                    CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@3], aggr_expr=[count(Int64(1)), sum(weather.Rainfall), avg(weather.MaxTemp), min(weather.MinTemp), max(weather.MaxTemp)]
+                      CuDFLoadExec
+                        DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp, Rainfall, RainToday], file_type=parquet
         ");
         Ok(())
     }
