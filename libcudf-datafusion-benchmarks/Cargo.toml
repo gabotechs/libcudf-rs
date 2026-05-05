@@ -1,0 +1,28 @@
+[package]
+name = "libcudf-datafusion-benchmarks"
+version = "0.1.0"
+edition = "2021"
+default-run = "dfbench"
+
+[dependencies]
+libcudf-datafusion = { path = "../libcudf-datafusion" }
+arrow = { workspace = true }
+datafusion = "53"
+datafusion-expr = "53"
+datafusion-physical-plan = "53"
+tokio = { version = "1.41", features = ["full"] }
+parquet = { version = "58" }
+structopt = "0.3.26"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+env_logger = "0.11"
+futures = "0.3"
+tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "31d515c4a2c16a8d434b2c80c197a78d9e64e8b6" }
+tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "31d515c4a2c16a8d434b2c80c197a78d9e64e8b6" }
+reqwest = "0.12"
+zip = "6.0"
+
+[[bin]]
+name = "dfbench"
+path = "src/main.rs"
