@@ -48,6 +48,7 @@ cli = [
     "dirs",
 ]
 tpch = ["integration"]
+clickbench = ["integration"]
 
 [dev-dependencies]
 tokio = { version = "1.41", features = ["full"] }
@@ -59,6 +60,7 @@ tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "31d515c4a2c
 tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "31d515c4a2c16a8d434b2c80c197a78d9e64e8b6" }
 parquet = { version = "58" }
 pretty_assertions = { version = "1.4" }
+libcudf-datafusion-benchmarks = { path = "../libcudf-datafusion-benchmarks" }
 
 
 [[bench]]

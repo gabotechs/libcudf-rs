@@ -4,8 +4,9 @@ mod tests {
     use datafusion::physical_plan::execute_stream;
     use datafusion::prelude::{SessionConfig, SessionContext};
     use futures::TryStreamExt;
-    use libcudf_datafusion::test_utils::tpch;
+    use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
     use libcudf_datafusion::{CuDFConfig, HostToCuDFRule};
+    use libcudf_datafusion_benchmarks::datasets::{register_tables, tpch};
     use std::error::Error;
     use std::fmt::Display;
     use std::fs;
@@ -20,146 +21,147 @@ mod tests {
     #[tokio::test]
     #[ignore = "cuDF aggregate path currently panics converting decimal aggregate state back through Arrow"]
     async fn test_tpch_1() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(1)).await
+        test_tpch_query("q1").await
     }
 
     #[tokio::test]
     async fn test_tpch_2() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(2)).await
+        test_tpch_query("q2").await
     }
 
     #[tokio::test]
     #[ignore = "cuDF aggregate path currently panics converting decimal aggregate state back through Arrow"]
     async fn test_tpch_3() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(3)).await
+        test_tpch_query("q3").await
     }
 
     #[tokio::test]
     async fn test_tpch_4() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(4)).await
+        test_tpch_query("q4").await
     }
 
     #[tokio::test]
     #[ignore = "cuDF aggregate path currently panics converting decimal aggregate state back through Arrow"]
     async fn test_tpch_5() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(5)).await
+        test_tpch_query("q5").await
     }
 
     #[tokio::test]
     async fn test_tpch_6() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(6)).await
+        test_tpch_query("q6").await
     }
 
     #[tokio::test]
     async fn test_tpch_7() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(7)).await
+        test_tpch_query("q7").await
     }
 
     #[tokio::test]
     async fn test_tpch_8() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(8)).await
+        test_tpch_query("q8").await
     }
 
     #[tokio::test]
     async fn test_tpch_9() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(9)).await
+        test_tpch_query("q9").await
     }
 
     #[tokio::test]
     #[ignore = "cuDF aggregate path currently panics converting decimal aggregate state back through Arrow"]
     async fn test_tpch_10() -> Result<(), Box<dyn Error>> {
-        let sql = get_test_tpch_query(10);
-        // There is a chance that this query returns non-deterministic results if two entries
-        // happen to have the exact same revenue. With small scales, this never happens, but with
-        // bigger scales, this is very likely to happen.
-        // This extra ordering accounts for it.
-        let sql = sql.replace("revenue desc", "revenue, c_acctbal desc");
-        test_tpch_query(sql).await
+        test_tpch_query("q10").await
     }
 
     #[tokio::test]
     async fn test_tpch_11() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(11)).await
+        test_tpch_query("q11").await
     }
 
     #[tokio::test]
     async fn test_tpch_12() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(12)).await
+        test_tpch_query("q12").await
     }
 
     #[tokio::test]
     async fn test_tpch_13() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(13)).await
+        test_tpch_query("q13").await
     }
 
     #[tokio::test]
     async fn test_tpch_14() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(14)).await
+        test_tpch_query("q14").await
     }
 
     #[tokio::test]
     #[ignore = "cuDF aggregate path currently panics converting decimal aggregate state back through Arrow"]
     async fn test_tpch_15() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(15)).await
+        test_tpch_query("q15").await
     }
 
     #[tokio::test]
     async fn test_tpch_16() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(16)).await
+        test_tpch_query("q16").await
     }
 
     #[tokio::test]
     #[ignore = "cuDF aggregate path currently reaches an unsupported cuDF decimal binary op"]
     async fn test_tpch_17() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(17)).await
+        test_tpch_query("q17").await
     }
 
     #[tokio::test]
     async fn test_tpch_18() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(18)).await
+        test_tpch_query("q18").await
     }
 
     #[tokio::test]
     async fn test_tpch_19() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(19)).await
+        test_tpch_query("q19").await
     }
 
     #[tokio::test]
     async fn test_tpch_20() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(20)).await
+        test_tpch_query("q20").await
     }
 
     #[tokio::test]
     async fn test_tpch_21() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(21)).await
+        test_tpch_query("q21").await
     }
 
     #[tokio::test]
     async fn test_tpch_22() -> Result<(), Box<dyn Error>> {
-        test_tpch_query(get_test_tpch_query(22)).await
+        test_tpch_query("q22").await
     }
 
-    async fn test_tpch_query(sql: String) -> Result<(), Box<dyn Error>> {
+    /// Run `query_id` on the GPU pipeline and against a stock CPU `SessionContext`,
+    /// then assert that the rendered tables match.
+    async fn test_tpch_query(query_id: &str) -> Result<(), Box<dyn Error>> {
+        let mut sql = tpch::get_query(query_id)?;
+        if query_id == "q10" {
+            // Q10 can return non-deterministic results when two entries have the
+            // same revenue; this extra ordering pins the row order.
+            sql = sql.replace("revenue desc", "revenue, c_acctbal desc");
+        }
         let mut cfg = CuDFConfig::default();
         cfg.enable = true;
 
-        let ctx = SessionContext::from(
+        let gpu_ctx = SessionContext::from(
             SessionStateBuilder::new()
                 .with_default_features()
                 .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
                 .with_config(SessionConfig::new().with_option_extension(cfg))
                 .build(),
         );
-        tpch::register_cudf_aggregate_udfs(&ctx);
-        let results_gpu = run_tpch_query(ctx, sql.clone()).await?;
+        register_cudf_aggregate_udfs(&gpu_ctx);
+
+        let results_gpu = run_tpch_query(gpu_ctx, sql.clone()).await?;
         let results_host = run_tpch_query(SessionContext::new(), sql).await?;
 
-        pretty_assertions::assert_eq!(results_gpu.to_string(), results_host.to_string(),);
+        pretty_assertions::assert_eq!(results_gpu.to_string(), results_host.to_string());
         Ok(())
     }
 
-    // test_non_distributed_consistency runs each TPC-H query twice - once in a distributed manner
-    // and once in a non-distributed manner. For each query, it asserts that the results are identical.
     async fn run_tpch_query(
         ctx: SessionContext,
         sql: String,
@@ -172,18 +174,7 @@ mod tests {
             .execution
             .target_partitions = PARTITIONS;
 
-        // Register tables for first context
-        for table_name in [
-            "lineitem", "orders", "part", "partsupp", "customer", "nation", "region", "supplier",
-        ] {
-            let query_path = data_dir.join(table_name);
-            ctx.register_parquet(
-                table_name,
-                query_path.to_string_lossy().as_ref(),
-                datafusion::prelude::ParquetReadOptions::default(),
-            )
-            .await?;
-        }
+        register_tables(&ctx, &data_dir).await?;
 
         // Query 15 has three queries in it, one creating the view, the second
         // executing, which we want to capture the output of, and the third
@@ -209,22 +200,22 @@ mod tests {
         };
 
         let batches = stream.try_collect::<Vec<_>>().await?;
-
         Ok(arrow::util::pretty::pretty_format_batches(&batches)?)
     }
 
-    pub fn get_test_tpch_query(num: u8) -> String {
-        let queries_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/tpch/queries");
-        tpch::tpch_query_from_dir(&queries_dir, num)
+    fn register_cudf_aggregate_udfs(ctx: &SessionContext) {
+        ctx.register_udaf((*avg()).clone());
+        ctx.register_udaf((*count()).clone());
+        ctx.register_udaf((*max()).clone());
+        ctx.register_udaf((*min()).clone());
+        ctx.register_udaf((*sum()).clone());
     }
 
-    // OnceCell to ensure TPCH tables are generated only once for tests
     static INIT_TEST_TPCH_TABLES: OnceCell<()> = OnceCell::const_new();
 
-    // ensure_tpch_data initializes the TPCH data on disk.
-    pub async fn ensure_tpch_data(sf: f64, parts: i32) -> std::path::PathBuf {
+    async fn ensure_tpch_data(sf: f64, parts: i32) -> std::path::PathBuf {
         let data_dir =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("testdata/tpch/correctness_sf{sf}"));
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("data/tpch/correctness_sf{sf}"));
         INIT_TEST_TPCH_TABLES
             .get_or_init(|| async {
                 if !fs::exists(&data_dir).unwrap() {

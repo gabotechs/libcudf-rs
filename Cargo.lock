@@ -3352,6 +3352,7 @@ dependencies = [
  "futures",
  "futures-util",
  "insta",
+ "libcudf-datafusion-benchmarks",
  "libcudf-rs",
  "parquet",
  "pretty_assertions",

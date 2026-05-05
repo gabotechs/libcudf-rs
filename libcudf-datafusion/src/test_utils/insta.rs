@@ -18,6 +18,7 @@ pub fn settings() -> insta::Settings {
     settings.add_filter(dir.trim_start_matches("/"), "");
     let dir = cwd.parent().unwrap().to_str().unwrap();
     settings.add_filter(dir.trim_start_matches("/"), "");
+    settings.add_filter(r"\d+\.\.\d+", "<int>..<int>");
 
     settings
 }
