@@ -288,11 +288,10 @@ mod tests {
 
         let plan = tf.plan(&cudf_sql).await?;
         assert_snapshot!(plan.display(), @r"
-        SortPreservingMergeExec: [MinTemp@0 ASC NULLS LAST]
-          CuDFUnloadExec
-            CuDFSortExec: expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[true]
-              CuDFLoadExec
-                DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet
+        CuDFUnloadExec
+          CuDFSortExec: expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[false]
+            CuDFLoadExec
+              DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000000.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet
         ");
 
         let cudf_results = plan.execute().await?;
@@ -315,11 +314,10 @@ mod tests {
 
         let plan = tf.plan(&cudf_sql).await?;
         assert_snapshot!(plan.display(), @r"
-        SortPreservingMergeExec: [MaxTemp@1 DESC]
-          CuDFUnloadExec
-            CuDFSortExec: expr=[MaxTemp@1 DESC], preserve_partitioning=[true]
-              CuDFLoadExec
-                DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet
+        CuDFUnloadExec
+          CuDFSortExec: expr=[MaxTemp@1 DESC], preserve_partitioning=[false]
+            CuDFLoadExec
+              DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000000.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet
         ");
 
         let cudf_results = plan.execute().await?;
@@ -343,11 +341,10 @@ mod tests {
 
         let plan = tf.plan(&cudf_sql).await?;
         assert_snapshot!(plan.display(), @r"
-        SortPreservingMergeExec: [MinTemp@0 ASC NULLS LAST], fetch=3
-          CuDFUnloadExec
-            CuDFSortExec: TopK(fetch=3), expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[true]
-              CuDFLoadExec
-                DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=DynamicFilter [ empty ]
+        CuDFUnloadExec
+          CuDFSortExec: TopK(fetch=3), expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[false]
+            CuDFLoadExec
+              DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000000.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=DynamicFilter [ empty ]
         ");
 
         let cudf_results = plan.execute().await?;

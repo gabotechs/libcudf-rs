@@ -1,9 +1,9 @@
 use crate::aggregate::try_as_cudf_aggregate;
-use crate::optimizer::CuDFConfig;
 use crate::physical::{
     is_cudf_plan, try_as_cudf_hash_join, CuDFFilterExec, CuDFLoadExec, CuDFProjectionExec,
     CuDFSortExec, CuDFUnloadExec,
 };
+use crate::planner::CuDFConfig;
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::config::ConfigOptions;
 use datafusion::error::DataFusionError;

@@ -5,13 +5,12 @@ mod tests {
     use datafusion::prelude::{SessionConfig, SessionContext};
     use futures::TryStreamExt;
     use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
-    use libcudf_datafusion::{CuDFConfig, HostToCuDFRule};
+    use libcudf_datafusion::SessionStateBuilderExt;
     use libcudf_datafusion_benchmarks::datasets::{register_tables, tpch};
     use std::error::Error;
     use std::fmt::Display;
     use std::fs;
     use std::path::Path;
-    use std::sync::Arc;
     use tokio::sync::OnceCell;
 
     const PARTITIONS: usize = 6;
@@ -143,14 +142,11 @@ mod tests {
             // same revenue; this extra ordering pins the row order.
             sql = sql.replace("revenue desc", "revenue, c_acctbal desc");
         }
-        let mut cfg = CuDFConfig::default();
-        cfg.enable = true;
-
         let gpu_ctx = SessionContext::from(
             SessionStateBuilder::new()
                 .with_default_features()
-                .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
-                .with_config(SessionConfig::new().with_option_extension(cfg))
+                .with_config(SessionConfig::new().with_target_partitions(PARTITIONS))
+                .with_cudf_planner()
                 .build(),
         );
         register_cudf_aggregate_udfs(&gpu_ctx);
@@ -167,12 +163,6 @@ mod tests {
         sql: String,
     ) -> Result<impl Display, Box<dyn Error>> {
         let data_dir = ensure_tpch_data(TPCH_SCALE_FACTOR, TPCH_DATA_PARTS).await;
-        ctx.state_ref()
-            .write()
-            .config_mut()
-            .options_mut()
-            .execution
-            .target_partitions = PARTITIONS;
 
         register_tables(&ctx, &data_dir).await?;
 

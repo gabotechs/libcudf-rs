@@ -49,7 +49,7 @@ use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
 use datafusion_physical_plan::{execute_stream, ExecutionPlan};
 use futures_util::TryStreamExt;
 use libcudf_datafusion::aggregate::count;
-use libcudf_datafusion::{configure_default_pools, CuDFConfig, HostToCuDFRule};
+use libcudf_datafusion::{configure_default_pools, SessionStateBuilderExt};
 use std::env;
 use std::hint::black_box;
 use std::path::PathBuf;
@@ -114,18 +114,13 @@ async fn cpu_ctx(base: PathBuf) -> SessionContext {
 }
 
 async fn gpu_ctx(base: PathBuf) -> SessionContext {
-    let mut cudf_config = CuDFConfig::default();
-    cudf_config.enable = true;
     // Single partition: DataFusion plans AggregateMode::Single instead of
     // Partial -> RepartitionExec -> Final. The two-phase path sends partial-state
     // batches through a CPU RepartitionExec, which strips CuDFColumnView wrappers.
-    let config = SessionConfig::new()
-        .with_target_partitions(1)
-        .with_option_extension(cudf_config);
     let state = SessionStateBuilder::new()
         .with_default_features()
-        .with_config(config)
-        .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
+        .with_config(SessionConfig::new().with_target_partitions(1))
+        .with_cudf_planner()
         .build();
     let ctx = SessionContext::from(state);
     ctx.register_udaf((*count()).clone());

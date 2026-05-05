@@ -1,5 +1,5 @@
-use crate::optimizer::{CuDFConfig, HostToCuDFRule};
-use arrow::array::RecordBatch;
+use crate::SessionStateBuilderExt;
+use arrow::array::{ArrayRef, Float64Array, RecordBatch};
 use arrow::util::pretty::pretty_format_batches;
 use datafusion::error::DataFusionError;
 use datafusion::execution::{SessionStateBuilder, TaskContext};
@@ -15,14 +15,10 @@ pub struct TestFramework {
 
 impl TestFramework {
     pub async fn new() -> Self {
-        let config = SessionConfig::new()
-            .with_target_partitions(4)
-            .with_option_extension(CuDFConfig::default());
-
         let state = SessionStateBuilder::new()
             .with_default_features()
-            .with_config(config)
-            .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
+            .with_config(SessionConfig::new().with_target_partitions(4))
+            .with_cudf_planner()
             .build();
         let ctx = SessionContext::from(state);
 
@@ -103,10 +99,44 @@ pub(crate) async fn check_query_results(
     let cpu_sql = format!("SET datafusion.execution.target_partitions={partitions}; {sql}");
     let gpu = tf.execute(&cudf_sql).await?;
     let cpu = tf.execute(&cpu_sql).await?;
-    let gpu_pp = pretty_format_batches(&sort_batches(&gpu.batches))?.to_string();
-    let cpu_pp = pretty_format_batches(&sort_batches(&cpu.batches))?.to_string();
+    let gpu_pp = pretty_format_rounded(&sort_batches(&gpu.batches), 10)?;
+    let cpu_pp = pretty_format_rounded(&sort_batches(&cpu.batches), 10)?;
     assert_eq!(gpu_pp, cpu_pp);
     Ok(gpu)
+}
+
+/// Pretty-print `batches` after rounding every Float64 column to `decimals`
+/// decimal places. Lets the ASCII table renderer pick consistent column
+/// widths on both the GPU and CPU sides, absorbing last-ULP float
+/// differences between cuDF and DataFusion.
+fn pretty_format_rounded(
+    batches: &[RecordBatch],
+    decimals: u32,
+) -> Result<String, DataFusionError> {
+    let factor = 10f64.powi(decimals as i32);
+    let rounded: Vec<RecordBatch> = batches
+        .iter()
+        .map(|batch| {
+            let columns: Vec<ArrayRef> = batch
+                .columns()
+                .iter()
+                .map(|col| {
+                    if let Some(floats) = col.as_any().downcast_ref::<Float64Array>() {
+                        let rounded: Float64Array = floats
+                            .iter()
+                            .map(|v| v.map(|x| (x * factor).round() / factor))
+                            .collect();
+                        Arc::new(rounded) as ArrayRef
+                    } else {
+                        Arc::clone(col)
+                    }
+                })
+                .collect();
+            RecordBatch::try_new(batch.schema(), columns)
+                .expect("RecordBatch::try_new failed")
+        })
+        .collect();
+    Ok(pretty_format_batches(&rounded)?.to_string())
 }
 
 /// Concatenate `batches` into one and sort rows by the first column.

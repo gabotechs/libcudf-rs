@@ -87,7 +87,7 @@ impl Stream {
         let aggregate_args = aggregate_expressions(&aggregate_expr, &mode, group_by.expr().len())?;
 
         // Extract the GPU op from each CuDFAggregateUDF wrapper.
-        // Safe to unwrap: the optimizer only creates CuDFAggregateExec when all
+        // Safe to unwrap: the planner only creates CuDFAggregateExec when all
         // aggregate functions are backed by CuDFAggregateUDF.
         let aggregate_ops = aggregate_expr
             .iter()
