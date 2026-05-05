@@ -66,6 +66,12 @@ pub struct RunOpt {
     #[structopt(short, long)]
     debug: bool,
 
+    /// Run each query once before starting timed iterations.
+    /// Useful to amortize one-shot costs (parquet metadata caching,
+    /// CUDA context init, JIT, etc.) before measurement begins.
+    #[structopt(long)]
+    warmup: bool,
+
     /// Use the GPU (cuDF) execution path. When unset, runs on the CPU
     /// using DataFusion's default operators.
     #[structopt(long)]
@@ -165,6 +171,18 @@ impl RunOpt {
             dataset: self.dataset.clone(),
             iterations: vec![],
         };
+
+        if self.warmup {
+            for query in sql.split(";").map(|v| v.trim()) {
+                if query.is_empty() {
+                    continue;
+                }
+                match self.execute_query(ctx, query).await {
+                    Ok(_) => println!("Query {id} warmup completed"),
+                    Err(err) => println!("Query {id} warmup failed: {err}"),
+                }
+            }
+        }
 
         'outer: for i in 0..self.iterations {
             let start = Instant::now();
