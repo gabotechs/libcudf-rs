@@ -2,7 +2,6 @@ use crate::expr::expr_to_cudf_expr;
 use crate::physical::record_gpu_poll;
 use arrow::array::RecordBatch;
 use arrow::datatypes::SchemaRef;
-use arrow::record_batch::RecordBatchOptions;
 use datafusion::config::ConfigOptions;
 use datafusion::error::DataFusionError;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
@@ -167,14 +166,8 @@ impl CuDFProjectionStream {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        if arrays.is_empty() {
-            let options = RecordBatchOptions::new().with_row_count(Some(batch.num_rows()));
-            RecordBatch::try_new_with_options(Arc::clone(&self.schema), arrays, &options)
-                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
-        } else {
-            libcudf_rs::record_batch_with_schema(arrays, &self.schema)
-                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
-        }
+        libcudf_rs::record_batch_with_schema(arrays, &self.schema, batch.num_rows())
+            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
     }
 }
 

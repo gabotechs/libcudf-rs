@@ -1,6 +1,6 @@
 use crate::cudf_reference::CuDFRef;
 use crate::{CuDFColumnView, CuDFError};
-use arrow::array::{Array, ArrayRef, RecordBatch, StructArray};
+use arrow::array::{Array, ArrayRef, RecordBatch, RecordBatchOptions, StructArray};
 use arrow::ffi::{from_ffi, FFI_ArrowArray};
 use arrow_schema::ffi::FFI_ArrowSchema;
 use arrow_schema::{ArrowError, Schema, SchemaRef};
@@ -172,7 +172,15 @@ impl CuDFTableView {
         let array_data = unsafe { from_ffi(ffi_array, &ffi_schema)? };
         let struct_array = StructArray::from(array_data);
 
-        let batch = RecordBatch::try_new(schema, struct_array.columns().to_vec())?;
+        // Carry the row count explicitly so zero-column batches (e.g. produced by
+        // `FilterExec` with `projection=[]` for `COUNT(*) WHERE ...` plans) don't
+        // trip Arrow's "must either specify a row count or at least one column" check.
+        let options = RecordBatchOptions::new().with_row_count(Some(struct_array.len()));
+        let batch = RecordBatch::try_new_with_options(
+            schema,
+            struct_array.columns().to_vec(),
+            &options,
+        )?;
 
         Ok(batch)
     }
@@ -198,7 +206,12 @@ impl CuDFTableView {
             .map(|i| Arc::new(self.column(i as i32)) as _)
             .collect();
 
-        Ok(RecordBatch::try_new(Arc::new(self.schema()?), columns)?)
+        let options = RecordBatchOptions::new().with_row_count(Some(self.num_rows()));
+        Ok(RecordBatch::try_new_with_options(
+            Arc::new(self.schema()?),
+            columns,
+            &options,
+        )?)
     }
 
     /// Wrap GPU columns in a `RecordBatch` whose types match `schema`.
@@ -221,7 +234,7 @@ impl CuDFTableView {
         let columns: Vec<ArrayRef> = (0..self.num_columns())
             .map(|i| Arc::new(self.column(i as i32)) as _)
             .collect();
-        record_batch_with_schema(columns, schema).map_err(CuDFError::ArrowError)
+        record_batch_with_schema(columns, schema, self.num_rows()).map_err(CuDFError::ArrowError)
     }
 
     /// Create a table view from a RecordBatch containing CuDF arrays (GPU)
@@ -254,9 +267,13 @@ impl CuDFTableView {
 /// This function restores the declared precision so `RecordBatch::try_new` accepts it.
 /// All GPU `RecordBatch` creation should go through this function instead of calling
 /// `RecordBatch::try_new` directly.
+///
+/// `num_rows` is required so zero-column batches (e.g. produced by `FilterExec`
+/// with `projection=[]` for `COUNT(*) WHERE ...` plans) carry their row count.
 pub fn record_batch_with_schema(
     columns: Vec<ArrayRef>,
     schema: &SchemaRef,
+    num_rows: usize,
 ) -> Result<RecordBatch, ArrowError> {
     let relabeled: Vec<ArrayRef> = columns
         .into_iter()
@@ -270,7 +287,8 @@ pub fn record_batch_with_schema(
             col
         })
         .collect();
-    RecordBatch::try_new(Arc::clone(schema), relabeled)
+    let options = RecordBatchOptions::new().with_row_count(Some(num_rows));
+    RecordBatch::try_new_with_options(Arc::clone(schema), relabeled, &options)
 }
 
 impl Clone for CuDFTableView {

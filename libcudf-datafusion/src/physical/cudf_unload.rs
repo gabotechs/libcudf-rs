@@ -1,5 +1,5 @@
 use crate::errors::cudf_to_df;
-use arrow::array::RecordBatch;
+use arrow::array::{RecordBatch, RecordBatchOptions};
 use arrow_schema::{DataType, Field, FieldRef, Schema, SchemaRef};
 use datafusion::common::{plan_err, DataFusionError};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -91,18 +91,22 @@ impl ExecutionPlan for CuDFUnloadExec {
 
             let view = CuDFTableView::from_record_batch(&batch).map_err(cudf_to_df)?;
             let host_batch = view.to_arrow_host().map_err(cudf_to_df)?;
+            let num_rows = host_batch.num_rows();
             let columns = host_batch
                 .columns()
                 .iter()
                 .zip(target_schema.fields())
                 .map(|(col, field)| arrow::compute::cast(col, field.data_type()))
                 .collect::<Result<Vec<_>, _>>()?;
-            RecordBatch::try_new(target_schema.clone(), columns).map_err(|err| {
-                DataFusionError::ArrowError(
-                    Box::new(err),
-                    Some("Error while unloading a RecordBatch from CuDF into host".to_string()),
-                )
-            })
+            let options = RecordBatchOptions::new().with_row_count(Some(num_rows));
+            RecordBatch::try_new_with_options(target_schema.clone(), columns, &options).map_err(
+                |err| {
+                    DataFusionError::ArrowError(
+                        Box::new(err),
+                        Some("Error while unloading a RecordBatch from CuDF into host".to_string()),
+                    )
+                },
+            )
         });
         Ok(Box::pin(RecordBatchStreamAdapter::new(
             self.schema(),

@@ -1,6 +1,6 @@
 use crate::errors::cudf_to_df;
 use crate::optimizer::CuDFConfig;
-use arrow::array::{Array, RecordBatch};
+use arrow::array::{Array, RecordBatch, RecordBatchOptions};
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Schema, SchemaRef};
 use datafusion::common::{exec_err, plan_err, ScalarValue};
 use datafusion::error::DataFusionError;
@@ -118,12 +118,15 @@ impl ExecutionPlan for CuDFLoadExec {
             } else {
                 CuDFTable::from_arrow_host(batch).map_err(cudf_to_df)?
             };
+            let num_rows = table.num_rows();
             let cudf_cols: Vec<Arc<dyn Array>> = table
                 .into_columns()
                 .into_iter()
                 .map(|c| Arc::new(c.into_view()) as Arc<dyn Array>)
                 .collect();
-            Ok(libcudf_rs::record_batch_with_schema(cudf_cols, &schema)?)
+            Ok(libcudf_rs::record_batch_with_schema(
+                cudf_cols, &schema, num_rows,
+            )?)
         });
         Ok(Box::pin(RecordBatchStreamAdapter::new(
             self.schema(),
@@ -163,6 +166,7 @@ pub(crate) fn cast_to_target_schema(
     batch: RecordBatch,
     target_schema: SchemaRef,
 ) -> Result<RecordBatch, ArrowError> {
+    let num_rows = batch.num_rows();
     let columns = batch
         .columns()
         .iter()
@@ -170,5 +174,6 @@ pub(crate) fn cast_to_target_schema(
         .map(|(col, field)| arrow::compute::cast(col, field.data_type()))
         .collect::<Result<Vec<_>, _>>()?;
 
-    RecordBatch::try_new(target_schema, columns)
+    let options = RecordBatchOptions::new().with_row_count(Some(num_rows));
+    RecordBatch::try_new_with_options(target_schema, columns, &options)
 }
