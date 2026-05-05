@@ -290,11 +290,9 @@ mod tests {
         assert_snapshot!(plan.display(), @r"
         SortPreservingMergeExec: [MinTemp@0 ASC NULLS LAST]
           CuDFUnloadExec
-            CuDFCoalesceBatchesExec: target_batch_size=81920
-              CuDFSortExec: expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[true]
-                CuDFLoadExec
-                  CoalesceBatchesExec: target_batch_size=81920
-                    DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet
+            CuDFSortExec: expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[true]
+              CuDFLoadExec
+                DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet
         ");
 
         let cudf_results = plan.execute().await?;
@@ -319,11 +317,9 @@ mod tests {
         assert_snapshot!(plan.display(), @r"
         SortPreservingMergeExec: [MaxTemp@1 DESC]
           CuDFUnloadExec
-            CuDFCoalesceBatchesExec: target_batch_size=81920
-              CuDFSortExec: expr=[MaxTemp@1 DESC], preserve_partitioning=[true]
-                CuDFLoadExec
-                  CoalesceBatchesExec: target_batch_size=81920
-                    DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet
+            CuDFSortExec: expr=[MaxTemp@1 DESC], preserve_partitioning=[true]
+              CuDFLoadExec
+                DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet
         ");
 
         let cudf_results = plan.execute().await?;
@@ -349,11 +345,9 @@ mod tests {
         assert_snapshot!(plan.display(), @r"
         SortPreservingMergeExec: [MinTemp@0 ASC NULLS LAST], fetch=3
           CuDFUnloadExec
-            CuDFCoalesceBatchesExec: target_batch_size=81920
-              CuDFSortExec: TopK(fetch=3), expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[true]
-                CuDFLoadExec
-                  CoalesceBatchesExec: target_batch_size=81920
-                    DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=DynamicFilter [ empty ]
+            CuDFSortExec: TopK(fetch=3), expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[true]
+              CuDFLoadExec
+                DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=DynamicFilter [ empty ]
         ");
 
         let cudf_results = plan.execute().await?;
