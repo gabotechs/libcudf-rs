@@ -118,6 +118,13 @@ target/release/dfbench harness \
   --warmup
 ```
 
+`--batch-size` sets DataFusion's `execution.batch_size`. The harness passes
+this value to both CPU and GPU runs. Use `--gpu-execution-batch-size` to
+override only the GPU run while leaving the CPU run at `--batch-size`, or at
+DataFusion's default when `--batch-size` is omitted. Use `65536` as the
+recommended starting point for GPU runs, then tune with benchmarks for the
+target workload and GPU.
+
 Capture physical plans for selected queries:
 
 ```bash
