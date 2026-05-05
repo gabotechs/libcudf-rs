@@ -195,6 +195,7 @@ fn filter_and_project(
 
     // Keep data on GPU by wrapping table in an Arc and creating column views that reference it
     let table_view = filtered_table.into_view();
+    let num_rows = table_view.num_rows();
     let num_cols = table_view.num_columns();
 
     let mut cudf_columns: Vec<Arc<dyn Array>> = Vec::with_capacity(num_cols);
@@ -215,6 +216,7 @@ fn filter_and_project(
     Ok(libcudf_rs::record_batch_with_schema(
         columns,
         output_schema,
+        num_rows,
     )?)
 }
 

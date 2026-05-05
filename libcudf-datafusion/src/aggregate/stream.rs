@@ -266,6 +266,7 @@ impl Stream {
             return Ok(None);
         };
 
+        let num_rows = running.keys.num_rows();
         let key_columns = running.keys.into_columns();
         let mut arrays: Vec<ArrayRef> =
             Vec::with_capacity(key_columns.len() + self.aggregate_expr.len());
@@ -305,7 +306,11 @@ impl Stream {
             }
         }
 
-        Ok(Some(record_batch_with_schema(arrays, &self.output_schema)?))
+        Ok(Some(record_batch_with_schema(
+            arrays,
+            &self.output_schema,
+            num_rows,
+        )?))
     }
 
     /// Evaluate GROUP BY expressions on a batch and wrap the resulting key
@@ -362,6 +367,7 @@ impl Stream {
 /// Concatenate CuDF-backed record batches into a single batch by column.
 fn concat_cudf_batches(batches: &[RecordBatch]) -> Result<RecordBatch> {
     let schema = batches[0].schema();
+    let num_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
     let cols = (0..schema.fields().len())
         .map(|i| {
             let views = batches
@@ -379,7 +385,7 @@ fn concat_cudf_batches(batches: &[RecordBatch]) -> Result<RecordBatch> {
             Ok(Arc::new(col.into_view()) as Arc<dyn Array>)
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok(record_batch_with_schema(cols, &schema)?)
+    Ok(record_batch_with_schema(cols, &schema, num_rows)?)
 }
 
 impl futures::Stream for Stream {
