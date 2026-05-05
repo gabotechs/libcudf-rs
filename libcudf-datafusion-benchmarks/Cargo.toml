@@ -18,6 +18,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 env_logger = "0.11"
 futures = "0.3"
+rusqlite = { version = "0.37", features = ["bundled"] }
 tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "31d515c4a2c16a8d434b2c80c197a78d9e64e8b6" }
 tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs", rev = "31d515c4a2c16a8d434b2c80c197a78d9e64e8b6" }
 reqwest = "0.12"

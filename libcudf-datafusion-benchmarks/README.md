@@ -148,6 +148,77 @@ Profiles require `nsys` on `PATH` and are written under:
 benchmark-results/<dataset>/<run-id>/profiles/
 ```
 
+## Profile Comparison
+
+Use `dfbench profile-compare` to compare Nsight SQLite artifacts from two
+profiled harness runs:
+
+```bash
+target/release/dfbench profile-compare \
+  --dataset tpch_sf1 \
+  --baseline-run-id before-change \
+  --candidate-run-id after-change
+```
+
+Limit the comparison to selected queries with:
+
+```bash
+target/release/dfbench profile-compare \
+  --dataset tpch_sf1 \
+  --baseline-run-id before-change \
+  --candidate-run-id after-change \
+  --query q6,q12,q19
+```
+
+Profile comparisons are written under:
+
+```text
+benchmark-results/<dataset>/comparisons/<baseline-run-id>__<candidate-run-id>/
+  profile-compare.md
+  profile-compare.json
+```
+
+The report compares CUDA runtime API time, device allocation/free calls,
+host allocation/free time, memcpy activity, synchronization API time, kernel
+launch calls, and candidate-run runtime/kernel hotspots. This path reads
+existing profile artifacts; it does not run benchmarks.
+
+The generated `profile-compare.md` has these sections:
+
+- `Total Profile Cost`: aggregate CUDA runtime, copy, synchronization, launch,
+  and kernel activity costs across the compared profiles.
+- `Memcpy bytes`: total bytes moved by recorded CUDA memcpy activity.
+- `Per Query Deltas`: compact per-query candidate-minus-baseline changes for
+  the categories that usually explain benchmark movement.
+- `Per Query Runtime API Changes`: the largest CUDA runtime API deltas by
+  absolute time for each query. This is usually the quickest way to understand
+  why a profile got faster or slower.
+- `Candidate Hotspots`: candidate-only top costs after the change. Use this to
+  decide what remains expensive after the comparison.
+
+The profile terms have specific meanings:
+
+- `Runtime API`: CPU-side time spent inside CUDA runtime calls, such as
+  `cudaMemcpyAsync`, `cudaLaunchKernel`, `cudaStreamSynchronize`, and
+  allocation calls. High runtime API time often means launch, synchronization,
+  copy setup, or allocator overhead rather than GPU compute time.
+- `Device alloc/free API`: runtime API calls that allocate or free device
+  memory, such as `cudaMalloc` and `cudaFree`.
+- `Host alloc/free API`: runtime API calls that allocate or free host-side
+  pinned memory, such as `cudaHostAlloc`, `cudaMallocHost`, and
+  `cudaFreeHost`.
+- `Memcpy API`: CPU-side time spent issuing CUDA memcpy calls. This is not the
+  same as transfer-engine activity.
+- `Memcpy activity`: CUPTI-recorded copy activity, including count, elapsed
+  copy time, bytes, and direction such as host-to-device or device-to-host.
+- `Sync API`: CUDA synchronization calls that can force the CPU to wait for GPU
+  work.
+- `Kernel launch API`: CPU-side time spent launching GPU kernels.
+- `Kernel activity`: GPU-side kernel execution time recorded by CUPTI.
+- `Kernel groups`: candidate kernel activity grouped by Nsight short kernel
+  name. `unique full names` shows how many distinct full demangled symbols were
+  collapsed into that short group.
+
 ## Reading Reports
 
 The generated `report.md` includes:
