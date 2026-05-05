@@ -27,7 +27,7 @@
 //!
 //! ## Data
 //!
-//! TPC-H Parquet files from `testdata/tpch/correctness_sf{scale}/`.
+//! TPC-H Parquet files from `data/tpch/correctness_sf{scale}/`.
 //! The benchmark defaults to SF=1. Set `LIBCUDF_TPCH_SCALE_FACTOR` to run
 //! another generated scale factor:
 //!
@@ -77,7 +77,7 @@ fn tpch_scale_factor() -> String {
 
 fn tpch_data_dir(scale_factor: &str) -> PathBuf {
     let data_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("testdata/tpch/correctness_sf{scale_factor}"));
+        .join(format!("data/tpch/correctness_sf{scale_factor}"));
     if !data_dir.exists() {
         panic!(
             "TPC-H SF={scale_factor} data not found at {}",
