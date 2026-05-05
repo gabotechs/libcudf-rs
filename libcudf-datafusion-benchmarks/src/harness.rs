@@ -8,6 +8,8 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 use structopt::StructOpt;
 
+const DEFAULT_GPU_EXECUTION_BATCH_SIZE: usize = 65_536;
+
 /// Run paired CPU/GPU benchmarks and write a reproducible report.
 ///
 /// This is a thin harness around the existing `run` subcommand. It does not
@@ -31,11 +33,11 @@ pub struct HarnessOpt {
     #[structopt(short = "n", long = "partitions")]
     partitions: Option<usize>,
 
-    /// DataFusion execution batch size.
+    /// DataFusion execution batch size for the CPU run.
     #[structopt(short = "s", long = "batch-size")]
     batch_size: Option<usize>,
 
-    /// DataFusion execution batch size for the GPU run. Overrides `--batch-size`.
+    /// DataFusion execution batch size for the GPU run.
     #[structopt(long = "gpu-execution-batch-size")]
     gpu_execution_batch_size: Option<usize>,
 
@@ -262,7 +264,10 @@ impl HarnessOpt {
     }
 
     fn gpu_execution_batch_size(&self) -> Option<usize> {
-        self.gpu_execution_batch_size.or(self.batch_size)
+        Some(
+            self.gpu_execution_batch_size
+                .unwrap_or(DEFAULT_GPU_EXECUTION_BATCH_SIZE),
+        )
     }
 
     fn capture_plan_logs(&self, exe: &Path, run_dir: &Path) -> Result<()> {
@@ -790,7 +795,33 @@ mod tests {
             Some(Path::new("/tmp/gpu")),
             true,
         );
-        assert!(contains_arg_pair(&default_gpu_args, "--batch-size", "8192"));
+        assert!(contains_arg_pair(
+            &default_gpu_args,
+            "--batch-size",
+            "65536"
+        ));
+
+        let no_batch_opt = harness_opt(None, None);
+        let cpu_args = no_batch_opt.dfbench_run_args(
+            false,
+            no_batch_opt.cpu_execution_batch_size(),
+            false,
+            None,
+            3,
+            Some(Path::new("/tmp/cpu")),
+            true,
+        );
+        let gpu_args = no_batch_opt.dfbench_run_args(
+            true,
+            no_batch_opt.gpu_execution_batch_size(),
+            false,
+            None,
+            3,
+            Some(Path::new("/tmp/gpu")),
+            true,
+        );
+        assert!(!cpu_args.iter().any(|arg| arg == "--batch-size"));
+        assert!(contains_arg_pair(&gpu_args, "--batch-size", "65536"));
     }
 
     fn harness_opt(
