@@ -75,6 +75,19 @@ pub struct RunOpt {
     /// using DataFusion's default operators.
     #[structopt(long)]
     gpu: bool,
+
+    /// Write per-query JSON results to this directory instead of the branch
+    /// comparison store.
+    #[structopt(long = "result-dir", parse(from_os_str), hidden = true)]
+    result_dir: Option<PathBuf>,
+
+    /// Skip comparing this run with the previous benchmark run.
+    #[structopt(long = "no-compare", hidden = true)]
+    no_compare: bool,
+
+    /// Skip writing benchmark result JSON files.
+    #[structopt(long = "no-store", hidden = true)]
+    no_store: bool,
 }
 
 fn queries_for_dataset(dataset: &str) -> Result<Vec<(String, String)>, DataFusionError> {
@@ -119,6 +132,26 @@ impl RunOpt {
     }
 
     async fn run_inner(self) -> Result<()> {
+        let benchmark_run = self.benchmark().await?;
+        self.finish(benchmark_run)
+    }
+
+    fn finish(&self, benchmark_run: BenchmarkRun) -> Result<()> {
+        if !self.no_compare {
+            benchmark_run.compare_with_previous()?;
+        }
+
+        if self.no_store {
+            return Ok(());
+        }
+
+        match &self.result_dir {
+            Some(result_dir) => benchmark_run.store_results_to_dir(result_dir),
+            None => benchmark_run.store(),
+        }
+    }
+
+    async fn benchmark(&self) -> Result<BenchmarkRun> {
         let mut state_builder = SessionStateBuilder::new()
             .with_default_features()
             .with_config(self.config()?);
@@ -154,9 +187,7 @@ impl RunOpt {
             benchmark_run.results.push(query_run?);
         }
 
-        benchmark_run.compare_with_previous()?;
-        benchmark_run.store()?;
-        Ok(())
+        Ok(benchmark_run)
     }
 
     async fn benchmark_query(

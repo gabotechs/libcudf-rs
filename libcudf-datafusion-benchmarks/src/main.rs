@@ -1,5 +1,6 @@
 //! libcudf-datafusion benchmark runner
 mod compare;
+mod harness;
 mod prepare_clickbench;
 mod prepare_tpcds;
 mod prepare_tpch;
@@ -17,6 +18,7 @@ pub(crate) const RESULTS_DIR: &str = ".results";
 enum Options {
     Run(run::RunOpt),
     Compare(compare::CompareOpt),
+    Harness(harness::HarnessOpt),
     PrepareTpch(prepare_tpch::PrepareTpchOpt),
     PrepareTpcds(prepare_tpcds::PrepareTpcdsOpt),
     PrepareClickbench(prepare_clickbench::PrepareClickBenchOpt),
@@ -28,6 +30,7 @@ pub fn main() -> Result<()> {
     match Options::from_args() {
         Options::Run(opt) => opt.run(),
         Options::Compare(opt) => opt.run(),
+        Options::Harness(opt) => opt.run(),
         Options::PrepareTpch(opt) => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async { opt.run().await })

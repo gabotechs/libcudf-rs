@@ -4,7 +4,7 @@ use datafusion::common::{internal_datafusion_err, Result};
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
 
@@ -86,6 +86,13 @@ impl BenchmarkRun {
         Ok(())
     }
 
+    pub fn store_results_to_dir(&self, dir: &Path) -> Result<()> {
+        for result in &self.results {
+            result.store_to_dir(dir)?;
+        }
+        Ok(())
+    }
+
     pub fn compare_with_previous(&self) -> Result<()> {
         let Some(previous) = Self::load_previous(&self.dataset) else {
             return Ok(());
@@ -148,6 +155,17 @@ impl BenchResult {
             serde_json::to_string_pretty(self).map_err(|err| internal_datafusion_err!("{err}"))?;
         fs::write(path, result_string)?;
 
+        Ok(())
+    }
+
+    pub fn store_to_dir(&self, dir: &Path) -> Result<()> {
+        fs::create_dir_all(dir)?;
+        let result_string =
+            serde_json::to_string_pretty(self).map_err(|err| internal_datafusion_err!("{err}"))?;
+        fs::write(
+            dir.join(format!("{}.json", result_file_stem(&self.id))),
+            result_string,
+        )?;
         Ok(())
     }
 
@@ -242,6 +260,10 @@ impl BenchResult {
     }
 }
 
+fn result_file_stem(id: &str) -> &str {
+    id.rsplit_once(' ').map_or(id, |(_, query)| query)
+}
+
 fn serialize_bench_results<S: Serializer>(
     _bench_result: &[BenchResult],
     ser: S,
@@ -282,4 +304,29 @@ where
 {
     let ms = f64::deserialize(des)?;
     Ok(Duration::from_secs_f64(ms / 1000.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn result_dir_uses_query_file_name() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir =
+            std::env::temp_dir().join(format!("libcudf-rs-result-dir-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+
+        let result = BenchResult {
+            id: "tpch_sf1 q22".to_string(),
+            dataset: "tpch_sf1".to_string(),
+            iterations: vec![],
+        };
+        result.store_to_dir(&dir)?;
+
+        assert!(dir.join("q22.json").exists());
+        assert!(!dir.join("tpch_sf1 q22.json").exists());
+
+        fs::remove_dir_all(dir)?;
+        Ok(())
+    }
 }
