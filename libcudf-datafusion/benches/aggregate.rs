@@ -4,11 +4,11 @@ use arrow::record_batch::RecordBatch;
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use datafusion::datasource::MemTable;
 use datafusion::execution::SessionStateBuilder;
-use datafusion::prelude::{SessionConfig, SessionContext};
+use datafusion::prelude::SessionContext;
 use datafusion_physical_plan::{execute_stream, ExecutionPlan};
 use futures_util::TryStreamExt;
 use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
-use libcudf_datafusion::{configure_default_pools, CuDFConfig, HostToCuDFRule};
+use libcudf_datafusion::{configure_default_pools, SessionStateBuilderExt};
 use std::hint::black_box;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -52,13 +52,9 @@ async fn cpu_ctx(batches: Vec<RecordBatch>) -> SessionContext {
 
 async fn gpu_ctx(batches: Vec<RecordBatch>) -> SessionContext {
     let schema = schema();
-    let mut cudf_config = CuDFConfig::default();
-    cudf_config.enable = true;
-    let config = SessionConfig::new().with_option_extension(cudf_config);
     let state = SessionStateBuilder::new()
         .with_default_features()
-        .with_config(config)
-        .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
+        .with_cudf_planner()
         .build();
     let ctx = SessionContext::from(state);
     ctx.register_udaf((*avg()).clone());

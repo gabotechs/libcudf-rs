@@ -16,7 +16,6 @@
 // under the License.
 
 use crate::results::{BenchResult, BenchmarkRun, QueryIter};
-use libcudf_datafusion_benchmarks::datasets::{clickbench, register_tables, tpcds, tpch};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::instant::Instant;
 use datafusion::common::utils::get_available_parallelism;
@@ -27,10 +26,10 @@ use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion::physical_plan::{collect, displayable};
 use datafusion::prelude::*;
 use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
-use libcudf_datafusion::{CuDFConfig, HostToCuDFRule};
+use libcudf_datafusion::{CuDFConfig, SessionStateBuilderExt};
+use libcudf_datafusion_benchmarks::datasets::{clickbench, register_tables, tpcds, tpch};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 use structopt::StructOpt;
 
@@ -124,7 +123,7 @@ impl RunOpt {
             .with_default_features()
             .with_config(self.config()?);
         if self.gpu {
-            state_builder = state_builder.with_physical_optimizer_rule(Arc::new(HostToCuDFRule));
+            state_builder = state_builder.with_cudf_planner()
         }
         let state = state_builder.build();
         let ctx = SessionContext::new_with_state(state);
@@ -227,11 +226,7 @@ impl RunOpt {
         Ok(bench_query)
     }
 
-    async fn execute_query(
-        &self,
-        ctx: &SessionContext,
-        sql: &str,
-    ) -> Result<Vec<RecordBatch>> {
+    async fn execute_query(&self, ctx: &SessionContext, sql: &str) -> Result<Vec<RecordBatch>> {
         let plan = ctx.sql(sql).await?;
         let (state, plan) = plan.into_parts();
 

@@ -38,7 +38,7 @@ use clap::Parser;
 use datafusion::common::config_err;
 use datafusion::config::ConfigOptions;
 use datafusion::execution::SessionStateBuilder;
-use libcudf_datafusion::{CuDFConfig, HostToCuDFRule};
+use libcudf_datafusion::{CuDFConfig, SessionStateBuilderExt};
 
 #[derive(Debug, Parser, PartialEq)]
 #[clap(author, version, about, long_about= None)]
@@ -146,7 +146,7 @@ async fn main_inner() -> Result<()> {
         .with_default_features()
         .with_config(session_config)
         .with_runtime_env(runtime_env)
-        .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
+        .with_cudf_planner()
         .build();
 
     // enable dynamic file query

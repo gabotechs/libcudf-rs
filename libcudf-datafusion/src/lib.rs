@@ -6,8 +6,8 @@
 pub mod aggregate;
 mod errors;
 mod expr;
-mod optimizer;
 mod physical;
+mod planner;
 
 #[cfg(any(feature = "integration", test))]
 pub mod test_utils;
@@ -15,5 +15,5 @@ pub mod test_utils;
 pub use libcudf_rs::configure_default_pools;
 pub use libcudf_rs::DevicePoolConfig;
 pub use libcudf_rs::PinnedPoolConfig;
-pub use optimizer::{CuDFConfig, HostToCuDFRule};
 pub use physical::{CuDFLoadExec, CuDFUnloadExec};
+pub use planner::{CuDFConfig, SessionStateBuilderExt};

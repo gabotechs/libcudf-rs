@@ -5,13 +5,12 @@ mod tests {
     use datafusion::prelude::{SessionConfig, SessionContext};
     use futures::TryStreamExt;
     use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
-    use libcudf_datafusion::{CuDFConfig, HostToCuDFRule};
+    use libcudf_datafusion::SessionStateBuilderExt;
     use libcudf_datafusion_benchmarks::datasets::{clickbench, register_tables};
     use std::error::Error;
     use std::fmt::Display;
     use std::ops::Range;
     use std::path::Path;
-    use std::sync::Arc;
     use tokio::sync::OnceCell;
 
     const PARTITIONS: usize = 6;
@@ -264,14 +263,11 @@ mod tests {
     async fn test_clickbench_query(query_id: &str) -> Result<(), Box<dyn Error>> {
         let sql = clickbench::get_query(query_id)?;
 
-        let mut cfg = CuDFConfig::default();
-        cfg.enable = true;
-
         let gpu_ctx = SessionContext::from(
             SessionStateBuilder::new()
                 .with_default_features()
-                .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
-                .with_config(SessionConfig::new().with_option_extension(cfg))
+                .with_config(SessionConfig::new().with_target_partitions(PARTITIONS))
+                .with_cudf_planner()
                 .build(),
         );
         register_cudf_aggregate_udfs(&gpu_ctx);
@@ -288,12 +284,6 @@ mod tests {
         sql: String,
     ) -> Result<impl Display, Box<dyn Error>> {
         let data_dir = ensure_clickbench_data(FILE_RANGE).await;
-        ctx.state_ref()
-            .write()
-            .config_mut()
-            .options_mut()
-            .execution
-            .target_partitions = PARTITIONS;
 
         register_tables(&ctx, &data_dir).await?;
 
@@ -316,7 +306,7 @@ mod tests {
 
     async fn ensure_clickbench_data(range: Range<usize>) -> std::path::PathBuf {
         let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-            "testdata/clickbench/correctness_range{}-{}",
+            "data/clickbench/correctness_range{}-{}",
             range.start, range.end
         ));
         INIT_TEST_CLICKBENCH_TABLES

@@ -1,5 +1,5 @@
 use crate::errors::cudf_to_df;
-use crate::optimizer::CuDFConfig;
+use crate::planner::CuDFConfig;
 use arrow::array::{Array, RecordBatch, RecordBatchOptions};
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Schema, SchemaRef};
 use datafusion::common::{exec_err, plan_err, ScalarValue};
