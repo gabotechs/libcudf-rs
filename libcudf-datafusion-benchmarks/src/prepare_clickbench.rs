@@ -1,5 +1,5 @@
-use libcudf_datafusion_benchmarks::datasets::clickbench;
 use datafusion::error::DataFusionError;
+use libcudf_datafusion_benchmarks::datasets::clickbench;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 

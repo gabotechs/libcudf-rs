@@ -1,6 +1,6 @@
 use crate::{DATA_PATH, RESULTS_DIR};
 use datafusion::common::utils::get_available_parallelism;
-use datafusion::common::{Result, internal_datafusion_err};
+use datafusion::common::{internal_datafusion_err, Result};
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fs;

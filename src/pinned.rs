@@ -59,7 +59,9 @@ impl PinnedAllocOwner {
 
 impl Drop for PinnedAllocOwner {
     fn drop(&mut self) {
-        let Some(alloc) = self.inner.take() else { return };
+        let Some(alloc) = self.inner.take() else {
+            return;
+        };
         if let Err(err) = pinned_host_free(alloc) {
             if std::thread::panicking() {
                 // Already unwinding — surface the failure but don't abort by
@@ -360,11 +362,23 @@ mod tests {
         let ptr_before = buf.as_ptr() as usize;
         assert_eq!(pool_len(), 0);
         drop(buf);
-        assert_eq!(pool_len(), 1, "drop should push the allocation into the pool");
+        assert_eq!(
+            pool_len(),
+            1,
+            "drop should push the allocation into the pool"
+        );
 
         let buf2 = PinnedHostBuffer::new(2048)?;
-        assert_eq!(buf2.as_ptr() as usize, ptr_before, "pool should return the same allocation");
-        assert_eq!(pool_len(), 0, "reuse should remove the allocation from the pool");
+        assert_eq!(
+            buf2.as_ptr() as usize,
+            ptr_before,
+            "pool should return the same allocation"
+        );
+        assert_eq!(
+            pool_len(),
+            0,
+            "reuse should remove the allocation from the pool"
+        );
         Ok(())
     }
 
@@ -403,6 +417,9 @@ mod tests {
             let _buf = PinnedHostBuffer::new(1024).expect("alloc");
             panic!("simulated user panic");
         });
-        assert!(result.is_err(), "outer panic should propagate to catch_unwind");
+        assert!(
+            result.is_err(),
+            "outer panic should propagate to catch_unwind"
+        );
     }
 }

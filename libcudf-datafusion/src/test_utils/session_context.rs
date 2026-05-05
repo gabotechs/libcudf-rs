@@ -132,8 +132,7 @@ fn pretty_format_rounded(
                     }
                 })
                 .collect();
-            RecordBatch::try_new(batch.schema(), columns)
-                .expect("RecordBatch::try_new failed")
+            RecordBatch::try_new(batch.schema(), columns).expect("RecordBatch::try_new failed")
         })
         .collect();
     Ok(pretty_format_batches(&rounded)?.to_string())

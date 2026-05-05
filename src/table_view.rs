@@ -176,11 +176,8 @@ impl CuDFTableView {
         // `FilterExec` with `projection=[]` for `COUNT(*) WHERE ...` plans) don't
         // trip Arrow's "must either specify a row count or at least one column" check.
         let options = RecordBatchOptions::new().with_row_count(Some(struct_array.len()));
-        let batch = RecordBatch::try_new_with_options(
-            schema,
-            struct_array.columns().to_vec(),
-            &options,
-        )?;
+        let batch =
+            RecordBatch::try_new_with_options(schema, struct_array.columns().to_vec(), &options)?;
 
         Ok(batch)
     }

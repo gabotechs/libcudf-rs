@@ -1,4 +1,4 @@
-use datafusion::common::{DataFusionError, internal_datafusion_err, internal_err};
+use datafusion::common::{internal_datafusion_err, internal_err, DataFusionError};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use std::fs;
 use std::path::Path;

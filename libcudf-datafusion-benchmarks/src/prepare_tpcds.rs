@@ -1,5 +1,5 @@
-use libcudf_datafusion_benchmarks::datasets::tpcds;
 use datafusion::error::DataFusionError;
+use libcudf_datafusion_benchmarks::datasets::tpcds;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 

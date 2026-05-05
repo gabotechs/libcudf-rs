@@ -629,7 +629,7 @@ pub mod ffi {
 
         /// Create a CUDA stream with explicit creation flags.
         fn cuda_stream_create_with_flags(flags: u32) -> UniquePtr<CudaStream>;
-        
+
         /// Owning wrapper for a pinned host allocation. See `pinned_host.h`.
         type PinnedHostAlloc;
 

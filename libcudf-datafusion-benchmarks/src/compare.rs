@@ -1,5 +1,5 @@
 use crate::results::BenchResult;
-use datafusion::common::{Result, internal_err};
+use datafusion::common::{internal_err, Result};
 use structopt::StructOpt;
 
 /// Compare different runs of the benchmarks.
