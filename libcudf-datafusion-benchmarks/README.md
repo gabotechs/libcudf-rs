@@ -124,6 +124,12 @@ this value to the CPU run. GPU runs use `65536` by default; pass
 `--gpu-execution-batch-size` to override that value for the target workload and
 GPU.
 
+`--cudf-device-pool-max-bytes` sets the RMM device-memory pool cap for GPU
+runs. cuDF aggregate chunks derive their default target from that cap:
+`clamp(pool_max / 16, 64 MiB, 1 GiB)`. Use
+`--cudf-aggregate-chunk-target-bytes` only when testing an explicit aggregate
+chunk budget.
+
 Capture physical plans for selected queries:
 
 ```bash

@@ -15,9 +15,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-/// Number of input batches to accumulate before running a single aggregate and merge cycle.
-const AGGREGATE_CHUNK_BATCHES: usize = 1024;
-
 enum StreamState {
     ReadingInput,
     ProducingOutput,
@@ -45,10 +42,10 @@ struct RunningState {
 /// GPU-accelerated GROUP BY aggregation stream using chunked aggregation.
 ///
 /// Input batches are accumulated into a pending buffer. Once the buffer reaches
-/// `AGGREGATE_CHUNK_BATCHES` batches (or input is exhausted), all pending batches
-/// are concatenated on the GPU into a single table and aggregated in one kernel call.
-/// The result (at most G rows, where G is the group cardinality) is merged into the
-/// running state using the standard partial-state merge.
+/// the configured byte budget (or input is exhausted), pending batches are
+/// concatenated on the GPU into a single table and aggregated in one kernel
+/// call. The result (at most G rows, where G is the group cardinality) is merged
+/// into the running state using the standard partial-state merge.
 ///
 /// After all input is consumed, a single output batch is produced by either
 /// finalizing the state (Single/Final modes) or emitting raw state columns
@@ -63,6 +60,10 @@ pub struct Stream {
     state: StreamState,
     /// Batches accumulated since the last flush, cleared on each flush.
     pending_batches: Vec<RecordBatch>,
+    /// Estimated GPU memory held by `pending_batches`.
+    pending_bytes: usize,
+    /// Target input bytes accumulated before running an aggregate/merge cycle.
+    chunk_target_bytes: usize,
     /// Aggregated running state (at most G rows), updated after each flush.
     running: Option<RunningState>,
 }
@@ -72,6 +73,7 @@ impl Stream {
         input: SendableRecordBatchStream,
         output_schema: SchemaRef,
         prepared: PreparedCuDFAggregate,
+        chunk_target_bytes: usize,
     ) -> Result<Self> {
         let aggregate_args = prepared
             .aggs
@@ -102,6 +104,8 @@ impl Stream {
             column_mapping,
             state: StreamState::ReadingInput,
             pending_batches: Vec::new(),
+            pending_bytes: 0,
+            chunk_target_bytes: chunk_target_bytes.max(1),
             running: None,
         })
     }
@@ -117,6 +121,7 @@ impl Stream {
 
         let chunk = concat_cudf_batches(&self.pending_batches)?;
         self.pending_batches.clear();
+        self.pending_bytes = 0;
 
         let group_by = self.evaluate_batch_groups(&chunk)?;
         let evaluated_args = self.evaluate_batch_arguments(&chunk)?;
@@ -379,8 +384,11 @@ impl futures::Stream for Stream {
                     }
                     Some(Err(e)) => return Poll::Ready(Some(Err(e))),
                     Some(Ok(batch)) => {
+                        self.pending_bytes = self
+                            .pending_bytes
+                            .saturating_add(batch.get_array_memory_size());
                         self.pending_batches.push(batch);
-                        if self.pending_batches.len() >= AGGREGATE_CHUNK_BATCHES {
+                        if self.pending_bytes >= self.chunk_target_bytes {
                             self.flush_pending()?;
                         }
                     }

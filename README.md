@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 cargo run --example basic_usage
 ```
 
-### DataFusion Execution Batch Size
+### DataFusion GPU Sizing
 
 For cuDF-backed DataFusion workloads, configure batch size through DataFusion's
 existing `execution.batch_size` setting. Start GPU runs at `65_536` rows and
@@ -104,6 +104,17 @@ This is DataFusion's global execution batch size, not a cuDF-only operator
 limit. Some cuDF operators process one incoming `RecordBatch` at a time, while
 joins, full sorts, and aggregate chunks can materialize larger intermediate GPU
 tables.
+
+cuDF aggregate chunks are bounded by input bytes, not row count. The default
+target is derived from the configured device pool cap:
+
+```text
+clamp(cudf.device_pool_max_bytes / 16, 64 MiB, 1 GiB)
+```
+
+With the default 4 GiB device pool cap, this gives a 256 MiB aggregate chunk
+target. Set `cudf.aggregate_chunk_target_bytes` only when you need an explicit
+override for benchmarking or deployment tuning.
 
 ## Architecture
 
