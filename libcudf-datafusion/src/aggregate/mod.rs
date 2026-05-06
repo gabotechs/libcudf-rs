@@ -4,10 +4,12 @@ use arrow_schema::{DataType, Schema, SchemaRef};
 use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::projection::ProjectionMapping;
+use datafusion::physical_expr_common::metrics::MetricsSet;
 use datafusion_physical_plan::aggregates::{
     aggregate_expressions, AggregateExec, AggregateMode, PhysicalGroupBy,
 };
 use datafusion_physical_plan::expressions::{Column, Literal};
+use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::udaf::AggregateFunctionExpr;
 use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, InputOrderMode, PhysicalExpr, PlanProperties,
@@ -59,6 +61,7 @@ pub struct CuDFAggregateExec {
     input: Arc<dyn ExecutionPlan>,
     prepared: PreparedCuDFAggregate,
     plan_properties: Arc<PlanProperties>,
+    metrics: ExecutionPlanMetricsSet,
 }
 
 impl CuDFAggregateExec {
@@ -132,6 +135,7 @@ impl CuDFAggregateExec {
             input,
             prepared,
             plan_properties,
+            metrics: ExecutionPlanMetricsSet::new(),
         })
     }
 }
@@ -204,13 +208,19 @@ impl ExecutionPlan for CuDFAggregateExec {
                 CuDFConfig::resolved_aggregate_chunk_target_bytes,
             );
         let input = self.input.execute(partition, context)?;
-        let stream = stream::Stream::new(
+        let stream = stream::CuDFAggregateStream::new(
             input,
             self.schema(),
             self.prepared.clone(),
             aggregate_chunk_target_bytes,
+            &self.metrics,
+            partition,
         )?;
         Ok(Box::pin(stream))
+    }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
     }
 }
 

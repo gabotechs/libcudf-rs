@@ -4,6 +4,8 @@ use arrow_schema::{DataType, Field, FieldRef, Schema, SchemaRef};
 use datafusion::common::{plan_err, DataFusionError};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
+use crate::metrics::CuDFBaselineMetrics;
+use datafusion::physical_expr_common::metrics::{ExecutionPlanMetricsSet, MetricsSet};
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures_util::StreamExt;
@@ -16,6 +18,7 @@ use std::sync::Arc;
 pub struct CuDFUnloadExec {
     input: Arc<dyn ExecutionPlan>,
     properties: Arc<PlanProperties>,
+    metrics: ExecutionPlanMetricsSet,
 }
 
 impl CuDFUnloadExec {
@@ -26,6 +29,7 @@ impl CuDFUnloadExec {
         Self {
             properties: Arc::new(properties),
             input,
+            metrics: ExecutionPlanMetricsSet::new(),
         }
     }
 
@@ -35,6 +39,7 @@ impl CuDFUnloadExec {
         Self {
             properties: Arc::new(properties),
             input: Arc::clone(&self.input),
+            metrics: self.metrics.clone(),
         }
     }
 }
@@ -82,8 +87,12 @@ impl ExecutionPlan for CuDFUnloadExec {
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
         let cudf_stream = self.input.execute(partition, context)?;
+
+        let metrics = CuDFBaselineMetrics::new(&self.metrics, partition);
+
         let target_schema = self.schema();
         let host_stream = cudf_stream.map(move |batch_or_err| {
+            let _timer_guard = metrics.elapsed_compute().timer();
             let batch = match batch_or_err {
                 Ok(batch) => batch,
                 Err(err) => return Err(err),
@@ -99,19 +108,24 @@ impl ExecutionPlan for CuDFUnloadExec {
                 .map(|(col, field)| arrow::compute::cast(col, field.data_type()))
                 .collect::<Result<Vec<_>, _>>()?;
             let options = RecordBatchOptions::new().with_row_count(Some(num_rows));
-            RecordBatch::try_new_with_options(target_schema.clone(), columns, &options).map_err(
-                |err| {
+            let batch = RecordBatch::try_new_with_options(target_schema.clone(), columns, &options)
+                .map_err(|err| {
                     DataFusionError::ArrowError(
                         Box::new(err),
                         Some("Error while unloading a RecordBatch from CuDF into host".to_string()),
                     )
-                },
-            )
+                })?;
+            metrics.record_output(&batch);
+            Ok(batch)
         });
         Ok(Box::pin(RecordBatchStreamAdapter::new(
             self.schema(),
             host_stream,
         )))
+    }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
     }
 }
 

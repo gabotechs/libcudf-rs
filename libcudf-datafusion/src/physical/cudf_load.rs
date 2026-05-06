@@ -1,4 +1,5 @@
 use crate::errors::cudf_to_df;
+use crate::metrics::CuDFBaselineMetrics;
 use crate::planner::CuDFConfig;
 use arrow::array::{Array, RecordBatch, RecordBatchOptions};
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Schema, SchemaRef};
@@ -6,6 +7,8 @@ use datafusion::common::{exec_err, plan_err, ScalarValue};
 use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
+use datafusion::physical_expr_common::metrics::MetricsSet;
+use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures_util::stream::StreamExt;
@@ -19,6 +22,7 @@ pub struct CuDFLoadExec {
     input: Arc<dyn ExecutionPlan>,
 
     properties: Arc<PlanProperties>,
+    metrics: ExecutionPlanMetricsSet,
 }
 
 impl CuDFLoadExec {
@@ -29,7 +33,11 @@ impl CuDFLoadExec {
             input.properties().emission_type,
             input.properties().boundedness,
         ));
-        Ok(Self { input, properties })
+        Ok(Self {
+            input,
+            properties,
+            metrics: ExecutionPlanMetricsSet::new(),
+        })
     }
 }
 
@@ -84,7 +92,10 @@ impl ExecutionPlan for CuDFLoadExec {
         let host_stream = self.input.execute(partition, context)?;
         let target_schema = self.schema();
 
+        let metrics = CuDFBaselineMetrics::new(&self.metrics, partition);
+
         let cudf_stream = host_stream.map(move |batch_or_err| {
+            let _timer_guard = metrics.elapsed_compute().timer();
             let batch = match batch_or_err {
                 Ok(batch) => cast_to_target_schema(batch, Arc::clone(&target_schema))?,
                 Err(err) => return Err(err),
@@ -124,14 +135,18 @@ impl ExecutionPlan for CuDFLoadExec {
                 .into_iter()
                 .map(|c| Arc::new(c.into_view()) as Arc<dyn Array>)
                 .collect();
-            Ok(libcudf_rs::record_batch_with_schema(
-                cudf_cols, &schema, num_rows,
-            )?)
+            let batch = libcudf_rs::record_batch_with_schema(cudf_cols, &schema, num_rows)?;
+            metrics.record_output(&batch);
+            Ok(batch)
         });
         Ok(Box::pin(RecordBatchStreamAdapter::new(
             self.schema(),
             cudf_stream,
         )))
+    }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
     }
 }
 

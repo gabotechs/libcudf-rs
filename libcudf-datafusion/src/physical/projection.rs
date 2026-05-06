@@ -1,5 +1,5 @@
 use crate::expr::expr_to_cudf_expr;
-use crate::physical::record_gpu_poll;
+use crate::metrics::CuDFBaselineMetrics;
 use arrow::array::RecordBatch;
 use arrow::datatypes::SchemaRef;
 use datafusion::config::ConfigOptions;
@@ -9,7 +9,7 @@ use datafusion::physical_expr::equivalence::ProjectionMapping;
 use datafusion::physical_expr::projection::ProjectionExprs;
 use datafusion_physical_plan::execution_plan::CardinalityEffect;
 use datafusion_physical_plan::filter_pushdown::{FilterDescription, FilterPushdownPhase};
-use datafusion_physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
+use datafusion_physical_plan::metrics::{ExecutionPlanMetricsSet, MetricsSet};
 use datafusion_physical_plan::projection::{ProjectionExec, ProjectionExpr};
 use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties, PhysicalExpr,
@@ -116,7 +116,7 @@ impl ExecutionPlan for CuDFProjectionExec {
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
         let input = self.host_exec.input().execute(partition, context)?;
-        let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
+        let baseline_metrics = CuDFBaselineMetrics::new(&self.metrics, partition);
 
         Ok(Box::pin(CuDFProjectionStream {
             schema: self.schema(),
@@ -150,7 +150,7 @@ struct CuDFProjectionStream {
     schema: SchemaRef,
     expr: Vec<Arc<dyn PhysicalExpr>>,
     input: SendableRecordBatchStream,
-    baseline_metrics: BaselineMetrics,
+    baseline_metrics: CuDFBaselineMetrics,
 }
 
 impl CuDFProjectionStream {
@@ -180,7 +180,7 @@ impl Stream for CuDFProjectionStream {
             other => other,
         });
 
-        record_gpu_poll(&self.baseline_metrics, poll)
+        self.baseline_metrics.record_poll(poll)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

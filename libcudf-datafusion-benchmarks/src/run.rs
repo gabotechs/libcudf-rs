@@ -22,8 +22,8 @@ use datafusion::common::utils::get_available_parallelism;
 use datafusion::common::{exec_err, not_impl_err};
 use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::SessionStateBuilder;
+use datafusion::physical_plan::collect;
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
-use datafusion::physical_plan::{collect, displayable};
 use datafusion::prelude::*;
 use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
 use libcudf_datafusion::{CuDFConfig, DevicePoolConfig, PinnedPoolConfig, SessionStateBuilderExt};
@@ -297,21 +297,8 @@ impl RunOpt {
         let plan = ctx.sql(sql).await?;
         let (state, plan) = plan.into_parts();
 
-        if self.debug {
-            println!("=== Logical plan ===\n{plan}\n");
-        }
-
         let plan = state.optimize(&plan)?;
-        if self.debug {
-            println!("=== Optimized logical plan ===\n{plan}\n");
-        }
         let physical_plan = state.create_physical_plan(&plan).await?;
-        if self.debug {
-            println!(
-                "=== Physical plan ===\n{}\n",
-                displayable(physical_plan.as_ref()).indent(true)
-            );
-        }
         let result = collect(physical_plan.clone(), state.task_ctx()).await?;
         if self.debug {
             println!(

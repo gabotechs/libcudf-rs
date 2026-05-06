@@ -5,6 +5,10 @@ use arrow_schema::SchemaRef;
 use datafusion::common::{exec_err, internal_err};
 use datafusion::error::Result;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream};
+use crate::metrics::CuDFBaselineMetrics;
+use datafusion::physical_expr_common::metrics::{
+    ExecutionPlanMetricsSet, MetricBuilder, MetricType, RatioMetrics, Time,
+};
 use datafusion_physical_plan::aggregates::{evaluate_group_by, evaluate_many, AggregateMode};
 use datafusion_physical_plan::PhysicalExpr;
 use futures::{ready, StreamExt};
@@ -19,6 +23,39 @@ enum StreamState {
     ReadingInput,
     ProducingOutput,
     Done,
+}
+
+/// Aggregate-specific timers. Mirrors upstream `GroupByMetrics` from
+/// `datafusion::physical_plan::aggregates::group_values::metrics`: same
+/// field names and same `subset_time` metric keys, so EXPLAIN ANALYZE
+/// looks identical to a CPU `AggregateExec`.
+pub(crate) struct GroupByMetrics {
+    /// Time spent calculating the group IDs from the evaluated grouping columns.
+    pub(crate) time_calculating_group_ids: Time,
+    /// Time spent evaluating the inputs to the aggregate functions.
+    pub(crate) aggregate_arguments_time: Time,
+    /// Time spent evaluating the aggregate expressions themselves
+    /// (e.g. summing all elements and counting number of elements for `avg` aggregate).
+    pub(crate) aggregation_time: Time,
+    /// Time spent emitting the final results and constructing the record batch
+    /// which includes finalizing the grouping expressions
+    /// (e.g. emit from the hash table in case of hash aggregation) and the accumulators.
+    pub(crate) emitting_time: Time,
+}
+
+impl GroupByMetrics {
+    pub(crate) fn new(metrics: &ExecutionPlanMetricsSet, partition: usize) -> Self {
+        Self {
+            time_calculating_group_ids: MetricBuilder::new(metrics)
+                .subset_time("time_calculating_group_ids", partition),
+            aggregate_arguments_time: MetricBuilder::new(metrics)
+                .subset_time("aggregate_arguments_time", partition),
+            aggregation_time: MetricBuilder::new(metrics)
+                .subset_time("aggregation_time", partition),
+            emitting_time: MetricBuilder::new(metrics)
+                .subset_time("emitting_time", partition),
+        }
+    }
 }
 
 /// Maps each aggregation op to its slice of the flat state_columns array.
@@ -50,7 +87,7 @@ struct RunningState {
 /// After all input is consumed, a single output batch is produced by either
 /// finalizing the state (Single/Final modes) or emitting raw state columns
 /// (Partial mode).
-pub struct Stream {
+pub struct CuDFAggregateStream {
     input: SendableRecordBatchStream,
     output_schema: SchemaRef,
     prepared: PreparedCuDFAggregate,
@@ -66,14 +103,23 @@ pub struct Stream {
     chunk_target_bytes: usize,
     /// Aggregated running state (at most G rows), updated after each flush.
     running: Option<RunningState>,
+    /// Output rows/bytes/batches + total elapsed_compute, GPU-safe.
+    baseline_metrics: CuDFBaselineMetrics,
+    /// Per-stage timers, named to match upstream `AggregateExec`.
+    group_by_metrics: GroupByMetrics,
+    /// Partial-mode-only ratio of input rows to output rows. `None` for
+    /// `Single`/`Final*` modes where the metric is not meaningful.
+    reduction_factor: Option<RatioMetrics>,
 }
 
-impl Stream {
+impl CuDFAggregateStream {
     pub fn new(
         input: SendableRecordBatchStream,
         output_schema: SchemaRef,
         prepared: PreparedCuDFAggregate,
         chunk_target_bytes: usize,
+        metrics: &ExecutionPlanMetricsSet,
+        partition: usize,
     ) -> Result<Self> {
         let aggregate_args = prepared
             .aggs
@@ -96,6 +142,14 @@ impl Stream {
             ColumnMapping { ranges }
         };
 
+        let baseline_metrics = CuDFBaselineMetrics::new(metrics, partition);
+        let group_by_metrics = GroupByMetrics::new(metrics, partition);
+        let reduction_factor = (prepared.mode == AggregateMode::Partial).then(|| {
+            MetricBuilder::new(metrics)
+                .with_type(MetricType::SUMMARY)
+                .ratio_metrics("reduction_factor", partition)
+        });
+
         Ok(Self {
             input,
             output_schema,
@@ -107,6 +161,9 @@ impl Stream {
             pending_bytes: 0,
             chunk_target_bytes: chunk_target_bytes.max(1),
             running: None,
+            baseline_metrics,
+            group_by_metrics,
+            reduction_factor,
         })
     }
 
@@ -127,7 +184,10 @@ impl Stream {
         let evaluated_args = self.evaluate_batch_arguments(&chunk)?;
         let requests = self.build_batch_requests(evaluated_args)?;
 
-        let (chunk_keys, chunk_results) = group_by.aggregate(&requests).map_err(cudf_to_df)?;
+        let (chunk_keys, chunk_results) = {
+            let _timer = self.group_by_metrics.aggregation_time.timer();
+            group_by.aggregate(&requests).map_err(cudf_to_df)?
+        };
         let mut chunk_state_columns = chunk_results.into_iter().flatten().collect();
 
         // Normalize partial state column types so they are compatible with merge_requests.
@@ -233,7 +293,10 @@ impl Stream {
 
         // Re-aggregate
         let group_by = CuDFGroupBy::from_table_view(combined_keys.into_view());
-        let (merged_keys, merged_results) = group_by.aggregate(&requests).map_err(cudf_to_df)?;
+        let (merged_keys, merged_results) = {
+            let _timer = self.group_by_metrics.aggregation_time.timer();
+            group_by.aggregate(&requests).map_err(cudf_to_df)?
+        };
         let merged_state_columns = merged_results.into_iter().flatten().collect();
 
         self.running = Some(RunningState {
@@ -250,6 +313,7 @@ impl Stream {
             return Ok(None);
         };
 
+        let _timer = self.group_by_metrics.emitting_time.timer();
         let num_rows = running.keys.num_rows();
         let key_columns = running.keys.into_columns();
         let mut arrays: Vec<ArrayRef> =
@@ -300,6 +364,7 @@ impl Stream {
     /// Evaluate GROUP BY expressions on a batch and wrap the resulting key
     /// columns into a [`CuDFGroupBy`] for GPU aggregation.
     fn evaluate_batch_groups(&self, batch: &RecordBatch) -> Result<CuDFGroupBy> {
+        let _timer = self.group_by_metrics.time_calculating_group_ids.timer();
         let grouping_sets = evaluate_group_by(&self.prepared.group_by, batch)?;
 
         if grouping_sets.len() != 1 {
@@ -328,6 +393,7 @@ impl Stream {
     /// Literal aggregate args, such as `COUNT(*)`, can evaluate to host Arrow arrays.
     /// Upload them here so aggregate requests always receive cuDF column views.
     fn evaluate_batch_arguments(&self, batch: &RecordBatch) -> Result<Vec<Vec<CuDFColumnView>>> {
+        let _timer = self.group_by_metrics.aggregate_arguments_time.timer();
         let evaluated_arguments = evaluate_many(&self.aggregate_args, batch)?;
 
         evaluated_arguments
@@ -372,7 +438,7 @@ fn concat_cudf_batches(batches: &[RecordBatch]) -> Result<RecordBatch> {
     Ok(record_batch_with_schema(cols, &schema, num_rows)?)
 }
 
-impl futures::Stream for Stream {
+impl futures::Stream for CuDFAggregateStream {
     type Item = Result<RecordBatch>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -384,6 +450,12 @@ impl futures::Stream for Stream {
                     }
                     Some(Err(e)) => return Poll::Ready(Some(Err(e))),
                     Some(Ok(batch)) => {
+                        // Don't include `input.poll_next_unpin` wait time here.
+                        let elapsed_compute = self.baseline_metrics.elapsed_compute().clone();
+                        let _timer = elapsed_compute.timer();
+                        if let Some(reduction) = self.reduction_factor.as_ref() {
+                            reduction.add_total(batch.num_rows());
+                        }
                         self.pending_bytes = self
                             .pending_bytes
                             .saturating_add(batch.get_array_memory_size());
@@ -394,11 +466,19 @@ impl futures::Stream for Stream {
                     }
                 },
                 StreamState::ProducingOutput => {
+                    let elapsed_compute = self.baseline_metrics.elapsed_compute().clone();
+                    let _timer = elapsed_compute.timer();
                     self.flush_pending()?;
                     let output = self.build_output()?;
                     self.state = StreamState::Done;
                     return match output {
-                        Some(batch) => Poll::Ready(Some(Ok(batch))),
+                        Some(batch) => {
+                            if let Some(reduction) = self.reduction_factor.as_ref() {
+                                reduction.add_part(batch.num_rows());
+                            }
+                            self.baseline_metrics.record_output(&batch);
+                            Poll::Ready(Some(Ok(batch)))
+                        }
                         None => Poll::Ready(None),
                     };
                 }
@@ -408,7 +488,7 @@ impl futures::Stream for Stream {
     }
 }
 
-impl RecordBatchStream for Stream {
+impl RecordBatchStream for CuDFAggregateStream {
     fn schema(&self) -> SchemaRef {
         self.output_schema.clone()
     }

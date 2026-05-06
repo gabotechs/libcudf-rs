@@ -7,6 +7,7 @@ pub mod aggregate;
 mod decimal;
 mod errors;
 mod expr;
+mod metrics;
 mod physical;
 mod planner;
 

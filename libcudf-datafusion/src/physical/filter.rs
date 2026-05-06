@@ -1,6 +1,6 @@
 use crate::errors::cudf_to_df;
 use crate::expr::{columnar_value_to_cudf, expr_to_cudf_expr};
-use crate::physical::record_gpu_poll;
+use crate::metrics::CuDFBaselineMetrics;
 use arrow::array::{Array, RecordBatch};
 use arrow_schema::{DataType, SchemaRef};
 use datafusion::common::{exec_err, internal_err, Statistics};
@@ -12,7 +12,7 @@ use datafusion_physical_plan::execution_plan::CardinalityEffect;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::filter_pushdown::{FilterDescription, FilterPushdownPhase};
 use datafusion_physical_plan::metrics::{
-    BaselineMetrics, ExecutionPlanMetricsSet, MetricBuilder, MetricType, MetricsSet, RatioMetrics,
+    ExecutionPlanMetricsSet, MetricBuilder, MetricType, MetricsSet, RatioMetrics,
 };
 use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, PhysicalExpr, PlanProperties,
@@ -140,7 +140,7 @@ struct CuDFFilterExecStream {
 /// The metrics for `FilterExec`
 struct CuDFFilterExecMetrics {
     // Common metrics for most operators
-    baseline_metrics: BaselineMetrics,
+    baseline_metrics: CuDFBaselineMetrics,
     // Selectivity of the filter, calculated as output_rows / input_rows
     selectivity: RatioMetrics,
 }
@@ -148,7 +148,7 @@ struct CuDFFilterExecMetrics {
 impl CuDFFilterExecMetrics {
     pub fn new(metrics: &ExecutionPlanMetricsSet, partition: usize) -> Self {
         Self {
-            baseline_metrics: BaselineMetrics::new(metrics, partition),
+            baseline_metrics: CuDFBaselineMetrics::new(metrics, partition),
             selectivity: MetricBuilder::new(metrics)
                 .with_type(MetricType::SUMMARY)
                 .ratio_metrics("selectivity", partition),
@@ -254,7 +254,7 @@ impl Stream for CuDFFilterExecStream {
                 }
             }
         }
-        record_gpu_poll(&self.metrics.baseline_metrics, poll)
+        self.metrics.baseline_metrics.record_poll(poll)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
