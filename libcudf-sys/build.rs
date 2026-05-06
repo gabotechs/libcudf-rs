@@ -31,8 +31,6 @@ static MANIFEST_DIR: LazyLock<PathBuf> = LazyLock::new(manifest_dir_lookup);
 static PROJECT_ROOT: LazyLock<PathBuf> = LazyLock::new(project_root_lookup);
 
 fn main() {
-    println!("cargo:warning=Using prebuilt libcudf from PyPI");
-
     // Step 1: Download prebuilt libraries from PyPI
     let download_pypi_wheels = std::thread::spawn(download_pypi_wheels);
 
@@ -60,14 +58,18 @@ fn main() {
         // Include shared libraries from the CUDA installation present in the system
         .include(CUDA_ROOT.join("include"))
         .define("LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE", None)
+        // Silence noisy diagnostics that originate inside the cuDF / RMM
+        // vendor headers we include. We can't fix them upstream from here,
+        // and they hide real warnings in our own code.
         .flag_if_supported("-Wno-unused-parameter")
-        .flag_if_supported("-Wno-deprecated-declarations");
+        .flag_if_supported("-Wno-deprecated-declarations")
+        .flag_if_supported("-Wno-redundant-move")
+        .flag_if_supported("-Wno-missing-field-initializers");
 
     // Use sccache if available
     if which::which("sccache").is_ok() {
         env::set_var("CXX", "sccache c++");
         env::set_var("CC", "sccache cc");
-        println!("cargo:warning=Using sccache for C++ compilation");
     }
 
     build.compile("libcudf-bridge");
@@ -124,14 +126,15 @@ fn download_pypi_wheels() {
 }
 
 fn download_wheel(lib_name: &str, wheel_url: &str) {
-    let lib_check = OUT_DIR
-        .join(lib_name)
-        .join("lib64")
-        .join(format!("{lib_name}.so"));
-
-    if lib_check.exists() {
-        println!("cargo:warning=Using cached prebuilt {lib_name}");
-        copy_so_files_to_lib_dir(&OUT_DIR.join(lib_name).join("lib64"), &OUT_DIR);
+    // Some wheels ship the shared library as `<name>.so` (e.g. `libcudf.so`,
+    // because the wheel's `name` already starts with `lib`), others ship as
+    // `lib<name>.so` (e.g. `librapids_logger.so` for the `rapids_logger`
+    // wheel). Probe both layouts so the cache check works for either.
+    let lib_dir = OUT_DIR.join(lib_name).join("lib64");
+    if lib_dir.join(format!("{lib_name}.so")).exists()
+        || lib_dir.join(format!("lib{lib_name}.so")).exists()
+    {
+        copy_so_files_to_lib_dir(&lib_dir, &OUT_DIR);
         return;
     }
     let wheel_file = wheel_url.split('/').next_back().unwrap();
@@ -185,7 +188,6 @@ fn download_cudf_headers() -> PathBuf {
     let cudf_src_dir = OUT_DIR.join(format!("cudf-{CUDF_VERSION}"));
 
     if cudf_src_dir.exists() {
-        println!("cargo:warning=Using cached cuDF source headers");
         return cudf_src_dir.join("cpp").join("include");
     }
 
@@ -205,7 +207,6 @@ fn download_nanoarrow_headers() -> PathBuf {
     let nanoarrow_dir = OUT_DIR.join("arrow-nanoarrow");
 
     if nanoarrow_dir.exists() {
-        println!("cargo:warning=Using cached nanoarrow headers");
         return nanoarrow_dir.join("src");
     }
 
@@ -314,7 +315,6 @@ fn download_tarball(shared_dir: &Path, name: &str, url: &str, extracted_name: &s
     let target_dir = shared_dir.join(name);
 
     if target_dir.exists() {
-        println!("cargo:warning=Using cached {name}");
         return target_dir;
     }
 
