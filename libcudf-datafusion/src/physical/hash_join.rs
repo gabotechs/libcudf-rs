@@ -270,26 +270,23 @@ impl ExecutionPlan for CuDFHashJoinExec {
         let output_schema = self.schema();
         let right_schema = self.right.schema();
 
+        let plan = JoinPlan {
+            join_type,
+            left_on,
+            right_on,
+            output_schema: output_schema.clone(),
+            right_schema,
+            projection,
+        };
+
         if matches!(self.partition_mode, PartitionMode::CollectLeft)
-            && matches!(join_type, JoinType::Inner | JoinType::Left | JoinType::Full)
+            && matches!(
+                plan.join_type,
+                JoinType::Inner | JoinType::Left | JoinType::Full
+            )
         {
             let stream = futures::stream::try_unfold(
-                StreamingJoinState {
-                    join_type,
-                    left_fut: Some(left_fut),
-                    left: None,
-                    join: None,
-                    right_stream,
-                    metrics,
-                    left_on,
-                    right_on,
-                    output_schema: output_schema.clone(),
-                    right_schema,
-                    projection,
-                    left_out: None,
-                    right_out: None,
-                    emitted_unmatched_build: false,
-                },
+                StreamingJoinState::new(plan, left_fut, right_stream, metrics),
                 next_streaming_join_batch,
             );
             return Ok(Box::pin(RecordBatchStreamAdapter::new(
@@ -298,50 +295,12 @@ impl ExecutionPlan for CuDFHashJoinExec {
             )));
         }
 
-        let stream = futures::stream::once(async move {
-            let left = left_fut.await?;
-            let right_batches: Vec<RecordBatch> = {
-                let _timer = metrics.probe_collect_time.timer();
-                let batches: Vec<RecordBatch> = right_stream.try_collect().await?;
-                metrics.record_probe_input(&batches);
-                batches
-            };
-
-            let right_empty =
-                right_batches.is_empty() || right_batches.iter().all(|b| b.num_rows() == 0);
-
-            // Inner join with no right rows: no matches possible, emit nothing.
-            if matches!(join_type, JoinType::Inner) && right_empty {
-                return Ok(None);
-            }
-
-            // For Left/Full joins with no right batches, synthesize an empty right table
-            // from the child schema so the join kernel returns all left rows with null
-            // right columns.
-            let right = if right_batches.is_empty() {
-                let empty = RecordBatch::new_empty(right_schema);
-                Arc::new(CuDFTable::from_arrow_host(empty).map_err(cudf_to_df)?)
-            } else {
-                Arc::new(batches_to_table(&right_batches).map_err(cudf_to_df)?)
-            };
-
-            let result = {
-                let _timer = metrics.join_time.timer();
-                perform_join(
-                    left,
-                    right,
-                    join_type,
-                    &left_on,
-                    &right_on,
-                    &output_schema,
-                    &projection,
-                )
-            };
-            if let Ok(Some(batch)) = &result {
-                metrics.baseline.record_output(batch);
-            }
-            result
-        })
+        let stream = futures::stream::once(execute_non_streaming_join(
+            left_fut,
+            right_stream,
+            plan,
+            metrics,
+        ))
         .filter_map(|result| async move {
             match result {
                 Ok(Some(batch)) => Some(Ok(batch)),
@@ -381,27 +340,64 @@ fn collect_shared(
     })
 }
 
-struct StreamingJoinState {
+/// Immutable join metadata shared by streaming and non-streaming execution.
+struct JoinPlan {
     join_type: JoinType,
-    left_fut: Option<SharedTableFuture>,
-    left: Option<Arc<CuDFTable>>,
-    join: Option<CuDFHashJoin>,
-    right_stream: SendableRecordBatchStream,
-    metrics: CuDFHashJoinMetrics,
     left_on: Vec<usize>,
     right_on: Vec<usize>,
     output_schema: SchemaRef,
     right_schema: SchemaRef,
     projection: Option<Vec<usize>>,
+}
+
+/// Build-side state created once the collected left table is available.
+///
+/// `left_out` and `right_out` are the split projection maps used when probing
+/// right-side batches and when finalizing unmatched build rows.
+struct StreamingBuildSide {
+    left: Arc<CuDFTable>,
+    join: CuDFHashJoin,
     left_out: Option<Vec<usize>>,
     right_out: Option<Vec<usize>>,
+}
+
+/// Lifecycle state for streamed `CollectLeft` joins.
+///
+/// The left side is materialized lazily on the first poll. Right-side batches
+/// are then probed one at a time; `Left` and `Full` emit unmatched build rows
+/// once at end of stream.
+struct StreamingJoinState {
+    plan: JoinPlan,
+    left_fut: Option<SharedTableFuture>,
+    build: Option<StreamingBuildSide>,
+    right_stream: SendableRecordBatchStream,
+    metrics: CuDFHashJoinMetrics,
     emitted_unmatched_build: bool,
 }
 
+impl StreamingJoinState {
+    fn new(
+        plan: JoinPlan,
+        left_fut: SharedTableFuture,
+        right_stream: SendableRecordBatchStream,
+        metrics: CuDFHashJoinMetrics,
+    ) -> Self {
+        Self {
+            plan,
+            left_fut: Some(left_fut),
+            build: None,
+            right_stream,
+            metrics,
+            emitted_unmatched_build: false,
+        }
+    }
+}
+
+/// Initialize the collected build side exactly once for the streaming path.
 async fn ensure_streaming_join_ready(
     state: &mut StreamingJoinState,
 ) -> Result<(), DataFusionError> {
-    if state.join.is_some() {
+    if state.build.is_some() {
         return Ok(());
     }
 
@@ -411,20 +407,26 @@ async fn ensure_streaming_join_ready(
         .expect("left future should be present before first streamed join batch")
         .await?;
     let left_view = Arc::clone(&left).view();
-    let (left_out, right_out) = split_join_projection(&state.projection, left_view.num_columns());
+    let (left_out, right_out) =
+        split_join_projection(&state.plan.projection, left_view.num_columns());
     let join = {
         let _timer = state.metrics.build_time.timer();
-        CuDFHashJoin::try_new(&left_view, &state.left_on, CuDFNullEquality::Unequal)
+        CuDFHashJoin::try_new(&left_view, &state.plan.left_on, CuDFNullEquality::Unequal)
             .map_err(cudf_to_df)?
     };
 
-    state.left = Some(left);
-    state.join = Some(join);
-    state.left_out = left_out;
-    state.right_out = right_out;
+    state.build = Some(StreamingBuildSide {
+        left,
+        join,
+        left_out,
+        right_out,
+    });
     Ok(())
 }
 
+/// Produce the next streamed output batch from one right-side input batch.
+///
+/// For `Left` and `Full`, EOF triggers one final unmatched-build batch.
 async fn next_streaming_join_batch(
     mut state: StreamingJoinState,
 ) -> Result<Option<(RecordBatch, StreamingJoinState)>, DataFusionError> {
@@ -436,7 +438,7 @@ async fn next_streaming_join_batch(
             state.right_stream.next().await.transpose()?
         };
         let Some(right_batch) = right_batch else {
-            if matches!(state.join_type, JoinType::Left | JoinType::Full)
+            if matches!(state.plan.join_type, JoinType::Left | JoinType::Full)
                 && !state.emitted_unmatched_build
             {
                 state.emitted_unmatched_build = true;
@@ -462,7 +464,7 @@ async fn next_streaming_join_batch(
         let result = probe_streaming_join(&mut state, right)?;
         let batch = result
             .into_view()
-            .to_record_batch_with_schema(&state.output_schema)
+            .to_record_batch_with_schema(&state.plan.output_schema)
             .map_err(cudf_to_df)?;
 
         if batch.num_rows() == 0 {
@@ -474,57 +476,44 @@ async fn next_streaming_join_batch(
     }
 }
 
+/// Probe one right-side batch against the reusable build-side hash table.
 fn probe_streaming_join(
     state: &mut StreamingJoinState,
     right: Arc<CuDFTable>,
 ) -> Result<CuDFTable, DataFusionError> {
-    let left = Arc::clone(
-        state
-            .left
-            .as_ref()
-            .expect("left table should be initialized before probing"),
-    );
-    let left_view = left.view();
+    let build = state
+        .build
+        .as_mut()
+        .expect("build side should be initialized before probing");
+    let left_view = Arc::clone(&build.left).view();
     let right_view = right.view();
     let _timer = state.metrics.join_time.timer();
 
-    let result = match state.join_type {
-        JoinType::Inner => state
-            .join
-            .as_ref()
-            .expect("hash join should be initialized before probing")
-            .inner_join(
-                &right_view,
-                &state.right_on,
-                &left_view,
-                &right_view,
-                state.left_out.as_deref(),
-                state.right_out.as_deref(),
-            ),
-        JoinType::Left => state
-            .join
-            .as_mut()
-            .expect("hash join should be initialized before probing")
-            .inner_join_and_record_matches(
-                &right_view,
-                &state.right_on,
-                &left_view,
-                &right_view,
-                state.left_out.as_deref(),
-                state.right_out.as_deref(),
-            ),
-        JoinType::Full => state
-            .join
-            .as_mut()
-            .expect("hash join should be initialized before probing")
-            .probe_left_join_and_record_matches(
-                &right_view,
-                &state.right_on,
-                &left_view,
-                &right_view,
-                state.left_out.as_deref(),
-                state.right_out.as_deref(),
-            ),
+    let result = match state.plan.join_type {
+        JoinType::Inner => build.join.inner_join(
+            &right_view,
+            &state.plan.right_on,
+            &left_view,
+            &right_view,
+            build.left_out.as_deref(),
+            build.right_out.as_deref(),
+        ),
+        JoinType::Left => build.join.inner_join_and_record_matches(
+            &right_view,
+            &state.plan.right_on,
+            &left_view,
+            &right_view,
+            build.left_out.as_deref(),
+            build.right_out.as_deref(),
+        ),
+        JoinType::Full => build.join.probe_left_join_and_record_matches(
+            &right_view,
+            &state.plan.right_on,
+            &left_view,
+            &right_view,
+            build.left_out.as_deref(),
+            build.right_out.as_deref(),
+        ),
         other => {
             return Err(DataFusionError::NotImplemented(format!(
                 "CuDFHashJoinExec: unsupported streaming join type {other:?}"
@@ -535,43 +524,91 @@ fn probe_streaming_join(
     result.map_err(cudf_to_df)
 }
 
+/// Emit collected-left rows that never matched any streamed right batch.
 fn unmatched_build_batch(
     state: &StreamingJoinState,
 ) -> Result<Option<RecordBatch>, DataFusionError> {
-    let left = state
-        .left
+    let build = state
+        .build
         .as_ref()
-        .expect("left table should be initialized before finalizing");
-    let join = state
-        .join
-        .as_ref()
-        .expect("hash join should be initialized before finalizing");
-    let left_view = Arc::clone(left).view();
+        .expect("build side should be initialized before finalizing");
+    let left_view = Arc::clone(&build.left).view();
     let empty_right =
-        CuDFTable::from_arrow_host(RecordBatch::new_empty(Arc::clone(&state.right_schema)))
+        CuDFTable::from_arrow_host(RecordBatch::new_empty(Arc::clone(&state.plan.right_schema)))
             .map_err(cudf_to_df)?;
     let right_view = empty_right.into_view();
 
     let result = {
         let _timer = state.metrics.join_time.timer();
-        join.unmatched_build_rows(
-            &left_view,
-            &right_view,
-            state.left_out.as_deref(),
-            state.right_out.as_deref(),
-        )
-        .map_err(cudf_to_df)?
+        build
+            .join
+            .unmatched_build_rows(
+                &left_view,
+                &right_view,
+                build.left_out.as_deref(),
+                build.right_out.as_deref(),
+            )
+            .map_err(cudf_to_df)?
     };
 
     let batch = result
         .into_view()
-        .to_record_batch_with_schema(&state.output_schema)
+        .to_record_batch_with_schema(&state.plan.output_schema)
         .map_err(cudf_to_df)?;
     if batch.num_rows() == 0 {
         Ok(None)
     } else {
         Ok(Some(batch))
     }
+}
+
+/// Execute joins that cannot use the streamed `CollectLeft` path.
+///
+/// Partitioned and Auto modes still need this collect-both-sides path because
+/// they do not share one global left/build table across right-side partitions.
+async fn execute_non_streaming_join(
+    left_fut: SharedTableFuture,
+    right_stream: SendableRecordBatchStream,
+    plan: JoinPlan,
+    metrics: CuDFHashJoinMetrics,
+) -> Result<Option<RecordBatch>, DataFusionError> {
+    let left = left_fut.await?;
+    let right_batches: Vec<RecordBatch> = {
+        let _timer = metrics.probe_collect_time.timer();
+        let batches: Vec<RecordBatch> = right_stream.try_collect().await?;
+        metrics.record_probe_input(&batches);
+        batches
+    };
+
+    let right_empty = right_batches.is_empty() || right_batches.iter().all(|b| b.num_rows() == 0);
+
+    if matches!(plan.join_type, JoinType::Inner) && right_empty {
+        return Ok(None);
+    }
+
+    let right = if right_batches.is_empty() {
+        let empty = RecordBatch::new_empty(Arc::clone(&plan.right_schema));
+        Arc::new(CuDFTable::from_arrow_host(empty).map_err(cudf_to_df)?)
+    } else {
+        Arc::new(batches_to_table(&right_batches).map_err(cudf_to_df)?)
+    };
+
+    let result = {
+        let _timer = metrics.join_time.timer();
+        perform_join(
+            left,
+            right,
+            plan.join_type,
+            &plan.left_on,
+            &plan.right_on,
+            &plan.output_schema,
+            &plan.projection,
+        )
+    };
+    if let Ok(Some(batch)) = &result {
+        metrics.baseline.record_output(batch);
+    }
+    result
 }
 
 #[derive(Clone)]
