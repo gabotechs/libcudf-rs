@@ -41,6 +41,14 @@ pub struct HarnessOpt {
     #[structopt(long = "gpu-execution-batch-size")]
     gpu_execution_batch_size: Option<usize>,
 
+    /// Target input bytes accumulated by each cuDF aggregate chunk before flushing.
+    #[structopt(long = "cudf-aggregate-chunk-target-bytes")]
+    aggregate_chunk_target_bytes: Option<usize>,
+
+    /// Maximum RMM device-memory pool size for GPU runs.
+    #[structopt(long = "cudf-device-pool-max-bytes")]
+    device_pool_max_bytes: Option<usize>,
+
     /// Run each query once before timed iterations.
     #[structopt(long)]
     warmup: bool,
@@ -77,6 +85,8 @@ struct HarnessMetadata {
     partitions: Option<usize>,
     cpu_execution_batch_size: Option<usize>,
     gpu_execution_batch_size: Option<usize>,
+    device_pool_max_bytes: Option<usize>,
+    aggregate_chunk_target_bytes: Option<usize>,
     warmup: bool,
     plan_queries: Vec<String>,
     profile_queries: Vec<String>,
@@ -169,6 +179,8 @@ impl HarnessOpt {
             partitions: self.partitions,
             cpu_execution_batch_size,
             gpu_execution_batch_size,
+            device_pool_max_bytes: self.device_pool_max_bytes,
+            aggregate_chunk_target_bytes: self.aggregate_chunk_target_bytes,
             warmup: self.warmup,
             plan_queries: self.plan_query.clone(),
             profile_queries: self.profile_query.clone(),
@@ -231,6 +243,14 @@ impl HarnessOpt {
         }
         if gpu {
             args.push("--gpu".to_string());
+            if let Some(bytes) = self.device_pool_max_bytes {
+                args.push("--cudf-device-pool-max-bytes".to_string());
+                args.push(bytes.to_string());
+            }
+            if let Some(bytes) = self.aggregate_chunk_target_bytes {
+                args.push("--cudf-aggregate-chunk-target-bytes".to_string());
+                args.push(bytes.to_string());
+            }
         }
         if debug {
             args.push("--debug".to_string());
@@ -411,6 +431,14 @@ fn write_report(run_dir: &Path, metadata: &HarnessMetadata) -> Result<()> {
     report.push_str(&format!(
         "- gpu execution batch size: `{:?}`\n",
         metadata.gpu_execution_batch_size
+    ));
+    report.push_str(&format!(
+        "- cuDF device pool max bytes: `{:?}`\n",
+        metadata.device_pool_max_bytes
+    ));
+    report.push_str(&format!(
+        "- cuDF aggregate chunk target bytes: `{:?}`\n",
+        metadata.aggregate_chunk_target_bytes
     ));
     report.push_str(&format!("- warmup: `{}`\n\n", metadata.warmup));
 
@@ -835,6 +863,8 @@ mod tests {
             partitions: Some(4),
             batch_size,
             gpu_execution_batch_size,
+            device_pool_max_bytes: None,
+            aggregate_chunk_target_bytes: None,
             warmup: false,
             output: PathBuf::from("/tmp/bench-results"),
             run_id: None,

@@ -1,4 +1,5 @@
 use crate::expr::expr_to_cudf_expr;
+use crate::planner::CuDFConfig;
 use arrow_schema::{DataType, Schema, SchemaRef};
 use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -193,8 +194,22 @@ impl ExecutionPlan for CuDFAggregateExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
+        let aggregate_chunk_target_bytes = context
+            .session_config()
+            .options()
+            .extensions
+            .get::<CuDFConfig>()
+            .map_or_else(
+                || CuDFConfig::default().resolved_aggregate_chunk_target_bytes(),
+                CuDFConfig::resolved_aggregate_chunk_target_bytes,
+            );
         let input = self.input.execute(partition, context)?;
-        let stream = stream::Stream::new(input, self.schema(), self.prepared.clone())?;
+        let stream = stream::Stream::new(
+            input,
+            self.schema(),
+            self.prepared.clone(),
+            aggregate_chunk_target_bytes,
+        )?;
         Ok(Box::pin(stream))
     }
 }
@@ -333,12 +348,16 @@ mod test {
     use crate::aggregate::CuDFAggregateExec;
     use crate::assert_snapshot;
     use crate::physical::{CuDFLoadExec, CuDFUnloadExec};
-    use arrow::array::record_batch;
+    use crate::CuDFConfig;
+    use arrow::array::{record_batch, Array, Int64Array, StringArray, StringViewArray};
+    use arrow::record_batch::RecordBatch;
     use arrow::util::pretty::pretty_format_batches;
     use arrow_schema::SchemaRef;
     use datafusion::common::ScalarValue;
+    use datafusion::execution::runtime_env::RuntimeEnv;
     use datafusion::execution::TaskContext;
     use datafusion::physical_expr::aggregate::AggregateExprBuilder;
+    use datafusion::prelude::SessionConfig;
     use datafusion_expr::AggregateUDF;
     use datafusion_physical_plan::aggregates::{AggregateMode, PhysicalGroupBy};
     use datafusion_physical_plan::expressions::{col, Literal};
@@ -346,20 +365,33 @@ mod test {
     use datafusion_physical_plan::ExecutionPlan;
     use datafusion_physical_plan::PhysicalExpr;
     use futures_util::TryStreamExt;
+    use std::collections::HashMap;
     use std::error::Error;
     use std::sync::Arc;
 
-    /// Run a GROUP BY aggregation through the full GPU pipeline:
-    /// TestMemoryExec -> CuDFLoadExec -> CuDFAggregateExec -> CuDFUnloadExec.
-    ///
-    /// Sends 3 identical batches (to exercise cross-batch rolling merge) and
-    /// groups by column "c". `build_args` receives the batch schema and returns
-    /// the argument expressions for the aggregate function.
     async fn run_group_by_test(
         agg_fn: Arc<AggregateUDF>,
         build_args: impl FnOnce(&SchemaRef) -> datafusion::error::Result<Vec<Arc<dyn PhysicalExpr>>>,
         agg_alias: &str,
     ) -> Result<String, Box<dyn Error>> {
+        let batches = collect_group_by_test(
+            agg_fn,
+            build_args,
+            agg_alias,
+            Arc::new(TaskContext::default()),
+        )
+        .await?;
+
+        let output = pretty_format_batches(&batches)?.to_string();
+        Ok(output)
+    }
+
+    async fn collect_group_by_test(
+        agg_fn: Arc<AggregateUDF>,
+        build_args: impl FnOnce(&SchemaRef) -> datafusion::error::Result<Vec<Arc<dyn PhysicalExpr>>>,
+        agg_alias: &str,
+        task: Arc<TaskContext>,
+    ) -> Result<Vec<RecordBatch>, Box<dyn Error>> {
         let batch = record_batch!(
             ("a", Int64, [1, 4, 3]),
             ("b", Float64, [Some(4.0), None, Some(5.0)]),
@@ -393,13 +425,10 @@ mod test {
 
         let unload = CuDFUnloadExec::new(Arc::new(aggregate));
 
-        let task = Arc::new(TaskContext::default());
-
         let result = unload.execute(0, task)?;
         let batches = result.try_collect::<Vec<_>>().await?;
 
-        let output = pretty_format_batches(&batches)?.to_string();
-        Ok(output)
+        Ok(batches)
     }
 
     #[tokio::test]
@@ -415,6 +444,26 @@ mod test {
         | hello | 15     |
         +-------+--------+
         ");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_group_by_sum_with_tiny_aggregate_chunk() -> Result<(), Box<dyn Error>> {
+        let batches = collect_group_by_test(
+            sum(),
+            |s| Ok(vec![col("a", s)?]),
+            "SUM(a)",
+            task_ctx_with_aggregate_chunk_target_bytes(1),
+        )
+        .await?;
+
+        let mut rows = grouped_i64_rows(&batches);
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![("hello".to_string(), 15), ("world".to_string(), 9)]
+        );
 
         Ok(())
     }
@@ -499,6 +548,46 @@ mod test {
         ");
 
         Ok(())
+    }
+
+    fn task_ctx_with_aggregate_chunk_target_bytes(bytes: usize) -> Arc<TaskContext> {
+        let mut cudf_config = CuDFConfig::default();
+        cudf_config.aggregate_chunk_target_bytes = Some(bytes);
+        let session_config = SessionConfig::new().with_option_extension(cudf_config);
+
+        Arc::new(TaskContext::new(
+            None,
+            "aggregate-test".to_string(),
+            session_config,
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            Arc::new(RuntimeEnv::default()),
+        ))
+    }
+
+    fn grouped_i64_rows(batches: &[RecordBatch]) -> Vec<(String, i64)> {
+        assert_eq!(batches.len(), 1, "expected one aggregate output batch");
+        let batch = &batches[0];
+        let sums = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("expected int64 sums");
+
+        (0..batch.num_rows())
+            .map(|i| (string_value(batch.column(0).as_ref(), i), sums.value(i)))
+            .collect()
+    }
+
+    fn string_value(array: &dyn Array, row: usize) -> String {
+        if let Some(array) = array.as_any().downcast_ref::<StringArray>() {
+            return array.value(row).to_string();
+        }
+        if let Some(array) = array.as_any().downcast_ref::<StringViewArray>() {
+            return array.value(row).to_string();
+        }
+        panic!("expected string group keys, got {}", array.data_type());
     }
 }
 
