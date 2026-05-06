@@ -9,6 +9,7 @@ use datafusion::config::ConfigOptions;
 use datafusion::error::DataFusionError;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion_physical_plan::aggregates::AggregateExec;
+use datafusion_physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::joins::HashJoinExec;
 use datafusion_physical_plan::projection::ProjectionExec;
@@ -77,7 +78,11 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
                 let child_is_cudf = is_cudf_plan(child.as_ref());
 
                 if plan_is_cudf && !child_is_cudf && !plan.as_any().is::<CuDFLoadExec>() {
-                    new_children.push(Arc::new(CuDFLoadExec::try_new(Arc::clone(child))?));
+                    if let Some(cp) = child.as_any().downcast_ref::<CoalescePartitionsExec>() {
+                        new_children.push(Arc::new(CuDFLoadExec::try_new(Arc::clone(cp.input()))?));
+                    } else {
+                        new_children.push(Arc::new(CuDFLoadExec::try_new(Arc::clone(child))?));
+                    }
                     changed = true;
                     continue;
                 }
