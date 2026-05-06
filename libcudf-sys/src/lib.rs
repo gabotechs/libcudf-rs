@@ -1035,11 +1035,8 @@ unsafe impl Send for ffi::GroupBy {}
 /// SAFETY: GroupBy configuration can be accessed from multiple threads.
 unsafe impl Sync for ffi::GroupBy {}
 
-/// SAFETY: cuDF hash_join supports repeated probe calls after construction.
+/// SAFETY: HashJoin owns its cuDF state and is only moved across threads.
 unsafe impl Send for ffi::HashJoin {}
-
-/// SAFETY: cuDF hash_join probe methods take shared references and are safe to share.
-unsafe impl Sync for ffi::HashJoin {}
 
 /// SAFETY: AggregationRequest configuration can be sent between threads.
 unsafe impl Send for ffi::AggregationRequest {}
