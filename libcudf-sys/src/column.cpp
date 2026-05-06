@@ -12,6 +12,9 @@
 #include <cudf/interop.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/unary.hpp>
+#include <cudf/strings/strings_column_view.hpp>
+#include <cudf/utilities/default_stream.hpp>
+#include <cudf/utilities/traits.hpp>
 
 #include <memory>
 #include <nanoarrow/nanoarrow.h>
@@ -96,17 +99,18 @@ namespace libcudf_bridge {
 
     // Helper functions for memory size calculations
     size_t calculate_buffer_memory_size(const cudf::column_view& view) {
-        // Calculate size based on data type
-        size_t data_size = cudf::size_of(view.type()) * view.size();
-
-        // For strings add offset buffer size
-        if (view.type().id() == cudf::type_id::STRING) {
-            data_size += (view.size() + 1) * sizeof(int32_t);
-        }
-
-        // For nested types recursively add child buffer sizes
-        for (cudf::size_type i = 0; i < view.num_children(); ++i) {
-            data_size += calculate_buffer_memory_size(view.child(i));
+        size_t data_size = 0;
+        if (cudf::is_fixed_width(view.type())) {
+            data_size = cudf::size_of(view.type()) * view.size();
+        } else if (view.type().id() == cudf::type_id::STRING) {
+            auto const strings = cudf::strings_column_view(view);
+            data_size = ((view.size() + 1) * sizeof(cudf::size_type)) +
+                        static_cast<size_t>(strings.chars_size(cudf::get_default_stream()));
+        } else {
+            // For nested types recursively add child buffer sizes.
+            for (cudf::size_type i = 0; i < view.num_children(); ++i) {
+                data_size += calculate_buffer_memory_size(view.child(i));
+            }
         }
 
         return data_size;

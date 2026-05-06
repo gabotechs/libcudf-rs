@@ -242,7 +242,7 @@ unsafe impl Array for CuDFColumnView {
 mod tests {
     use super::*;
     use crate::CuDFColumn;
-    use arrow::array::Int32Array;
+    use arrow::array::{Int32Array, StringArray};
 
     #[test]
     fn test_column_view_clone() -> Result<(), Box<dyn std::error::Error>> {
@@ -262,6 +262,19 @@ mod tests {
             original_ptr, cloned_ptr,
             "Cloned view should point to the same GPU memory"
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_string_column_view_memory_size() -> Result<(), Box<dyn std::error::Error>> {
+        let array = StringArray::from(vec!["hello", "world", ""]);
+        let column = CuDFColumn::from_arrow_host(&array)?.into_view();
+
+        let size = column.get_array_memory_size();
+        let min_offsets_and_chars =
+            (array.len() + 1) * std::mem::size_of::<i32>() + array.value_data().len();
+        assert!(size >= min_offsets_and_chars);
 
         Ok(())
     }
