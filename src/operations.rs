@@ -42,6 +42,16 @@ pub fn gather(table: &CuDFTableView, gather_map: &CuDFColumnView) -> Result<CuDF
     Ok(CuDFTable::from_inner(inner))
 }
 
+/// Same as [`gather`] but issues the work on the given CUDA stream.
+pub fn gather_on(
+    table: &CuDFTableView,
+    gather_map: &CuDFColumnView,
+    stream: &crate::CuDFStream,
+) -> Result<CuDFTable, CuDFError> {
+    let inner = ffi::gather_on(table.inner(), gather_map.inner(), stream.inner())?;
+    Ok(CuDFTable::from_inner(inner))
+}
+
 /// Filter a table using a boolean mask
 ///
 /// Returns a new table containing only the rows where the corresponding
@@ -90,6 +100,16 @@ pub fn apply_boolean_mask(
     boolean_mask: &CuDFColumnView,
 ) -> Result<CuDFTable, CuDFError> {
     let inner = ffi::apply_boolean_mask(table.inner(), boolean_mask.inner())?;
+    Ok(CuDFTable::from_inner(inner))
+}
+
+/// Same as [`apply_boolean_mask`] but issues the work on the given CUDA stream.
+pub fn apply_boolean_mask_on(
+    table: &CuDFTableView,
+    boolean_mask: &CuDFColumnView,
+    stream: &crate::CuDFStream,
+) -> Result<CuDFTable, CuDFError> {
+    let inner = ffi::apply_boolean_mask_on(table.inner(), boolean_mask.inner(), stream.inner())?;
     Ok(CuDFTable::from_inner(inner))
 }
 
@@ -161,6 +181,22 @@ pub fn cast(column: &CuDFColumnView, target_type: &DataType) -> Result<CuDFColum
         )))
     })?;
     let result = ffi::cast_column(column.inner(), &cudf_dt)?;
+    Ok(CuDFColumn::new(result))
+}
+
+/// Same as [`cast`] but issues the work on the given CUDA stream.
+pub fn cast_on(
+    column: &CuDFColumnView,
+    target_type: &DataType,
+    stream: &crate::CuDFStream,
+) -> Result<CuDFColumn, CuDFError> {
+    let cudf_dt = arrow_type_to_cudf_data_type(target_type).ok_or_else(|| {
+        CuDFError::ArrowError(ArrowError::NotYetImplemented(format!(
+            "Arrow type {} not supported in cuDF cast",
+            target_type
+        )))
+    })?;
+    let result = ffi::cast_column_on(column.inner(), &cudf_dt, stream.inner())?;
     Ok(CuDFColumn::new(result))
 }
 

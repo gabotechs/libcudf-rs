@@ -187,6 +187,13 @@ pub mod ffi {
         /// Opaque non-owning wrapper for an RMM device async resource reference.
         type DeviceAsyncResourceRef;
 
+        /// Performs grouped aggregations using an explicit CUDA stream.
+        fn aggregate_on(
+            self: &GroupBy,
+            requests: &AggregationRequests,
+            stream: &CudaStream,
+        ) -> Result<UniquePtr<GroupByResult>>;
+
         /// Request for groupby aggregation(s) to perform on a column
         ///
         /// The group membership of each value is determined by the corresponding row
@@ -293,6 +300,13 @@ pub mod ffi {
         /// `out_array_ptr` must point to a valid `ArrowArray`. Caller must release it.
         unsafe fn to_arrow_array(self: &TableView, out_array_ptr: *mut u8);
 
+        /// Get the table view data as an FFI ArrowArray using an explicit CUDA stream.
+        ///
+        /// # Safety
+        ///
+        /// `out_array_ptr` must point to a valid `ArrowArray`. Caller must release it.
+        unsafe fn to_arrow_array_on(self: &TableView, out_array_ptr: *mut u8, stream: &CudaStream);
+
         /// Clone this table view
         ///
         /// Note: Cannot implement `Clone` trait due to cxx FFI limitations.
@@ -320,6 +334,13 @@ pub mod ffi {
         ///
         /// `out_array_ptr` must point to a valid `ArrowArray`. Caller must release it.
         unsafe fn to_arrow_array(self: &ColumnView, out_array_ptr: *mut u8);
+
+        /// Get the column view data as an FFI ArrowArray using an explicit CUDA stream.
+        ///
+        /// # Safety
+        ///
+        /// `out_array_ptr` must point to a valid `ArrowArray`. Caller must release it.
+        unsafe fn to_arrow_array_on(self: &ColumnView, out_array_ptr: *mut u8, stream: &CudaStream);
 
         /// Get the raw device pointer to the column view's data
         fn data_ptr(self: &ColumnView) -> u64;
@@ -395,8 +416,20 @@ pub mod ffi {
         /// Create a table from vertically concatenating TableView together
         fn concat_table_views(views: &[UniquePtr<TableView>]) -> Result<UniquePtr<Table>>;
 
+        /// Concatenate TableViews using an explicit CUDA stream.
+        fn concat_table_views_on(
+            views: &[UniquePtr<TableView>],
+            stream: &CudaStream,
+        ) -> Result<UniquePtr<Table>>;
+
         /// Create a table from vertically concatenating ColumnView together
         fn concat_column_views(views: &[UniquePtr<ColumnView>]) -> Result<UniquePtr<Column>>;
+
+        /// Concatenate ColumnViews using an explicit CUDA stream.
+        fn concat_column_views_on(
+            views: &[UniquePtr<ColumnView>],
+            stream: &CudaStream,
+        ) -> Result<UniquePtr<Column>>;
 
         /// Create a column by repeating a scalar value.
         fn make_column_from_scalar(scalar: &Scalar, size: usize) -> Result<UniquePtr<Column>>;
@@ -429,17 +462,39 @@ pub mod ffi {
             boolean_mask: &ColumnView,
         ) -> Result<UniquePtr<Table>>;
 
+        /// Filters a table using a boolean mask on an explicit CUDA stream.
+        fn apply_boolean_mask_on(
+            table: &TableView,
+            boolean_mask: &ColumnView,
+            stream: &CudaStream,
+        ) -> Result<UniquePtr<Table>>;
+
         /// Gather rows from a table based on a gather map (column of indices)
         ///
         /// Reorders the rows of `source_table` according to the indices in `gather_map`.
         /// The resulting table will have the same number of rows as `gather_map` has elements.
         fn gather(source_table: &TableView, gather_map: &ColumnView) -> Result<UniquePtr<Table>>;
 
+        /// Gather rows from a table on an explicit CUDA stream.
+        fn gather_on(
+            source_table: &TableView,
+            gather_map: &ColumnView,
+            stream: &CudaStream,
+        ) -> Result<UniquePtr<Table>>;
+
         /// Gather rows from a table using an explicit out-of-bounds policy.
         fn gather_with_policy(
             source_table: &TableView,
             gather_map: &ColumnView,
             out_of_bounds_policy: i32,
+        ) -> Result<UniquePtr<Table>>;
+
+        /// Gather rows using an explicit out-of-bounds policy and CUDA stream.
+        fn gather_with_policy_on(
+            source_table: &TableView,
+            gather_map: &ColumnView,
+            out_of_bounds_policy: i32,
+            stream: &CudaStream,
         ) -> Result<UniquePtr<Table>>;
 
         /// Scatter scalar rows into a copy of a target table.
@@ -480,6 +535,15 @@ pub mod ffi {
             output_type: &DataType,
         ) -> Result<UniquePtr<Column>>;
 
+        /// Perform a binary operation between two columns on an explicit CUDA stream.
+        fn binary_operation_col_col_on(
+            lhs: &ColumnView,
+            rhs: &ColumnView,
+            op: i32,
+            output_type: &DataType,
+            stream: &CudaStream,
+        ) -> Result<UniquePtr<Column>>;
+
         /// Perform a binary operation between a column and a scalar
         ///
         /// Returns a new column containing the result of `op(lhs[i], rhs)` for all elements.
@@ -491,6 +555,15 @@ pub mod ffi {
             output_type: &DataType,
         ) -> Result<UniquePtr<Column>>;
 
+        /// Perform a binary operation between a column and scalar on an explicit CUDA stream.
+        fn binary_operation_col_scalar_on(
+            lhs: &ColumnView,
+            rhs: &Scalar,
+            op: i32,
+            output_type: &DataType,
+            stream: &CudaStream,
+        ) -> Result<UniquePtr<Column>>;
+
         /// Perform a binary operation between a scalar and a column
         ///
         /// Returns a new column containing the result of `op(lhs, rhs[i])` for all elements.
@@ -500,6 +573,15 @@ pub mod ffi {
             rhs: &ColumnView,
             op: i32,
             output_type: &DataType,
+        ) -> Result<UniquePtr<Column>>;
+
+        /// Perform a binary operation between a scalar and column on an explicit CUDA stream.
+        fn binary_operation_scalar_col_on(
+            lhs: &Scalar,
+            rhs: &ColumnView,
+            op: i32,
+            output_type: &DataType,
+            stream: &CudaStream,
         ) -> Result<UniquePtr<Column>>;
 
         // Sorting operations - direct cuDF mappings
@@ -522,6 +604,14 @@ pub mod ffi {
             null_precedence: &[i32],
         ) -> Result<UniquePtr<Table>>;
 
+        /// Stable sort a table on an explicit CUDA stream.
+        fn stable_sort_table_on(
+            input: &TableView,
+            column_order: &[i32],
+            null_precedence: &[i32],
+            stream: &CudaStream,
+        ) -> Result<UniquePtr<Table>>;
+
         /// Get the indices that would sort a table
         ///
         /// Returns a column of indices that would produce a sorted table if used to reorder the rows.
@@ -538,6 +628,14 @@ pub mod ffi {
             input: &TableView,
             column_order: &[i32],
             null_precedence: &[i32],
+        ) -> Result<UniquePtr<Column>>;
+
+        /// Get stable sorted row indices on an explicit CUDA stream.
+        fn stable_sorted_order_on(
+            input: &TableView,
+            column_order: &[i32],
+            null_precedence: &[i32],
+            stream: &CudaStream,
         ) -> Result<UniquePtr<Column>>;
 
         /// Check if a table is sorted
@@ -568,6 +666,15 @@ pub mod ffi {
             keys: &TableView,
             column_order: &[i32],
             null_precedence: &[i32],
+        ) -> Result<UniquePtr<Table>>;
+
+        /// Stable sort values by keys on an explicit CUDA stream.
+        fn stable_sort_by_key_on(
+            values: &TableView,
+            keys: &TableView,
+            column_order: &[i32],
+            null_precedence: &[i32],
+            stream: &CudaStream,
         ) -> Result<UniquePtr<Table>>;
 
         // Join operations.
@@ -797,6 +904,13 @@ pub mod ffi {
 
         /// Cast a column to a different data type using GPU-native cudf::cast
         fn cast_column(input: &ColumnView, target_type: &DataType) -> Result<UniquePtr<Column>>;
+
+        /// Cast a column on an explicit CUDA stream.
+        fn cast_column_on(
+            input: &ColumnView,
+            target_type: &DataType,
+            stream: &CudaStream,
+        ) -> Result<UniquePtr<Column>>;
 
         /// Extract a scalar from a column at the specified index
         fn get_element(column: &ColumnView, index: usize) -> UniquePtr<Scalar>;

@@ -37,6 +37,9 @@ namespace libcudf_bridge {
         // Get the columns' data as an FFI Arrow Array
         void to_arrow_array(uint8_t *out_array_ptr) const;
 
+        // Get the columns' data as an FFI Arrow Array on an explicit CUDA stream
+        void to_arrow_array_on(uint8_t *out_array_ptr, const CudaStream &stream) const;
+
         // Clone this table view
         [[nodiscard]] std::unique_ptr<TableView> clone() const;
     };

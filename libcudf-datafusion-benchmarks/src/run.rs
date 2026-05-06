@@ -26,10 +26,11 @@ use datafusion::physical_plan::collect;
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion::prelude::*;
 use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
-use libcudf_datafusion::{CuDFConfig, SessionStateBuilderExt};
+use libcudf_datafusion::{CuDFConfig, CuDFExt, SessionStateBuilderExt};
 use libcudf_datafusion_benchmarks::datasets::{clickbench, register_tables, tpcds, tpch};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use structopt::StructOpt;
 
@@ -123,6 +124,9 @@ impl RunOpt {
         if self.gpu {
             let mut cudf_config = CuDFConfig::default();
             cudf_config.enable = true;
+            cudf_config.cuda_streams = std::env::var("CUDF_BENCH_CUDA_STREAMS")
+                .ok()
+                .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
             if let Some(bytes) = self.aggregate_chunk_target_bytes {
                 cudf_config.aggregate_chunk_target_bytes = bytes;
             }
@@ -270,7 +274,12 @@ impl RunOpt {
 
         let plan = state.optimize(&plan)?;
         let physical_plan = state.create_physical_plan(&plan).await?;
-        let result = collect(physical_plan.clone(), state.task_ctx()).await;
+        let task_ctx = if self.gpu {
+            Arc::new(state.task_ctx().with_cudf_task_context())
+        } else {
+            state.task_ctx()
+        };
+        let result = collect(physical_plan.clone(), task_ctx).await;
         if self.debug {
             println!(
                 "=== Physical plan with metrics ===\n{}\n",

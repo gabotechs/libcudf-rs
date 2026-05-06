@@ -1,6 +1,7 @@
 use crate::errors::cudf_to_df;
-use crate::expr::{columnar_value_to_cudf, expr_to_cudf_expr};
+use crate::expr::{columnar_value_to_cudf, expr_to_cudf_expr, expr_with_stream};
 use crate::metrics::CuDFBaselineMetrics;
+use crate::task_context::{cuda_streams_enabled, CuDFTaskContext};
 use arrow::array::{Array, RecordBatch};
 use arrow_schema::{DataType, SchemaRef};
 use datafusion::common::{exec_err, internal_err, Statistics};
@@ -19,7 +20,7 @@ use datafusion_physical_plan::{
 };
 use delegate::delegate;
 use futures_util::{Stream, StreamExt};
-use libcudf_rs::{apply_boolean_mask, CuDFColumnView};
+use libcudf_rs::{apply_boolean_mask, apply_boolean_mask_on, CuDFColumnView, CuDFStream};
 use libcudf_rs::{CuDFColumnViewOrScalar, CuDFTableView};
 use std::any::Any;
 use std::fmt::Formatter;
@@ -35,6 +36,8 @@ pub struct CuDFFilterExec {
     predicate: Arc<dyn PhysicalExpr>,
     /// The input plan
     input: Arc<dyn ExecutionPlan>,
+    /// GPU segment id this filter belongs to. `0` means use the default stream.
+    segment_id: usize,
     /// Execution metrics
     metrics: ExecutionPlanMetricsSet,
     /// The projection indices of the columns in the output schema of join
@@ -50,9 +53,21 @@ impl CuDFFilterExec {
             host_exec,
             predicate,
             input,
+            segment_id: 0,
             metrics: ExecutionPlanMetricsSet::new(),
             projection,
         })
+    }
+
+    pub(crate) fn with_segment_id(&self, segment_id: usize) -> Self {
+        Self {
+            host_exec: self.host_exec.clone(),
+            predicate: Arc::clone(&self.predicate),
+            input: Arc::clone(&self.input),
+            segment_id,
+            metrics: self.metrics.clone(),
+            projection: self.projection.clone(),
+        }
     }
 }
 
@@ -85,7 +100,9 @@ impl ExecutionPlan for CuDFFilterExec {
             .downcast_ref::<FilterExec>()
             .expect("FilterExec::with_new_children should return a FilterExec")
             .clone();
-        Ok(Arc::new(Self::try_new(f_exec)?))
+        Ok(Arc::new(
+            Self::try_new(f_exec)?.with_segment_id(self.segment_id),
+        ))
     }
 
     fn execute(
@@ -94,10 +111,18 @@ impl ExecutionPlan for CuDFFilterExec {
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
         let metrics = CuDFFilterExecMetrics::new(&self.metrics, partition);
+        let input = self.input.execute(partition, Arc::clone(&context))?;
+        let cuda_stream = if cuda_streams_enabled(&context) && self.segment_id != 0 {
+            CuDFTaskContext::from_ctx(&context)?.stream(self.segment_id, partition)
+        } else {
+            None
+        };
+        let predicate = expr_with_stream(Arc::clone(&self.predicate), cuda_stream.clone())?;
         Ok(Box::pin(CuDFFilterExecStream {
             schema: self.schema(),
-            predicate: Arc::clone(&self.predicate),
-            input: self.input.execute(partition, context)?,
+            predicate,
+            input,
+            cuda_stream,
             metrics,
             projection: self.projection.clone(),
         }))
@@ -131,6 +156,8 @@ struct CuDFFilterExecStream {
     predicate: Arc<dyn PhysicalExpr>,
     /// The input partition to filter.
     input: SendableRecordBatchStream,
+    /// CUDA stream for stream-aware execution. `None` means default stream.
+    cuda_stream: Option<Arc<CuDFStream>>,
     /// Runtime metrics recording
     metrics: CuDFFilterExecMetrics,
     /// The projection indices of the columns in the input schema
@@ -161,6 +188,7 @@ fn filter_and_project(
     predicate: &Arc<dyn PhysicalExpr>,
     projection: Option<&ProjectionRef>,
     output_schema: &SchemaRef,
+    cuda_stream: Option<&CuDFStream>,
 ) -> Result<RecordBatch, DataFusionError> {
     // Evaluate the predicate to get a boolean mask (CuDF array on GPU)
     let filter_array = predicate.evaluate(batch)?;
@@ -191,7 +219,11 @@ fn filter_and_project(
     let table_view = CuDFTableView::from_column_views(column_views).map_err(cudf_to_df)?;
 
     // Apply boolean mask using CuDF on GPU
-    let filtered_table = apply_boolean_mask(&table_view, &bool_mask).map_err(cudf_to_df)?;
+    let filtered_table = match cuda_stream {
+        Some(stream) => apply_boolean_mask_on(&table_view, &bool_mask, stream),
+        None => apply_boolean_mask(&table_view, &bool_mask),
+    }
+    .map_err(cudf_to_df)?;
 
     // Keep data on GPU by wrapping table in an Arc and creating column views that reference it
     let table_view = filtered_table.into_view();
@@ -235,6 +267,7 @@ impl Stream for CuDFFilterExecStream {
                         &self.predicate,
                         self.projection.as_ref(),
                         &self.schema,
+                        self.cuda_stream.as_deref(),
                     )?;
                     timer.done();
 

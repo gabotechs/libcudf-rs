@@ -18,7 +18,9 @@
 
 #include <functional>
 #include <limits>
+#include <memory>
 #include <sstream>
+#include <unordered_map>
 
 namespace libcudf_bridge {
     // Factory functions
@@ -57,6 +59,19 @@ namespace libcudf_bridge {
         return table;
     }
 
+    std::unique_ptr<Table> concat_table_views_on(
+        rust::Slice<const std::unique_ptr<TableView>> views,
+        const CudaStream &stream) {
+        std::vector<cudf::table_view> table_views;
+        table_views.reserve(views.size());
+        for (auto &col: views) {
+            table_views.push_back(std::move(*col->inner));
+        }
+        auto table = std::make_unique<Table>();
+        table->inner = cudf::concatenate(table_views, stream.view());
+        return table;
+    }
+
     std::unique_ptr<Column> concat_column_views(rust::Slice<const std::unique_ptr<ColumnView>> views) {
         std::vector<cudf::column_view> table_views;
         table_views.reserve(views.size());
@@ -69,6 +84,19 @@ namespace libcudf_bridge {
         auto table = std::make_unique<Column>();
         table->inner = cudf::concatenate(table_views);
         return table;
+    }
+
+    std::unique_ptr<Column> concat_column_views_on(
+        rust::Slice<const std::unique_ptr<ColumnView>> views,
+        const CudaStream &stream) {
+        std::vector<cudf::column_view> column_views;
+        column_views.reserve(views.size());
+        for (auto &col: views) {
+            column_views.push_back(std::move(*col->inner));
+        }
+        auto column = std::make_unique<Column>();
+        column->inner = cudf::concatenate(column_views, stream.view());
+        return column;
     }
 
     std::unique_ptr<Column> make_column_from_scalar(const Scalar &scalar, size_t size) {
@@ -98,10 +126,19 @@ namespace libcudf_bridge {
         return result;
     }
 
-    // Direct cuDF operations exposed through bridge-owned return types.
+    // Direct cuDF operations - 1:1 mappings
     std::unique_ptr<Table> apply_boolean_mask(const TableView &table, const ColumnView &boolean_mask) {
         auto result = std::make_unique<Table>();
         result->inner = cudf::apply_boolean_mask(*table.inner, *boolean_mask.inner);
+        return result;
+    }
+
+    std::unique_ptr<Table> apply_boolean_mask_on(
+        const TableView &table,
+        const ColumnView &boolean_mask,
+        const CudaStream &stream) {
+        auto result = std::make_unique<Table>();
+        result->inner = cudf::apply_boolean_mask(*table.inner, *boolean_mask.inner, stream.view());
         return result;
     }
 
@@ -109,6 +146,16 @@ namespace libcudf_bridge {
     std::unique_ptr<Table> gather(const TableView &source_table, const ColumnView &gather_map) {
         return gather_with_policy(source_table, gather_map,
                                   static_cast<int32_t>(cudf::out_of_bounds_policy::DONT_CHECK));
+    }
+
+    std::unique_ptr<Table> gather_on(
+        const TableView &source_table,
+        const ColumnView &gather_map,
+        const CudaStream &stream) {
+        return gather_with_policy_on(source_table,
+                                     gather_map,
+                                     static_cast<int32_t>(cudf::out_of_bounds_policy::DONT_CHECK),
+                                     stream);
     }
 
     std::unique_ptr<Table> gather_with_policy(
@@ -120,6 +167,21 @@ namespace libcudf_bridge {
             *source_table.inner,
             *gather_map.inner,
             static_cast<cudf::out_of_bounds_policy>(out_of_bounds_policy)
+        );
+        return result;
+    }
+
+    std::unique_ptr<Table> gather_with_policy_on(
+        const TableView &source_table,
+        const ColumnView &gather_map,
+        int32_t out_of_bounds_policy,
+        const CudaStream &stream) {
+        auto result = std::make_unique<Table>();
+        result->inner = cudf::gather(
+            *source_table.inner,
+            *gather_map.inner,
+            static_cast<cudf::out_of_bounds_policy>(out_of_bounds_policy),
+            stream.view()
         );
         return result;
     }

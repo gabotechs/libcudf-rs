@@ -4,6 +4,7 @@
 
 #include "cudf/types.hpp"
 #include "rust/cxx.h"
+#include "stream.h"
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/scalar/scalar.hpp>
@@ -29,6 +30,9 @@ namespace libcudf_bridge {
 
         // Get the column's data as an FFI Arrow Array
         void to_arrow_array(uint8_t *out_array_ptr) const;
+
+        // Get the column's data as an FFI Arrow Array on an explicit CUDA stream
+        void to_arrow_array_on(uint8_t *out_array_ptr, const CudaStream &stream) const;
 
         // Get the raw device pointer to the column view's data
         [[nodiscard]] uint64_t data_ptr() const;
@@ -93,5 +97,11 @@ namespace libcudf_bridge {
 
     // Cast a column to a different data type
     std::unique_ptr<Column> cast_column(const ColumnView &input, const DataType &target_type);
+
+    // Cast a column to a different data type on an explicit CUDA stream
+    std::unique_ptr<Column> cast_column_on(
+        const ColumnView &input,
+        const DataType &target_type,
+        const CudaStream &stream);
 
 } // namespace libcudf_bridge

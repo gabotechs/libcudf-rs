@@ -5,7 +5,9 @@ use arrow_schema::{
     DECIMAL32_MAX_SCALE, DECIMAL64_MAX_PRECISION, DECIMAL64_MAX_SCALE,
 };
 use datafusion::common::{exec_err, DataFusionError};
-use libcudf_rs::{cudf_binary_op, CuDFBinaryOp, CuDFColumnViewOrScalar, CuDFScalar};
+use libcudf_rs::{
+    cudf_binary_op, cudf_binary_op_on, CuDFBinaryOp, CuDFColumnViewOrScalar, CuDFScalar, CuDFStream,
+};
 
 pub(crate) fn is_decimal_division(
     output_type: &DataType,
@@ -32,6 +34,28 @@ pub(crate) fn decimal_div(
     rhs_type: &DataType,
     output_type: &DataType,
 ) -> Result<CuDFColumnViewOrScalar, DataFusionError> {
+    decimal_div_with_stream(lhs, rhs, lhs_type, rhs_type, output_type, None)
+}
+
+pub(crate) fn decimal_div_on(
+    lhs: CuDFColumnViewOrScalar,
+    rhs: CuDFColumnViewOrScalar,
+    lhs_type: &DataType,
+    rhs_type: &DataType,
+    output_type: &DataType,
+    stream: &CuDFStream,
+) -> Result<CuDFColumnViewOrScalar, DataFusionError> {
+    decimal_div_with_stream(lhs, rhs, lhs_type, rhs_type, output_type, Some(stream))
+}
+
+fn decimal_div_with_stream(
+    lhs: CuDFColumnViewOrScalar,
+    rhs: CuDFColumnViewOrScalar,
+    lhs_type: &DataType,
+    rhs_type: &DataType,
+    output_type: &DataType,
+    stream: Option<&CuDFStream>,
+) -> Result<CuDFColumnViewOrScalar, DataFusionError> {
     let (_, lhs_scale) = decimal_parts_or_err(lhs_type, "left operand")?;
     let (_, rhs_scale) = decimal_parts_or_err(rhs_type, "right operand")?;
     let (_, output_scale) = decimal_parts_or_err(output_type, "output")?;
@@ -44,19 +68,24 @@ pub(crate) fn decimal_div(
 
     let (lhs, rhs) = if scale_delta >= 0 {
         let target_scale = checked_scale(i16::from(lhs_scale) + scale_delta)?;
-        (rescale_decimal(lhs, lhs_type, target_scale)?, rhs)
+        (rescale_decimal(lhs, lhs_type, target_scale, stream)?, rhs)
     } else {
         let target_scale = checked_scale(i16::from(rhs_scale) - scale_delta)?;
-        (lhs, rescale_decimal(rhs, rhs_type, target_scale)?)
+        (lhs, rescale_decimal(rhs, rhs_type, target_scale, stream)?)
     };
 
-    cudf_binary_op(lhs, rhs, CuDFBinaryOp::Div, output_type).map_err(cudf_to_df)
+    match stream {
+        Some(stream) => cudf_binary_op_on(lhs, rhs, CuDFBinaryOp::Div, output_type, stream),
+        None => cudf_binary_op(lhs, rhs, CuDFBinaryOp::Div, output_type),
+    }
+    .map_err(cudf_to_df)
 }
 
 fn rescale_decimal(
     value: CuDFColumnViewOrScalar,
     data_type: &DataType,
     target_scale: i8,
+    stream: Option<&CuDFStream>,
 ) -> Result<CuDFColumnViewOrScalar, DataFusionError> {
     let (_, current_scale) = decimal_parts_or_err(data_type, "operand")?;
     if target_scale == current_scale {
@@ -65,10 +94,14 @@ fn rescale_decimal(
 
     let target_type = decimal_type_with_scale(data_type, target_scale)?;
     match value {
-        CuDFColumnViewOrScalar::ColumnView(view) => Ok(libcudf_rs::cast(&view, &target_type)
-            .map_err(cudf_to_df)?
-            .into_view()
-            .into()),
+        CuDFColumnViewOrScalar::ColumnView(view) => {
+            let casted = match stream {
+                Some(stream) => libcudf_rs::cast_on(&view, &target_type, stream),
+                None => libcudf_rs::cast(&view, &target_type),
+            }
+            .map_err(cudf_to_df)?;
+            Ok(casted.into_view().into())
+        }
         CuDFColumnViewOrScalar::Scalar(scalar) => {
             let array = scalar.to_arrow_host().map_err(cudf_to_df)?;
             let casted = arrow::compute::cast(array.as_ref(), &target_type)

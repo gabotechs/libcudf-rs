@@ -158,14 +158,34 @@ impl CuDFTableView {
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
     pub fn to_arrow_host(&self) -> Result<RecordBatch, CuDFError> {
+        self.to_arrow_host_with_stream(None)
+    }
+
+    /// Same as [`Self::to_arrow_host`] but issues the download on the given
+    /// CUDA stream. cuDF's underlying `to_arrow_host` synchronizes the stream
+    /// before returning, so the returned `RecordBatch` is host-ready.
+    pub fn to_arrow_host_on(&self, stream: &crate::CuDFStream) -> Result<RecordBatch, CuDFError> {
+        self.to_arrow_host_with_stream(Some(stream))
+    }
+
+    fn to_arrow_host_with_stream(
+        &self,
+        stream: Option<&crate::CuDFStream>,
+    ) -> Result<RecordBatch, CuDFError> {
         let mut ffi_schema = FFI_ArrowSchema::empty();
         let mut ffi_array = FFI_ArrowArray::empty();
 
         unsafe {
             self.inner
                 .to_arrow_schema(&mut ffi_schema as *mut FFI_ArrowSchema as *mut u8);
-            self.inner
-                .to_arrow_array(&mut ffi_array as *mut FFI_ArrowArray as *mut u8);
+            match stream {
+                Some(s) => self
+                    .inner
+                    .to_arrow_array_on(&mut ffi_array as *mut FFI_ArrowArray as *mut u8, s.inner()),
+                None => self
+                    .inner
+                    .to_arrow_array(&mut ffi_array as *mut FFI_ArrowArray as *mut u8),
+            }
         }
 
         let schema = Arc::new(Schema::try_from(&ffi_schema)?);

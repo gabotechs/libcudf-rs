@@ -51,6 +51,26 @@ namespace libcudf_bridge {
         return group_by_result;
     }
 
+    std::unique_ptr<GroupByResult> GroupBy::aggregate_on(
+        const AggregationRequests &requests,
+        const CudaStream &stream) const {
+        auto aggregate_result = inner->aggregate(requests.inner, stream.view());
+
+        auto group_by_result = std::make_unique<GroupByResult>();
+        group_by_result->keys.inner = std::move(aggregate_result.first);
+
+        for (auto &cudf_agg_result: aggregate_result.second) {
+            auto result = std::vector<Column>();
+            result.reserve(cudf_agg_result.results.size());
+            for (auto &col: cudf_agg_result.results) {
+                result.emplace_back(column_from_unique_ptr(std::move(col)));
+            }
+            group_by_result->results.emplace_back(std::move(result));
+        }
+
+        return group_by_result;
+    }
+
     // AggregationRequest implementation
     AggregationRequest::AggregationRequest() : inner(std::make_unique<cudf::groupby::aggregation_request>()) {
     }

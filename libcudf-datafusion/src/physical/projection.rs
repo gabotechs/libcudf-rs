@@ -1,5 +1,6 @@
-use crate::expr::expr_to_cudf_expr;
+use crate::expr::{expr_to_cudf_expr, expr_with_stream};
 use crate::metrics::CuDFBaselineMetrics;
+use crate::task_context::{cuda_streams_enabled, CuDFTaskContext};
 use arrow::array::RecordBatch;
 use arrow::datatypes::SchemaRef;
 use datafusion::config::ConfigOptions;
@@ -27,6 +28,7 @@ use std::task::{Context, Poll};
 pub struct CuDFProjectionExec {
     host_exec: ProjectionExec,
     cudf_exprs: ProjectionExprs,
+    segment_id: usize,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
@@ -56,9 +58,20 @@ impl CuDFProjectionExec {
         Ok(Self {
             host_exec,
             cudf_exprs: projection_exprs,
+            segment_id: 0,
             properties: Arc::new(properties),
             metrics: ExecutionPlanMetricsSet::new(),
         })
+    }
+
+    pub(crate) fn with_segment_id(&self, segment_id: usize) -> Self {
+        Self {
+            host_exec: self.host_exec.clone(),
+            cudf_exprs: self.cudf_exprs.clone(),
+            segment_id,
+            properties: Arc::clone(&self.properties),
+            metrics: self.metrics.clone(),
+        }
     }
 
     fn compute_properties(
@@ -107,7 +120,9 @@ impl ExecutionPlan for CuDFProjectionExec {
             self.host_exec.expr().iter().cloned(),
             children.swap_remove(0),
         )?;
-        Ok(Arc::new(Self::try_new(p_exe)?))
+        Ok(Arc::new(
+            Self::try_new(p_exe)?.with_segment_id(self.segment_id),
+        ))
     }
 
     fn execute(
@@ -115,12 +130,25 @@ impl ExecutionPlan for CuDFProjectionExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
-        let input = self.host_exec.input().execute(partition, context)?;
+        let input = self
+            .host_exec
+            .input()
+            .execute(partition, Arc::clone(&context))?;
         let baseline_metrics = CuDFBaselineMetrics::new(&self.metrics, partition);
+        let cuda_stream = if cuda_streams_enabled(&context) && self.segment_id != 0 {
+            CuDFTaskContext::from_ctx(&context)?.stream(self.segment_id, partition)
+        } else {
+            None
+        };
+        let expr = self
+            .cudf_exprs
+            .expr_iter()
+            .map(|expr| expr_with_stream(expr, cuda_stream.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Box::pin(CuDFProjectionStream {
             schema: self.schema(),
-            expr: self.cudf_exprs.expr_iter().collect(),
+            expr,
             input,
             baseline_metrics,
         }))

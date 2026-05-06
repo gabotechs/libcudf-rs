@@ -37,7 +37,7 @@ mod table;
 mod table_view;
 
 pub use ast::{CuDFAstExpression, CuDFAstNode, CuDFAstOperator, CuDFAstTableReference};
-pub use binary_op::{cudf_binary_op, CuDFBinaryOp};
+pub use binary_op::{cudf_binary_op, cudf_binary_op_on, CuDFBinaryOp};
 pub use column::CuDFColumn;
 pub use column_view::CuDFColumnView;
 pub use cudf_array::*;
@@ -48,10 +48,15 @@ pub use join::{
     cross_join, full_join, inner_join, left_anti_join, left_join, left_semi_join,
     CuDFFilteredHashJoinArgs, CuDFHashJoin, CuDFNullEquality,
 };
-pub use operations::{apply_boolean_mask, cast, gather, slice_column};
+pub use operations::{
+    apply_boolean_mask, apply_boolean_mask_on, cast, cast_on, gather, gather_on, slice_column,
+};
 pub use pinned::{pin_record_batch, synchronize_default_stream, PinnedHostBuffer};
 pub use scalar::CuDFScalar;
-pub use sort::{sort, sort_by_all, stable_sorted_order, SortOrder};
+pub use sort::{
+    sort, sort_by_all, sort_by_all_on, sort_on, stable_sorted_order, stable_sorted_order_on,
+    SortOrder,
+};
 pub use stream::{CuDFStream, CuDFStreamFlags};
 pub use table::*;
 pub use table_view::*;

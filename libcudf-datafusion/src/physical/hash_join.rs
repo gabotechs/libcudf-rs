@@ -16,10 +16,10 @@ use datafusion_physical_plan::metrics::{
 };
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{
-    execute_stream, project_schema, DisplayAs, DisplayFormatType, ExecutionPlan,
+    execute_stream_partitioned, project_schema, DisplayAs, DisplayFormatType, ExecutionPlan,
     ExecutionPlanProperties, PhysicalExpr, PlanProperties,
 };
-use futures::{StreamExt, TryStreamExt};
+use futures::{future::try_join_all, StreamExt, TryStreamExt};
 use libcudf_rs::{
     CuDFAstExpression, CuDFFilteredHashJoinArgs, CuDFHashJoin, CuDFNullEquality, CuDFTable,
     CuDFTableView,
@@ -331,8 +331,15 @@ fn collect_shared(
         shared
             .get_or_try_init(|| async move {
                 let _timer = metrics.build_time.timer();
-                let stream = execute_stream(left_child, ctx).map_err(Arc::new)?;
-                let batches: Vec<RecordBatch> = stream.try_collect().await.map_err(Arc::new)?;
+                let streams = execute_stream_partitioned(left_child, ctx).map_err(Arc::new)?;
+                let partitions = try_join_all(
+                    streams
+                        .into_iter()
+                        .map(|stream| stream.try_collect::<Vec<_>>()),
+                )
+                .await
+                .map_err(Arc::new)?;
+                let batches = partitions.into_iter().flatten().collect::<Vec<_>>();
                 metrics.record_build_input(&batches);
                 batches_to_table(&batches)
                     .map(Arc::new)

@@ -5,17 +5,35 @@ mod tests {
     use datafusion::prelude::{SessionConfig, SessionContext};
     use futures::TryStreamExt;
     use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
-    use libcudf_datafusion::SessionStateBuilderExt;
+    use libcudf_datafusion::{CuDFConfig, CuDFExt, SessionStateBuilderExt};
     use libcudf_datafusion_benchmarks::datasets::{register_tables, tpch};
     use std::error::Error;
     use std::fmt::Display;
     use std::fs;
     use std::path::Path;
+    use std::sync::Arc;
     use tokio::sync::OnceCell;
 
-    const PARTITIONS: usize = 6;
     const TPCH_SCALE_FACTOR: f64 = 1.0;
     const TPCH_DATA_PARTS: i32 = 16;
+
+    /// Number of GPU target partitions. Defaults to 6 to match prior behaviour;
+    /// the deadlock-investigation sweep overrides this via
+    /// `CUDF_TEST_TARGET_PARTITIONS={1,4,16}` to exercise stream eligibility
+    /// at different concurrency levels.
+    fn partitions() -> usize {
+        std::env::var("CUDF_TEST_TARGET_PARTITIONS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(6)
+    }
+
+    fn streams_enabled() -> bool {
+        std::env::var("CUDF_TEST_CUDA_STREAMS")
+            .ok()
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    }
 
     #[tokio::test]
     async fn test_tpch_1() -> Result<(), Box<dyn Error>> {
@@ -136,10 +154,16 @@ mod tests {
             // same revenue; this extra ordering pins the row order.
             sql = sql.replace("revenue desc", "revenue, c_acctbal desc");
         }
+        let mut cudf_config = CuDFConfig::default();
+        cudf_config.cuda_streams = streams_enabled();
         let gpu_ctx = SessionContext::from(
             SessionStateBuilder::new()
                 .with_default_features()
-                .with_config(SessionConfig::new().with_target_partitions(PARTITIONS))
+                .with_config(
+                    SessionConfig::new()
+                        .with_target_partitions(partitions())
+                        .with_option_extension(cudf_config),
+                )
                 .with_cudf_planner()
                 .build(),
         );
@@ -160,6 +184,11 @@ mod tests {
 
         register_tables(&ctx, &data_dir).await?;
 
+        // Install a fresh `CuDFTaskContext` extension per query so stream-aware
+        // execution can attach per-`(segment_id, partition)` CUDA streams
+        // without leaking state across runs.
+        let task_ctx = Arc::new(ctx.task_ctx().with_cudf_task_context());
+
         // Query 15 has three queries in it, one creating the view, the second
         // executing, which we want to capture the output of, and the third
         // tearing down the view
@@ -173,14 +202,14 @@ mod tests {
             ctx.sql(queries[0]).await?.collect().await?;
             let df = ctx.sql(queries[1]).await?;
             let plan = df.create_physical_plan().await?;
-            let stream = execute_stream(plan.clone(), ctx.task_ctx())?;
+            let stream = execute_stream(plan.clone(), task_ctx.clone())?;
             ctx.sql(queries[2]).await?.collect().await?;
 
             stream
         } else {
             let df = ctx.sql(&sql).await?;
             let plan = df.create_physical_plan().await?;
-            execute_stream(plan.clone(), ctx.task_ctx())?
+            execute_stream(plan.clone(), task_ctx)?
         };
 
         let batches = stream.try_collect::<Vec<_>>().await?;

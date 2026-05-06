@@ -1,4 +1,4 @@
-use crate::decimal::{decimal_div, is_decimal_division};
+use crate::decimal::{decimal_div, decimal_div_on, is_decimal_division};
 use crate::errors::cudf_to_df;
 use crate::expr::{columnar_value_to_cudf, cudf_to_columnar_value, expr_to_cudf_expr};
 use arrow::array::RecordBatch;
@@ -9,20 +9,33 @@ use datafusion::physical_expr::expressions::BinaryExpr;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion_expr::Operator;
 use delegate::delegate;
-use libcudf_rs::{cudf_binary_op, CuDFBinaryOp};
+use libcudf_rs::{cudf_binary_op, cudf_binary_op_on, CuDFBinaryOp, CuDFStream};
 use std::any::Any;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Clone)]
 pub struct CuDFBinaryExpr {
     inner: BinaryExpr,
 
     left: Arc<dyn PhysicalExpr>,
     right: Arc<dyn PhysicalExpr>,
     op: CuDFBinaryOp,
+    stream: Option<Arc<CuDFStream>>,
 }
+
+impl Debug for CuDFBinaryExpr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CuDFBinaryExpr")
+            .field("inner", &self.inner)
+            .field("op", &self.op)
+            .field("streamed", &self.stream.is_some())
+            .finish()
+    }
+}
+
+impl Eq for CuDFBinaryExpr {}
 
 impl PartialEq for CuDFBinaryExpr {
     fn eq(&self, other: &Self) -> bool {
@@ -51,14 +64,25 @@ impl CuDFBinaryExpr {
             left,
             right,
             op,
+            stream: None,
         })
+    }
+
+    pub(crate) fn with_stream(&self, stream: Arc<CuDFStream>) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            left: Arc::clone(&self.left),
+            right: Arc::clone(&self.right),
+            op: self.op,
+            stream: Some(stream),
+        }
     }
 }
 
 impl Display for CuDFBinaryExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "CuDF")?;
-        self.inner.fmt(f)
+        Display::fmt(&self.inner, f)
     }
 }
 
@@ -88,9 +112,18 @@ impl PhysicalExpr for CuDFBinaryExpr {
         let result = if self.op == CuDFBinaryOp::Div
             && is_decimal_division(&expected, &lhs_type, &rhs_type)
         {
-            decimal_div(lhs, rhs, &lhs_type, &rhs_type, &cudf_output_type)?
+            match self.stream.as_deref() {
+                Some(stream) => {
+                    decimal_div_on(lhs, rhs, &lhs_type, &rhs_type, &cudf_output_type, stream)?
+                }
+                None => decimal_div(lhs, rhs, &lhs_type, &rhs_type, &cudf_output_type)?,
+            }
         } else {
-            cudf_binary_op(lhs, rhs, self.op, &cudf_output_type).map_err(cudf_to_df)?
+            match self.stream.as_deref() {
+                Some(stream) => cudf_binary_op_on(lhs, rhs, self.op, &cudf_output_type, stream),
+                None => cudf_binary_op(lhs, rhs, self.op, &cudf_output_type),
+            }
+            .map_err(cudf_to_df)?
         };
         Ok(cudf_to_columnar_value(result))
     }
@@ -104,7 +137,9 @@ impl PhysicalExpr for CuDFBinaryExpr {
             *self.inner.op(),
             Arc::clone(&children[1]),
         );
-        Ok(Arc::new(Self::from_host(expr)?))
+        let mut next = Self::from_host(expr)?;
+        next.stream.clone_from(&self.stream);
+        Ok(Arc::new(next))
     }
 
     delegate! {

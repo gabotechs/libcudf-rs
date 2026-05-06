@@ -5,6 +5,7 @@
 #include "rust/cxx.h"
 #include "table.h"
 #include "column.h"
+#include "stream.h"
 
 namespace libcudf_bridge {
 
@@ -19,6 +20,12 @@ namespace libcudf_bridge {
         rust::Slice<const int32_t> column_order,
         rust::Slice<const int32_t> null_precedence);
 
+    std::unique_ptr<Table> stable_sort_table_on(
+        const TableView &input,
+        rust::Slice<const int32_t> column_order,
+        rust::Slice<const int32_t> null_precedence,
+        const CudaStream &stream);
+
     std::unique_ptr<Column> sorted_order(
         const TableView &input,
         rust::Slice<const int32_t> column_order,
@@ -28,6 +35,12 @@ namespace libcudf_bridge {
         const TableView &input,
         rust::Slice<const int32_t> column_order,
         rust::Slice<const int32_t> null_precedence);
+
+    std::unique_ptr<Column> stable_sorted_order_on(
+        const TableView &input,
+        rust::Slice<const int32_t> column_order,
+        rust::Slice<const int32_t> null_precedence,
+        const CudaStream &stream);
 
     bool is_sorted(
         const TableView &input,
@@ -45,4 +58,11 @@ namespace libcudf_bridge {
         const TableView &keys,
         rust::Slice<const int32_t> column_order,
         rust::Slice<const int32_t> null_precedence);
+
+    std::unique_ptr<Table> stable_sort_by_key_on(
+        const TableView &values,
+        const TableView &keys,
+        rust::Slice<const int32_t> column_order,
+        rust::Slice<const int32_t> null_precedence,
+        const CudaStream &stream);
 } // namespace libcudf_bridge

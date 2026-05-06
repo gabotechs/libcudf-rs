@@ -59,6 +59,8 @@ impl PreparedCuDFAggregate {
 #[derive(Debug)]
 pub struct CuDFAggregateExec {
     input: Arc<dyn ExecutionPlan>,
+    /// GPU segment id this aggregate belongs to.
+    segment_id: usize,
     prepared: PreparedCuDFAggregate,
     plan_properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
@@ -81,6 +83,20 @@ impl CuDFAggregateExec {
         };
 
         Self::try_new_prepared(input, prepared)
+    }
+
+    pub fn segment_id(&self) -> usize {
+        self.segment_id
+    }
+
+    pub(crate) fn with_segment_id(&self, segment_id: usize) -> Self {
+        Self {
+            input: Arc::clone(&self.input),
+            segment_id,
+            prepared: self.prepared.clone(),
+            plan_properties: Arc::clone(&self.plan_properties),
+            metrics: self.metrics.clone(),
+        }
     }
 
     fn try_new_prepared(
@@ -133,6 +149,7 @@ impl CuDFAggregateExec {
 
         Ok(Self {
             input,
+            segment_id: 0,
             prepared,
             plan_properties,
             metrics: ExecutionPlanMetricsSet::new(),
@@ -188,7 +205,8 @@ impl ExecutionPlan for CuDFAggregateExec {
             self.prepared.mode,
             self.prepared.group_by.clone(),
             self.prepared.aggr_expr(),
-        )?;
+        )?
+        .with_segment_id(self.segment_id);
 
         Ok(Arc::new(new))
     }
@@ -200,7 +218,23 @@ impl ExecutionPlan for CuDFAggregateExec {
     ) -> Result<SendableRecordBatchStream> {
         let cudf_cfg = CuDFConfig::from_config_options(context.session_config().options())?;
         let aggregate_chunk_target_bytes = cudf_cfg.aggregate_chunk_target_bytes;
-        let input = self.input.execute(partition, context)?;
+        // Run input.execute first so that CuDFLoadExec (deeper in the chain)
+        // gets a chance to register the stream for this (segment, partition)
+        // before we try to look it up.
+        let input = self.input.execute(partition, Arc::clone(&context))?;
+        // `segment_id == 0` is the planner's "ineligible / use default
+        // stream" sentinel — see `assign_segment_ids`. Otherwise, look
+        // up the stream registered by the matching CuDFLoadExec; if the
+        // entry is missing fall back to the default stream rather than
+        // erroring, since segments containing non-stream-aware ops may
+        // legitimately have no entry.
+        let cuda_stream =
+            if crate::task_context::cuda_streams_enabled(&context) && self.segment_id != 0 {
+                let cudf_ctx = crate::task_context::CuDFTaskContext::from_ctx(&context)?;
+                cudf_ctx.stream(self.segment_id, partition)
+            } else {
+                None
+            };
         let stream = stream::CuDFAggregateStream::new(
             input,
             self.schema(),
@@ -208,6 +242,7 @@ impl ExecutionPlan for CuDFAggregateExec {
             aggregate_chunk_target_bytes,
             &self.metrics,
             partition,
+            cuda_stream,
         )?;
         Ok(Box::pin(stream))
     }

@@ -91,23 +91,79 @@ pub fn cudf_binary_op(
     op: CuDFBinaryOp,
     output_type: &DataType,
 ) -> Result<CuDFColumnViewOrScalar, CuDFError> {
+    cudf_binary_op_with_stream(left, right, op, output_type, None)
+}
+
+/// Same as [`cudf_binary_op`] but issues the work on the given CUDA stream.
+pub fn cudf_binary_op_on(
+    left: CuDFColumnViewOrScalar,
+    right: CuDFColumnViewOrScalar,
+    op: CuDFBinaryOp,
+    output_type: &DataType,
+    stream: &crate::CuDFStream,
+) -> Result<CuDFColumnViewOrScalar, CuDFError> {
+    cudf_binary_op_with_stream(left, right, op, output_type, Some(stream))
+}
+
+fn cudf_binary_op_with_stream(
+    left: CuDFColumnViewOrScalar,
+    right: CuDFColumnViewOrScalar,
+    op: CuDFBinaryOp,
+    output_type: &DataType,
+    stream: Option<&crate::CuDFStream>,
+) -> Result<CuDFColumnViewOrScalar, CuDFError> {
     let Some(dt) = arrow_type_to_cudf_data_type(output_type) else {
         return Err(ArrowError::NotYetImplemented(format!(
             "Output type {output_type} not supported in CuDF"
         )))?;
     };
 
-    let result = match (left, right) {
-        (CuDFColumnViewOrScalar::ColumnView(lhs), CuDFColumnViewOrScalar::ColumnView(rhs)) => {
-            libcudf_sys::ffi::binary_operation_col_col(lhs.inner(), rhs.inner(), op as i32, &dt)
-        }
-        (CuDFColumnViewOrScalar::ColumnView(lhs), CuDFColumnViewOrScalar::Scalar(rhs)) => {
+    let result = match (left, right, stream) {
+        (
+            CuDFColumnViewOrScalar::ColumnView(lhs),
+            CuDFColumnViewOrScalar::ColumnView(rhs),
+            Some(stream),
+        ) => libcudf_sys::ffi::binary_operation_col_col_on(
+            lhs.inner(),
+            rhs.inner(),
+            op as i32,
+            &dt,
+            stream.inner(),
+        ),
+        (
+            CuDFColumnViewOrScalar::ColumnView(lhs),
+            CuDFColumnViewOrScalar::ColumnView(rhs),
+            None,
+        ) => libcudf_sys::ffi::binary_operation_col_col(lhs.inner(), rhs.inner(), op as i32, &dt),
+        (
+            CuDFColumnViewOrScalar::ColumnView(lhs),
+            CuDFColumnViewOrScalar::Scalar(rhs),
+            Some(stream),
+        ) => libcudf_sys::ffi::binary_operation_col_scalar_on(
+            lhs.inner(),
+            rhs.inner(),
+            op as i32,
+            &dt,
+            stream.inner(),
+        ),
+        (CuDFColumnViewOrScalar::ColumnView(lhs), CuDFColumnViewOrScalar::Scalar(rhs), None) => {
             libcudf_sys::ffi::binary_operation_col_scalar(lhs.inner(), rhs.inner(), op as i32, &dt)
         }
-        (CuDFColumnViewOrScalar::Scalar(lhs), CuDFColumnViewOrScalar::ColumnView(rhs)) => {
+        (
+            CuDFColumnViewOrScalar::Scalar(lhs),
+            CuDFColumnViewOrScalar::ColumnView(rhs),
+            Some(stream),
+        ) => libcudf_sys::ffi::binary_operation_scalar_col_on(
+            lhs.inner(),
+            rhs.inner(),
+            op as i32,
+            &dt,
+            stream.inner(),
+        ),
+        (CuDFColumnViewOrScalar::Scalar(lhs), CuDFColumnViewOrScalar::ColumnView(rhs), None) => {
             libcudf_sys::ffi::binary_operation_scalar_col(lhs.inner(), rhs.inner(), op as i32, &dt)
         }
-        (CuDFColumnViewOrScalar::Scalar(_), CuDFColumnViewOrScalar::Scalar(_)) => {
+        (CuDFColumnViewOrScalar::Scalar(_), CuDFColumnViewOrScalar::Scalar(_), _) => {
             return Err(ArrowError::InvalidArgumentError("".to_string()))?
         }
     }?;

@@ -1,5 +1,7 @@
 use crate::errors::cudf_to_df;
 use crate::metrics::CuDFBaselineMetrics;
+use crate::planner::CuDFConfig;
+use crate::task_context::{cuda_streams_enabled, CuDFTaskContext};
 use arrow::array::{Array, RecordBatch, RecordBatchOptions};
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Schema, SchemaRef};
 use datafusion::common::{assert_eq_or_internal_err, exec_err, plan_err, ScalarValue};
@@ -16,7 +18,9 @@ use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties, PlanProperties,
 };
 use futures_util::stream::StreamExt;
-use libcudf_rs::{is_cudf_array, pin_record_batch, synchronize_default_stream, CuDFTable};
+use libcudf_rs::{
+    is_cudf_array, pin_record_batch, synchronize_default_stream, CuDFStream, CuDFTable,
+};
 use std::any::Any;
 use std::fmt::Formatter;
 use std::sync::Arc;
@@ -24,24 +28,74 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct CuDFLoadExec {
     input: Arc<dyn ExecutionPlan>,
-
+    /// GPU segment id this load is the bottom of. Used to look up the CUDA
+    /// stream for `(segment_id, partition)` when streams are enabled.
+    /// `0` is the "use default stream" sentinel — the planner only
+    /// assigns nonzero ids to segments on the streams allowlist.
+    segment_id: usize,
+    /// When true, output partition `p` uploads input partition `p`.
+    /// When false, output partition 0 uploads every input partition into one stream.
+    preserve_input_partitioning: bool,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
 
 impl CuDFLoadExec {
     pub fn try_new(input: Arc<dyn ExecutionPlan>) -> Result<Self, DataFusionError> {
+        Self::try_new_with_segment_id_and_partitioning(input, 0, false)
+    }
+
+    pub fn try_new_preserving_partitioning(
+        input: Arc<dyn ExecutionPlan>,
+        preserve_input_partitioning: bool,
+    ) -> Result<Self, DataFusionError> {
+        Self::try_new_with_segment_id_and_partitioning(input, 0, preserve_input_partitioning)
+    }
+
+    pub fn try_new_with_segment_id(
+        input: Arc<dyn ExecutionPlan>,
+        segment_id: usize,
+    ) -> Result<Self, DataFusionError> {
+        Self::try_new_with_segment_id_and_partitioning(input, segment_id, false)
+    }
+
+    fn try_new_with_segment_id_and_partitioning(
+        input: Arc<dyn ExecutionPlan>,
+        segment_id: usize,
+        preserve_input_partitioning: bool,
+    ) -> Result<Self, DataFusionError> {
+        let output_partitioning = if preserve_input_partitioning {
+            input.output_partitioning().clone()
+        } else {
+            Partitioning::UnknownPartitioning(1)
+        };
         let properties = Arc::new(PlanProperties::new(
             EquivalenceProperties::new(cudf_schema_compatibility_map(input.schema())),
-            Partitioning::UnknownPartitioning(1),
+            output_partitioning,
             input.properties().emission_type,
             input.properties().boundedness,
         ));
         Ok(Self {
             input,
+            segment_id,
+            preserve_input_partitioning,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
         })
+    }
+
+    pub fn segment_id(&self) -> usize {
+        self.segment_id
+    }
+
+    pub(crate) fn with_segment_id(&self, segment_id: usize) -> Self {
+        Self {
+            input: Arc::clone(&self.input),
+            segment_id,
+            preserve_input_partitioning: self.preserve_input_partitioning,
+            properties: Arc::clone(&self.properties),
+            metrics: self.metrics.clone(),
+        }
     }
 }
 
@@ -79,7 +133,11 @@ impl ExecutionPlan for CuDFLoadExec {
             );
         }
         let input = Arc::clone(&children[0]);
-        Ok(Arc::new(Self::try_new(input)?))
+        Ok(Arc::new(Self::try_new_with_segment_id_and_partitioning(
+            input,
+            self.segment_id,
+            self.preserve_input_partitioning,
+        )?))
     }
 
     fn execute(
@@ -87,24 +145,72 @@ impl ExecutionPlan for CuDFLoadExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
-        assert_eq_or_internal_err!(partition, 0, "CuDFLoadExec invalid partition {partition}");
-
         let input_partitions = self.input.output_partitioning().partition_count();
+        if self.preserve_input_partitioning {
+            if partition >= input_partitions {
+                return exec_err!(
+                    "CuDFLoadExec invalid partition {partition}; input has {input_partitions} partitions"
+                );
+            }
+        } else {
+            assert_eq_or_internal_err!(partition, 0, "CuDFLoadExec invalid partition {partition}");
+        }
+
+        let pinned_input = context
+            .session_config()
+            .options()
+            .extensions
+            .get::<CuDFConfig>()
+            .is_none_or(|cfg| cfg.pinned_input);
+
+        // If streams are enabled AND this segment was tagged as
+        // stream-eligible by the planner (segment_id != 0), allocate (or
+        // reuse) the stream for this (segment, output partition=0) pair.
+        // The CuDFTaskContext extension owns the mapping; downstream
+        // CuDF operators in the same segment look up the same stream so
+        // they all run on it. `segment_id == 0` is the "ineligible / use
+        // default stream" sentinel — see `assign_segment_ids` in the
+        // planner.
+        let cuda_stream = if cuda_streams_enabled(&context) && self.segment_id != 0 {
+            let cudf_cfg = CuDFConfig::from_config_options(context.session_config().options())?;
+            let cudf_ctx = CuDFTaskContext::from_ctx(&context)?;
+            let segment_id = self.segment_id;
+            let stream = cudf_ctx.stream(segment_id, partition).unwrap_or_else(|| {
+                let stream = cudf_cfg.stream_source().allocate();
+                cudf_ctx.set_stream(segment_id, partition, Arc::clone(&stream));
+                stream
+            });
+            Some(stream)
+        } else {
+            None
+        };
 
         // use a stream that allows each sender to put in at
         // least one result in an attempt to maximize
         // parallelism.
+        let output_streams = if self.preserve_input_partitioning {
+            1
+        } else {
+            input_partitions
+        };
         let mut builder = CuDFRecordBatchReceiverStreamBuilder {
-            inner: RecordBatchReceiverStream::builder(self.schema(), input_partitions),
+            inner: RecordBatchReceiverStream::builder(self.schema(), output_streams),
             ctx: CuDFRecordBatchReceiverStreamBuilderCtx {
                 schema: self.schema(),
                 metrics: CuDFLoadMetrics::new(&self.metrics, partition),
+                cuda_stream,
+                pinned_input,
             },
         };
 
         // spawn independent tasks whose resulting streams (of batches)
         // are sent to the channel for consumption.
-        for part_i in 0..input_partitions {
+        let input_range: Box<dyn Iterator<Item = usize>> = if self.preserve_input_partitioning {
+            Box::new(std::iter::once(partition))
+        } else {
+            Box::new(0..input_partitions)
+        };
+        for part_i in input_range {
             let input = Arc::clone(&self.input);
             let host_stream = input.execute(part_i, context.clone())?;
             builder.run_input(host_stream);
@@ -127,6 +233,13 @@ struct CuDFRecordBatchReceiverStreamBuilder {
 struct CuDFRecordBatchReceiverStreamBuilderCtx {
     schema: SchemaRef,
     metrics: CuDFLoadMetrics,
+    /// Per-segment CUDA stream when streams are enabled and the segment
+    /// is stream-eligible. `None` means use the default stream.
+    cuda_stream: Option<Arc<CuDFStream>>,
+    /// Stage host batches through pinned (page-locked) memory before the
+    /// H2D copy. Faster `cudaMemcpyAsync` because no pageable-staging
+    /// step in the driver.
+    pinned_input: bool,
 }
 
 impl CuDFRecordBatchReceiverStreamBuilder {
@@ -156,23 +269,50 @@ impl CuDFRecordBatchReceiverStreamBuilder {
                 };
 
                 if batch.columns().iter().any(|c| is_cudf_array(c)) {
-                    return exec_err!("Cannot move RecordBatch from host to CuDF: a column is already a CuDF array");
+                    return exec_err!(
+                        "Cannot move RecordBatch from host to CuDF: a column is already a CuDF array"
+                    );
                 }
                 ctx.metrics.record_input(&batch);
                 let schema = batch.schema();
+                // When `pinned_input` is enabled, stage the host batch through
+                // pinned (page-locked) memory so the upload is a direct DMA
+                // without the driver's pageable-staging step. The pinned source
+                // must outlive the async copy, so the relevant stream is
+                // synchronized before the pinned batch is dropped at the end of
+                // this closure.
+                let table = if ctx.pinned_input {
+                    let pin_timer = ctx.metrics.pin_time.timer();
+                    let pinned = pin_record_batch(batch).map_err(cudf_to_df)?;
+                    pin_timer.done();
 
-                let pin_timer = ctx.metrics.pin_time.timer();
-                let pinned_batch = pin_record_batch(batch).map_err(cudf_to_df)?;
-                pin_timer.done();
+                    let import_timer = ctx.metrics.import_time.timer();
+                    let table = match ctx.cuda_stream.as_deref() {
+                        Some(stream) => CuDFTable::from_arrow_host_on(pinned.clone(), stream)
+                            .map_err(cudf_to_df)?,
+                        None => CuDFTable::from_arrow_host(pinned.clone())
+                            .map_err(cudf_to_df)?,
+                    };
+                    import_timer.done();
 
-                let import_timer = ctx.metrics.import_time.timer();
-                let table = CuDFTable::from_arrow_host(pinned_batch).map_err(cudf_to_df)?;
-                import_timer.done();
-
-                let sync_timer = ctx.metrics.sync_time.timer();
-                synchronize_default_stream().map_err(cudf_to_df)?;
-                sync_timer.done();
-
+                    let sync_timer = ctx.metrics.sync_time.timer();
+                    match ctx.cuda_stream.as_deref() {
+                        Some(stream) => stream.synchronize().map_err(cudf_to_df)?,
+                        None => synchronize_default_stream().map_err(cudf_to_df)?,
+                    }
+                    sync_timer.done();
+                    drop(pinned);
+                    table
+                } else {
+                    let import_timer = ctx.metrics.import_time.timer();
+                    let table = match ctx.cuda_stream.as_deref() {
+                        Some(stream) => CuDFTable::from_arrow_host_on(batch, stream)
+                            .map_err(cudf_to_df)?,
+                        None => CuDFTable::from_arrow_host(batch).map_err(cudf_to_df)?,
+                    };
+                    import_timer.done();
+                    table
+                };
                 let output_batch_timer = ctx.metrics.output_batch_time.timer();
                 let num_rows = table.num_rows();
                 let cudf_cols: Vec<Arc<dyn Array>> = table

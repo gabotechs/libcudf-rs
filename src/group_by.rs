@@ -52,6 +52,29 @@ impl CuDFGroupBy {
     where
         I: IntoIterator<Item = AggregationRequest>,
     {
+        self.aggregate_with_stream(requests, None)
+    }
+
+    /// Same as [`Self::aggregate`] but issues the work on the given CUDA stream.
+    pub fn aggregate_on<I>(
+        &self,
+        requests: I,
+        stream: &crate::CuDFStream,
+    ) -> Result<(CuDFTable, Vec<Vec<CuDFColumn>>)>
+    where
+        I: IntoIterator<Item = AggregationRequest>,
+    {
+        self.aggregate_with_stream(requests, Some(stream))
+    }
+
+    fn aggregate_with_stream<I>(
+        &self,
+        requests: I,
+        stream: Option<&crate::CuDFStream>,
+    ) -> Result<(CuDFTable, Vec<Vec<CuDFColumn>>)>
+    where
+        I: IntoIterator<Item = AggregationRequest>,
+    {
         let mut _refs = Vec::new();
         let mut requests_inner = aggregation_requests_create();
         for request in requests {
@@ -59,7 +82,10 @@ impl CuDFGroupBy {
             requests_inner.pin_mut().add(request.inner);
         }
 
-        let mut gby_result = self.inner.aggregate(&requests_inner)?;
+        let mut gby_result = match stream {
+            Some(s) => self.inner.aggregate_on(&requests_inner, s.inner())?,
+            None => self.inner.aggregate(&requests_inner)?,
+        };
         let keys = gby_result.pin_mut().release_keys();
         let keys = CuDFTable::from_ptr(keys);
 

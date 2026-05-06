@@ -52,6 +52,28 @@ namespace libcudf_bridge {
         return wrapped;
     }
 
+    std::unique_ptr<Table> stable_sort_table_on(
+        const TableView &input,
+        const rust::Slice<const int32_t> column_order,
+        const rust::Slice<const int32_t> null_precedence,
+        const CudaStream &stream) {
+        std::vector<cudf::order> orders;
+        for (auto ord: column_order) {
+            orders.push_back(static_cast<cudf::order>(ord));
+        }
+
+        std::vector<cudf::null_order> null_orders;
+        for (auto null_ord: null_precedence) {
+            null_orders.push_back(static_cast<cudf::null_order>(null_ord));
+        }
+
+        auto result_table = cudf::stable_sort(*input.inner, orders, null_orders, stream.view());
+
+        auto wrapped = std::make_unique<Table>();
+        wrapped->inner = std::move(result_table);
+        return wrapped;
+    }
+
     // Get sorted order indices
     std::unique_ptr<Column> sorted_order(
         const TableView &input,
@@ -88,6 +110,26 @@ namespace libcudf_bridge {
         }
 
         auto result_col = cudf::stable_sorted_order(*input.inner, orders, null_orders);
+
+        return std::make_unique<Column>(column_from_unique_ptr(std::move(result_col)));
+    }
+
+    std::unique_ptr<Column> stable_sorted_order_on(
+        const TableView &input,
+        const rust::Slice<const int32_t> column_order,
+        const rust::Slice<const int32_t> null_precedence,
+        const CudaStream &stream) {
+        std::vector<cudf::order> orders;
+        for (auto ord: column_order) {
+            orders.push_back(static_cast<cudf::order>(ord));
+        }
+
+        std::vector<cudf::null_order> null_orders;
+        for (auto null_ord: null_precedence) {
+            null_orders.push_back(static_cast<cudf::null_order>(null_ord));
+        }
+
+        auto result_col = cudf::stable_sorted_order(*input.inner, orders, null_orders, stream.view());
 
         return std::make_unique<Column>(column_from_unique_ptr(std::move(result_col)));
     }
@@ -150,6 +192,34 @@ namespace libcudf_bridge {
         }
 
         auto result_table = cudf::stable_sort_by_key(*values.inner, *keys.inner, orders, null_orders);
+
+        auto wrapped = std::make_unique<Table>();
+        wrapped->inner = std::move(result_table);
+        return wrapped;
+    }
+
+    std::unique_ptr<Table> stable_sort_by_key_on(
+        const TableView &values,
+        const TableView &keys,
+        const rust::Slice<const int32_t> column_order,
+        const rust::Slice<const int32_t> null_precedence,
+        const CudaStream &stream) {
+        std::vector<cudf::order> orders;
+        for (auto ord: column_order) {
+            orders.push_back(static_cast<cudf::order>(ord));
+        }
+
+        std::vector<cudf::null_order> null_orders;
+        for (auto null_ord: null_precedence) {
+            null_orders.push_back(static_cast<cudf::null_order>(null_ord));
+        }
+
+        auto result_table = cudf::stable_sort_by_key(
+            *values.inner,
+            *keys.inner,
+            orders,
+            null_orders,
+            stream.view());
 
         auto wrapped = std::make_unique<Table>();
         wrapped->inner = std::move(result_table);

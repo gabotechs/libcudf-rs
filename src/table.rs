@@ -144,6 +144,23 @@ impl CuDFTable {
     /// ```
     pub fn from_arrow_host(batch: RecordBatch) -> Result<Self, CuDFError> {
         crate::config::ensure_pools_configured();
+        Self::from_arrow_host_with_stream(batch, None)
+    }
+
+    /// Same as [`Self::from_arrow_host`] but issues the upload on the given
+    /// CUDA stream.
+    pub fn from_arrow_host_on(
+        batch: RecordBatch,
+        stream: &crate::CuDFStream,
+    ) -> Result<Self, CuDFError> {
+        crate::config::ensure_pools_configured();
+        Self::from_arrow_host_with_stream(batch, Some(stream))
+    }
+
+    fn from_arrow_host_with_stream(
+        batch: RecordBatch,
+        stream: Option<&crate::CuDFStream>,
+    ) -> Result<Self, CuDFError> {
         for col in batch.columns() {
             if is_cudf_array(col) {
                 return Err(ArrowError::InvalidArgumentError("Tried to move a RecordBatch from the host to CuDF, but a column was already in CuDF".to_string()))?;
@@ -160,13 +177,18 @@ impl CuDFTable {
 
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
-        let stream = ffi::get_default_stream();
+        let stream_view = match stream {
+            Some(stream) => ffi::cuda_stream_view(stream.inner()),
+            None => ffi::get_default_stream(),
+        };
         let mr = ffi::get_current_device_resource_ref();
         let inner = unsafe {
             ffi::table_from_arrow_host(
                 schema_ptr,
                 device_array_ptr,
-                stream.as_ref().expect("default stream should not be null"),
+                stream_view
+                    .as_ref()
+                    .expect("stream view should not be null"),
                 mr.as_ref().expect("device resource should not be null"),
             )
         }?;
@@ -279,6 +301,23 @@ impl CuDFTable {
             })
             .collect();
         let inner = ffi::concat_table_views(&inner_views)?;
+        Ok(Self { inner })
+    }
+
+    /// Same as [`Self::concat`] but uses an explicit CUDA stream.
+    pub fn concat_on(
+        views: Vec<CuDFTableView>,
+        stream: &crate::CuDFStream,
+    ) -> Result<Self, CuDFError> {
+        let mut _refs = Vec::with_capacity(views.len());
+        let inner_views: Vec<_> = views
+            .into_iter()
+            .map(|v| {
+                _refs.push(v._ref.clone());
+                v.into_inner()
+            })
+            .collect();
+        let inner = ffi::concat_table_views_on(&inner_views, stream.inner())?;
         Ok(Self { inner })
     }
 }

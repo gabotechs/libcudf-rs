@@ -65,6 +65,25 @@ pub fn sort(
     key_columns: &[usize],
     sort_orders: &[SortOrder],
 ) -> Result<CuDFTable, CuDFError> {
+    sort_with_stream(table, key_columns, sort_orders, None)
+}
+
+/// Same as [`sort`] but issues the work on the given CUDA stream.
+pub fn sort_on(
+    table: &CuDFTableView,
+    key_columns: &[usize],
+    sort_orders: &[SortOrder],
+    stream: &crate::CuDFStream,
+) -> Result<CuDFTable, CuDFError> {
+    sort_with_stream(table, key_columns, sort_orders, Some(stream))
+}
+
+fn sort_with_stream(
+    table: &CuDFTableView,
+    key_columns: &[usize],
+    sort_orders: &[SortOrder],
+    stream: Option<&crate::CuDFStream>,
+) -> Result<CuDFTable, CuDFError> {
     if key_columns.is_empty() {
         return Err(CuDFError::ArrowError(
             arrow::error::ArrowError::InvalidArgumentError(
@@ -106,12 +125,21 @@ pub fn sort(
     let null_precedence_i32: Vec<i32> =
         sort_orders.iter().map(|&o| o.null_order() as i32).collect();
 
-    let inner = ffi::stable_sort_by_key(
-        table.inner(),
-        keys_view.inner(),
-        &column_order_i32,
-        &null_precedence_i32,
-    )?;
+    let inner = match stream {
+        Some(stream) => ffi::stable_sort_by_key_on(
+            table.inner(),
+            keys_view.inner(),
+            &column_order_i32,
+            &null_precedence_i32,
+            stream.inner(),
+        ),
+        None => ffi::stable_sort_by_key(
+            table.inner(),
+            keys_view.inner(),
+            &column_order_i32,
+            &null_precedence_i32,
+        ),
+    }?;
     Ok(CuDFTable::from_inner(inner))
 }
 
@@ -148,11 +176,36 @@ pub fn sort_by_all(
     table: &CuDFTableView,
     sort_orders: &[SortOrder],
 ) -> Result<CuDFTable, CuDFError> {
+    sort_by_all_with_stream(table, sort_orders, None)
+}
+
+/// Same as [`sort_by_all`] but issues the work on the given CUDA stream.
+pub fn sort_by_all_on(
+    table: &CuDFTableView,
+    sort_orders: &[SortOrder],
+    stream: &crate::CuDFStream,
+) -> Result<CuDFTable, CuDFError> {
+    sort_by_all_with_stream(table, sort_orders, Some(stream))
+}
+
+fn sort_by_all_with_stream(
+    table: &CuDFTableView,
+    sort_orders: &[SortOrder],
+    stream: Option<&crate::CuDFStream>,
+) -> Result<CuDFTable, CuDFError> {
     let column_order_i32: Vec<i32> = sort_orders.iter().map(|&o| o.order() as i32).collect();
     let null_precedence_i32: Vec<i32> =
         sort_orders.iter().map(|&o| o.null_order() as i32).collect();
 
-    let inner = ffi::stable_sort_table(table.inner(), &column_order_i32, &null_precedence_i32)?;
+    let inner = match stream {
+        Some(stream) => ffi::stable_sort_table_on(
+            table.inner(),
+            &column_order_i32,
+            &null_precedence_i32,
+            stream.inner(),
+        ),
+        None => ffi::stable_sort_table(table.inner(), &column_order_i32, &null_precedence_i32),
+    }?;
     Ok(CuDFTable::from_inner(inner))
 }
 
@@ -186,11 +239,36 @@ pub fn stable_sorted_order(
     table: &CuDFTableView,
     sort_orders: &[SortOrder],
 ) -> Result<CuDFColumn, CuDFError> {
+    stable_sorted_order_with_stream(table, sort_orders, None)
+}
+
+/// Same as [`stable_sorted_order`] but issues the work on the given CUDA stream.
+pub fn stable_sorted_order_on(
+    table: &CuDFTableView,
+    sort_orders: &[SortOrder],
+    stream: &crate::CuDFStream,
+) -> Result<CuDFColumn, CuDFError> {
+    stable_sorted_order_with_stream(table, sort_orders, Some(stream))
+}
+
+fn stable_sorted_order_with_stream(
+    table: &CuDFTableView,
+    sort_orders: &[SortOrder],
+    stream: Option<&crate::CuDFStream>,
+) -> Result<CuDFColumn, CuDFError> {
     let column_order_i32: Vec<i32> = sort_orders.iter().map(|&o| o.order() as i32).collect();
     let null_precedence_i32: Vec<i32> =
         sort_orders.iter().map(|&o| o.null_order() as i32).collect();
 
-    let inner = ffi::stable_sorted_order(table.inner(), &column_order_i32, &null_precedence_i32)?;
+    let inner = match stream {
+        Some(stream) => ffi::stable_sorted_order_on(
+            table.inner(),
+            &column_order_i32,
+            &null_precedence_i32,
+            stream.inner(),
+        ),
+        None => ffi::stable_sorted_order(table.inner(), &column_order_i32, &null_precedence_i32),
+    }?;
     Ok(CuDFColumn::new(inner))
 }
 

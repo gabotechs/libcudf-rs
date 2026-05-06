@@ -1,5 +1,6 @@
 use crate::aggregate::PreparedCuDFAggregate;
 use crate::errors::cudf_to_df;
+use crate::expr::expr_with_stream;
 use crate::metrics::CuDFBaselineMetrics;
 use arrow::array::{Array, ArrayRef, RecordBatch};
 use arrow_schema::SchemaRef;
@@ -13,7 +14,8 @@ use datafusion_physical_plan::aggregates::{evaluate_group_by, evaluate_many, Agg
 use datafusion_physical_plan::PhysicalExpr;
 use futures::{ready, StreamExt};
 use libcudf_rs::{
-    record_batch_with_schema, CuDFColumn, CuDFColumnView, CuDFGroupBy, CuDFTable, CuDFTableView,
+    record_batch_with_schema, CuDFColumn, CuDFColumnView, CuDFGroupBy, CuDFStream, CuDFTable,
+    CuDFTableView,
 };
 use std::pin::Pin;
 use std::sync::Arc;
@@ -109,6 +111,9 @@ pub struct CuDFAggregateStream {
     /// Partial-mode-only ratio of input rows to output rows. `None` for
     /// `Single`/`Final*` modes where the metric is not meaningful.
     reduction_factor: Option<RatioMetrics>,
+    /// CUDA stream for stream-aware execution. `None` means use the default
+    /// stream and the non-`_on` cuDF variants.
+    cuda_stream: Option<Arc<CuDFStream>>,
 }
 
 impl CuDFAggregateStream {
@@ -119,12 +124,18 @@ impl CuDFAggregateStream {
         chunk_target_bytes: usize,
         metrics: &ExecutionPlanMetricsSet,
         partition: usize,
+        cuda_stream: Option<Arc<CuDFStream>>,
     ) -> Result<Self> {
         let aggregate_args = prepared
             .aggs
             .iter()
             .map(|agg| agg.args.clone())
-            .collect::<Vec<_>>();
+            .map(|args| {
+                args.into_iter()
+                    .map(|arg| expr_with_stream(arg, cuda_stream.clone()))
+                    .collect::<Result<Vec<_>>>()
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         let column_mapping = {
             let mut offset = 0;
@@ -163,6 +174,7 @@ impl CuDFAggregateStream {
             baseline_metrics,
             group_by_metrics,
             reduction_factor,
+            cuda_stream,
         })
     }
 
@@ -175,7 +187,7 @@ impl CuDFAggregateStream {
             return Ok(());
         }
 
-        let chunk = concat_cudf_batches(&self.pending_batches)?;
+        let chunk = concat_cudf_batches(&self.pending_batches, self.cuda_stream.as_deref())?;
         self.pending_batches.clear();
         self.pending_bytes = 0;
 
@@ -185,7 +197,11 @@ impl CuDFAggregateStream {
 
         let (chunk_keys, chunk_results) = {
             let _timer = self.group_by_metrics.aggregation_time.timer();
-            group_by.aggregate(requests).map_err(cudf_to_df)?
+            match self.cuda_stream.as_deref() {
+                Some(stream) => group_by.aggregate_on(requests, stream),
+                None => group_by.aggregate(requests),
+            }
+            .map_err(cudf_to_df)?
         };
         let mut chunk_state_columns = chunk_results.into_iter().flatten().collect();
 
@@ -261,14 +277,24 @@ impl CuDFAggregateStream {
         };
 
         // Concat keys
-        let combined_keys = CuDFTable::concat(vec![running.keys.into_view(), new_keys.into_view()])
-            .map_err(cudf_to_df)?;
+        let combined_keys = match self.cuda_stream.as_deref() {
+            Some(stream) => {
+                CuDFTable::concat_on(vec![running.keys.into_view(), new_keys.into_view()], stream)
+            }
+            None => CuDFTable::concat(vec![running.keys.into_view(), new_keys.into_view()]),
+        }
+        .map_err(cudf_to_df)?;
 
         // Concat each state column pair
         let mut combined_state_columns = Vec::with_capacity(running.state_columns.len());
         for (run_col, new_col) in running.state_columns.into_iter().zip(new_state_columns) {
-            let combined = CuDFColumn::concat(vec![run_col.into_view(), new_col.into_view()])
-                .map_err(cudf_to_df)?;
+            let combined = match self.cuda_stream.as_deref() {
+                Some(stream) => {
+                    CuDFColumn::concat_on(vec![run_col.into_view(), new_col.into_view()], stream)
+                }
+                None => CuDFColumn::concat(vec![run_col.into_view(), new_col.into_view()]),
+            }
+            .map_err(cudf_to_df)?;
             combined_state_columns.push(combined);
         }
 
@@ -290,7 +316,11 @@ impl CuDFAggregateStream {
         let group_by = CuDFGroupBy::from_table_view(combined_keys.into_view());
         let (merged_keys, merged_results) = {
             let _timer = self.group_by_metrics.aggregation_time.timer();
-            group_by.aggregate(requests).map_err(cudf_to_df)?
+            match self.cuda_stream.as_deref() {
+                Some(stream) => group_by.aggregate_on(requests, stream),
+                None => group_by.aggregate(requests),
+            }
+            .map_err(cudf_to_df)?
         };
         let merged_state_columns = merged_results.into_iter().flatten().collect();
 
@@ -336,7 +366,11 @@ impl CuDFAggregateStream {
                 for (col_idx, view) in state_views.into_iter().enumerate() {
                     let target_type = state_fields[col_idx].data_type();
                     if view.data_type() != target_type {
-                        let casted = libcudf_rs::cast(&view, target_type).map_err(cudf_to_df)?;
+                        let casted = match self.cuda_stream.as_deref() {
+                            Some(stream) => libcudf_rs::cast_on(&view, target_type, stream),
+                            None => libcudf_rs::cast(&view, target_type),
+                        }
+                        .map_err(cudf_to_df)?;
                         arrays.push(Arc::new(casted.into_view()));
                     } else {
                         arrays.push(Arc::new(view));
@@ -399,9 +433,12 @@ impl CuDFAggregateStream {
                         if let Some(view) = arg.as_any().downcast_ref::<CuDFColumnView>() {
                             return Ok(view.clone());
                         }
-                        CuDFColumn::from_arrow_host(arg.as_ref())
-                            .map(|col| col.into_view())
-                            .map_err(cudf_to_df)
+                        match self.cuda_stream.as_deref() {
+                            Some(stream) => CuDFColumn::from_arrow_host_on(arg.as_ref(), stream),
+                            None => CuDFColumn::from_arrow_host(arg.as_ref()),
+                        }
+                        .map(|col| col.into_view())
+                        .map_err(cudf_to_df)
                     })
                     .collect()
             })
@@ -410,7 +447,10 @@ impl CuDFAggregateStream {
 }
 
 /// Concatenate CuDF-backed record batches into a single batch by column.
-fn concat_cudf_batches(batches: &[RecordBatch]) -> Result<RecordBatch> {
+fn concat_cudf_batches(
+    batches: &[RecordBatch],
+    cuda_stream: Option<&CuDFStream>,
+) -> Result<RecordBatch> {
     let schema = batches[0].schema();
     let num_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
     let cols = (0..schema.fields().len())
@@ -426,7 +466,11 @@ fn concat_cudf_batches(batches: &[RecordBatch]) -> Result<RecordBatch> {
                     Ok(view.clone())
                 })
                 .collect::<Result<Vec<_>>>()?;
-            let col = CuDFColumn::concat(views).map_err(cudf_to_df)?;
+            let col = match cuda_stream {
+                Some(stream) => CuDFColumn::concat_on(views, stream),
+                None => CuDFColumn::concat(views),
+            }
+            .map_err(cudf_to_df)?;
             Ok(Arc::new(col.into_view()) as Arc<dyn Array>)
         })
         .collect::<Result<Vec<_>>>()?;

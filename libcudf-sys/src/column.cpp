@@ -47,6 +47,16 @@ namespace libcudf_bridge {
         device_array_unique.release();
     }
 
+    void ColumnView::to_arrow_array_on(uint8_t *out_array_ptr, const CudaStream &stream) const {
+        if (!inner) {
+            throw std::runtime_error("Cannot convert null column view to arrow array");
+        }
+        auto device_array_unique = cudf::to_arrow_host(*this->inner, stream.view());
+        auto *out_array = reinterpret_cast<ArrowDeviceArray*>(out_array_ptr);
+        *out_array = *device_array_unique.get();
+        device_array_unique.release();
+    }
+
     // Get the raw device pointer to the column view's data
     [[nodiscard]] uint64_t ColumnView::data_ptr() const {
         if (!inner) {
@@ -238,6 +248,18 @@ namespace libcudf_bridge {
         }
         auto result = std::make_unique<Column>();
         result->inner = cudf::cast(*input.inner, target_type.inner);
+        return result;
+    }
+
+    std::unique_ptr<Column> cast_column_on(
+        const ColumnView &input,
+        const DataType &target_type,
+        const CudaStream &stream) {
+        if (!input.inner) {
+            throw std::runtime_error("Cannot cast null column view");
+        }
+        auto result = std::make_unique<Column>();
+        result->inner = cudf::cast(*input.inner, target_type.inner, stream.view());
         return result;
     }
 

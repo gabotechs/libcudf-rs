@@ -17,9 +17,24 @@ impl SessionStateBuilderExt for SessionStateBuilder {
             cfg.options_mut().extensions.insert(CuDFConfig::default());
         }
 
+        let cuda_streams = cfg
+            .options()
+            .extensions
+            .get::<CuDFConfig>()
+            .is_some_and(|c| c.cuda_streams);
+
         let target_partitions = cfg.options_mut().execution.target_partitions;
-        // Assume only one GPU present, and therefore, force target_partitions == 1.
-        cfg.options_mut().execution.target_partitions = 1;
+        // Without streams, all GPU work serializes on the default stream,
+        // so multiple partitions add scheduler overhead with no parallelism.
+        // Force `target_partitions == 1` for the GPU subplan and let the
+        // RescaleLeafsRule keep the CPU-side leafs at their original count.
+        //
+        // With streams, each partition gets its own CUDA stream and they can
+        // run in parallel on the GPU's copy engines / SMs, so leave
+        // `target_partitions` unchanged.
+        if !cuda_streams {
+            cfg.options_mut().execution.target_partitions = 1;
+        }
 
         self.with_physical_optimizer_rule(Arc::new(RescaleLeafsRule(target_partitions)))
             .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))

@@ -46,6 +46,23 @@ impl CuDFColumn {
     /// ```
     pub fn from_arrow_host(array: &dyn Array) -> Result<Self, CuDFError> {
         crate::config::ensure_pools_configured();
+        Self::from_arrow_host_with_stream(array, None)
+    }
+
+    /// Same as [`Self::from_arrow_host`] but issues the upload on the given
+    /// CUDA stream.
+    pub fn from_arrow_host_on(
+        array: &dyn Array,
+        stream: &crate::CuDFStream,
+    ) -> Result<Self, CuDFError> {
+        crate::config::ensure_pools_configured();
+        Self::from_arrow_host_with_stream(array, Some(stream))
+    }
+
+    fn from_arrow_host_with_stream(
+        array: &dyn Array,
+        stream: Option<&crate::CuDFStream>,
+    ) -> Result<Self, CuDFError> {
         if arrow_type_to_cudf(array.data_type()).is_none() {
             return Err(CuDFError::ArrowError(ArrowError::NotYetImplemented(
                 format!("Arrow type {} not supported in CuDF", array.data_type()),
@@ -59,13 +76,18 @@ impl CuDFColumn {
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let array_ptr = &ffi_array as *const FFI_ArrowArray as *const u8;
 
-        let stream = ffi::get_default_stream();
+        let stream_view = match stream {
+            Some(stream) => ffi::cuda_stream_view(stream.inner()),
+            None => ffi::get_default_stream(),
+        };
         let mr = ffi::get_current_device_resource_ref();
         let inner = unsafe {
             ffi::column_from_arrow(
                 schema_ptr,
                 array_ptr,
-                stream.as_ref().expect("default stream should not be null"),
+                stream_view
+                    .as_ref()
+                    .expect("stream view should not be null"),
                 mr.as_ref().expect("device resource should not be null"),
             )
         }?;
@@ -96,6 +118,25 @@ impl CuDFColumn {
             })
             .collect::<Vec<_>>();
         Ok(Self::new(libcudf_sys::ffi::concat_column_views(&views)?))
+    }
+
+    /// Same as [`Self::concat`] but uses an explicit CUDA stream.
+    pub fn concat_on(
+        views: Vec<CuDFColumnView>,
+        stream: &crate::CuDFStream,
+    ) -> Result<Self, CuDFError> {
+        let mut _refs = Vec::with_capacity(views.len());
+        let views = views
+            .into_iter()
+            .map(|x| {
+                _refs.push(x._ref.clone());
+                x.into_inner()
+            })
+            .collect::<Vec<_>>();
+        Ok(Self::new(libcudf_sys::ffi::concat_column_views_on(
+            &views,
+            stream.inner(),
+        )?))
     }
 }
 
