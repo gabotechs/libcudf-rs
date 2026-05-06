@@ -93,12 +93,10 @@ HashJoin::HashJoin() = default;
 HashJoin::~HashJoin() = default;
 
 std::unique_ptr<HashJoin> hash_join_create(
-    const TableView& build_keys, bool nulls_equal)
+    const TableView& build_keys, int32_t null_equality)
 {
     auto result = std::make_unique<HashJoin>();
-    auto compare_nulls = nulls_equal
-        ? cudf::null_equality::EQUAL
-        : cudf::null_equality::UNEQUAL;
+    auto compare_nulls = static_cast<cudf::null_equality>(null_equality);
     result->inner = std::make_unique<cudf::hash_join>(*build_keys.inner, compare_nulls);
     return result;
 }

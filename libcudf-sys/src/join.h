@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <cstdint>
 #include "rust/cxx.h"
 #include "table.h"
 #include "column.h"
@@ -44,7 +45,7 @@ namespace libcudf_bridge {
     };
 
     std::unique_ptr<HashJoin> hash_join_create(
-        const TableView& build_keys, bool nulls_equal);
+        const TableView& build_keys, int32_t null_equality);
 
     std::unique_ptr<HashJoinIndices> hash_join_inner_join_indices(
         const HashJoin& join,

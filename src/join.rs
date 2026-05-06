@@ -1,7 +1,7 @@
 use crate::{CuDFColumn, CuDFError, CuDFRef, CuDFScalar, CuDFTable, CuDFTableView};
 use arrow::array::{Int32Array, Scalar};
 use cxx::UniquePtr;
-use libcudf_sys::{ffi, OutOfBoundsPolicy};
+use libcudf_sys::{ffi, NullEquality, OutOfBoundsPolicy};
 use std::sync::Arc;
 
 const NULL_GATHER_INDEX: i32 = i32::MIN;
@@ -109,8 +109,11 @@ pub enum CuDFNullEquality {
 }
 
 impl CuDFNullEquality {
-    fn nulls_equal(self) -> bool {
-        matches!(self, Self::Equal)
+    fn into_sys(self) -> NullEquality {
+        match self {
+            Self::Equal => NullEquality::Equal,
+            Self::Unequal => NullEquality::Unequal,
+        }
     }
 }
 
@@ -122,7 +125,7 @@ impl CuDFHashJoin {
         null_equality: CuDFNullEquality,
     ) -> Result<Self, CuDFError> {
         let build_keys = select_cols(build, build_on);
-        let inner = ffi::hash_join_create(&build_keys, null_equality.nulls_equal())?;
+        let inner = ffi::hash_join_create(&build_keys, null_equality.into_sys() as i32)?;
         Ok(Self {
             inner,
             build_rows: build.num_rows(),

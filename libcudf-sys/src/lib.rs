@@ -486,7 +486,7 @@ pub mod ffi {
         /// Create a reusable hash join object from build-side keys.
         fn hash_join_create(
             build_keys: &TableView,
-            nulls_equal: bool,
+            null_equality: i32,
         ) -> Result<UniquePtr<HashJoin>>;
 
         /// Probe a reusable hash join object and return probe/build row indices.
@@ -731,6 +731,16 @@ pub enum OutOfBoundsPolicy {
     Nullify = 0,
     /// Do not check bounds.
     DontCheck = 1,
+}
+
+/// Null comparison policy for join keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum NullEquality {
+    /// Null values compare equal.
+    Equal = 0,
+    /// Null values do not compare equal.
+    Unequal = 1,
 }
 
 /// Binary operators supported by cuDF
