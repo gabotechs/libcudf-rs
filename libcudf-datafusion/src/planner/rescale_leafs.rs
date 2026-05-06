@@ -25,12 +25,27 @@ impl PhysicalOptimizerRule for RescaleLeafsRule {
                 return Ok(Transformed::no(plan));
             }
 
-            match plan.repartitioned(*leaf_node_partitions, config)? {
-                Some(rescaled) => Ok(Transformed::yes(Arc::new(CoalescePartitionsExec::new(
-                    rescaled,
-                )))),
-                None => Ok(Transformed::no(plan)),
-            }
+            let Some(rescaled) = plan.repartitioned(*leaf_node_partitions, config)? else {
+                return Ok(Transformed::no(plan));
+            };
+
+            // The rest of the plan was built assuming `target_partitions == 1`,
+            // so any operator above this leaf (e.g. `HashJoinExec` in
+            // `CollectLeft` mode, or `NestedLoopJoinExec`'s left side) expects
+            // a single-partition input. Coalesce only when the rescaled output
+            // is multi-partition; if the source ignored the rescale request
+            // and stayed at one partition, no wrapper is needed.
+            let rescaled = if rescaled
+                .properties()
+                .output_partitioning()
+                .partition_count()
+                > 1
+            {
+                Arc::new(CoalescePartitionsExec::new(rescaled)) as Arc<dyn ExecutionPlan>
+            } else {
+                rescaled
+            };
+            Ok(Transformed::yes(rescaled))
         })?;
         Ok(transformed.data)
     }
