@@ -5,6 +5,7 @@
 #include "rust/cxx.h"
 #include "table.h"
 #include "column.h"
+#include "scalar.h"
 
 // Forward declarations of Arrow C ABI types
 struct ArrowSchema;
@@ -24,8 +25,29 @@ namespace libcudf_bridge {
 
     std::unique_ptr<Column> concat_column_views(rust::Slice<const std::unique_ptr<ColumnView>> views);
 
+    std::unique_ptr<Column> make_column_from_scalar(const Scalar &scalar, size_t size);
+
+    std::unique_ptr<Column> sequence(size_t size, const Scalar &init, const Scalar &step);
+
     // Gather rows from a table based on a gather map (column of indices)
     std::unique_ptr<Table> gather(const TableView &source_table, const ColumnView &gather_map);
+
+    std::unique_ptr<Table> gather_with_policy(
+        const TableView &source_table,
+        const ColumnView &gather_map,
+        int32_t out_of_bounds_policy);
+
+    std::unique_ptr<Table> scatter_scalars(
+        rust::Slice<const Scalar *const> source,
+        const ColumnView &indices,
+        const TableView &target);
+
+    std::unique_ptr<Table> distinct(
+        const TableView &input,
+        rust::Slice<const int32_t> keys,
+        int32_t keep,
+        int32_t nulls_equal,
+        int32_t nans_equal);
 
     // Create a sliced view of a column
     std::unique_ptr<ColumnView> slice_column(const ColumnView &column, size_t offset, size_t length);

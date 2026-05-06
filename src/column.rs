@@ -19,6 +19,10 @@ impl CuDFColumn {
         Self { inner }
     }
 
+    pub(crate) fn len(&self) -> usize {
+        self.inner.size()
+    }
+
     /// Convert an Arrow array to a cuDF column
     ///
     /// This transfers the Arrow array data to GPU memory for processing with cuDF.

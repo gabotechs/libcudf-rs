@@ -43,6 +43,15 @@ impl CuDFTable {
         Self { inner }
     }
 
+    pub(crate) fn from_columns(mut columns: Vec<CuDFColumn>) -> Self {
+        let ptrs: Vec<_> = columns
+            .iter_mut()
+            .map(|col| col.inner.as_mut_ptr())
+            .collect();
+        let inner = ffi::create_table_from_columns_move(&ptrs);
+        Self { inner }
+    }
+
     /// Read a table from a Parquet file
     ///
     /// # Arguments

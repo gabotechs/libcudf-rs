@@ -84,6 +84,29 @@ pub mod ffi {
         /// various aggregations on value columns based on those keys.
         type GroupBy;
 
+        /// Reusable cuDF hash join object.
+        ///
+        /// Builds a hash table once and probes it with subsequent join calls.
+        type HashJoin;
+
+        /// Pair of cuDF join index maps.
+        type JoinIndices;
+
+        /// Take the left input indices from this join result.
+        fn release_left(self: Pin<&mut JoinIndices>) -> UniquePtr<Column>;
+
+        /// Take the right input indices from this join result.
+        fn release_right(self: Pin<&mut JoinIndices>) -> UniquePtr<Column>;
+
+        /// Pair of reusable hash-join probe/build index maps.
+        type HashJoinIndices;
+
+        /// Take the probe-side indices from this reusable hash join result.
+        fn release_probe(self: Pin<&mut HashJoinIndices>) -> UniquePtr<Column>;
+
+        /// Take the build-side indices from this reusable hash join result.
+        fn release_build(self: Pin<&mut HashJoinIndices>) -> UniquePtr<Column>;
+
         /// Opaque owning wrapper for an RMM CUDA stream.
         type CudaStream;
 
@@ -305,6 +328,12 @@ pub mod ffi {
         /// Create a table from vertically concatenating ColumnView together
         fn concat_column_views(views: &[UniquePtr<ColumnView>]) -> Result<UniquePtr<Column>>;
 
+        /// Create a column by repeating a scalar value.
+        fn make_column_from_scalar(scalar: &Scalar, size: usize) -> Result<UniquePtr<Column>>;
+
+        /// Fill a column with a sequence starting at `init` and stepping by `step`.
+        fn sequence(size: usize, init: &Scalar, step: &Scalar) -> Result<UniquePtr<Column>>;
+
         /// Create a TableView from a set of ColumnView pointers (non-owning)
         fn create_table_view_from_column_views(
             column_views: &[*const ColumnView],
@@ -335,6 +364,29 @@ pub mod ffi {
         /// Reorders the rows of `source_table` according to the indices in `gather_map`.
         /// The resulting table will have the same number of rows as `gather_map` has elements.
         fn gather(source_table: &TableView, gather_map: &ColumnView) -> Result<UniquePtr<Table>>;
+
+        /// Gather rows from a table using an explicit out-of-bounds policy.
+        fn gather_with_policy(
+            source_table: &TableView,
+            gather_map: &ColumnView,
+            out_of_bounds_policy: i32,
+        ) -> Result<UniquePtr<Table>>;
+
+        /// Scatter scalar rows into a copy of a target table.
+        fn scatter_scalars(
+            source: &[*const Scalar],
+            indices: &ColumnView,
+            target: &TableView,
+        ) -> Result<UniquePtr<Table>>;
+
+        /// Create a table without duplicate rows.
+        fn distinct(
+            input: &TableView,
+            keys: &[i32],
+            keep: i32,
+            nulls_equal: i32,
+            nans_equal: i32,
+        ) -> Result<UniquePtr<Table>>;
 
         /// Create a sliced view of a column
         ///
@@ -450,43 +502,53 @@ pub mod ffi {
 
         // Join operations.
 
-        /// Inner join: gather matching rows from both payloads into one output table.
-        fn inner_join_gather(
-            left_keys: &TableView,
-            right_keys: &TableView,
-            left_payload: &TableView,
-            right_payload: &TableView,
-        ) -> Result<UniquePtr<Table>>;
+        /// Create a reusable hash join object from build-side keys.
+        fn hash_join_create(
+            build_keys: &TableView,
+            null_equality: i32,
+        ) -> Result<UniquePtr<HashJoin>>;
 
-        /// Left outer join: all left rows appear; unmatched right columns are null.
-        fn left_join_gather(
-            left_keys: &TableView,
-            right_keys: &TableView,
-            left_payload: &TableView,
-            right_payload: &TableView,
-        ) -> Result<UniquePtr<Table>>;
+        /// Probe a reusable hash join object and return probe/build row indices.
+        fn hash_join_inner_join_indices(
+            join: &HashJoin,
+            probe_keys: &TableView,
+        ) -> Result<UniquePtr<HashJoinIndices>>;
 
-        /// Full outer join: all rows from both sides; unmatched columns on either side are null.
-        fn full_join_gather(
-            left_keys: &TableView,
-            right_keys: &TableView,
-            left_payload: &TableView,
-            right_payload: &TableView,
-        ) -> Result<UniquePtr<Table>>;
+        /// Probe a reusable hash join object preserving probe rows.
+        fn hash_join_left_join_indices(
+            join: &HashJoin,
+            probe_keys: &TableView,
+        ) -> Result<UniquePtr<HashJoinIndices>>;
 
-        /// Left semi join: gather only matching left rows (no right columns in output).
-        fn left_semi_join_gather(
+        /// Inner join: return row index maps for the matching rows.
+        fn inner_join_indices(
             left_keys: &TableView,
             right_keys: &TableView,
-            left_payload: &TableView,
-        ) -> Result<UniquePtr<Table>>;
+        ) -> Result<UniquePtr<JoinIndices>>;
 
-        /// Left anti join: gather only non-matching left rows (no right columns in output).
-        fn left_anti_join_gather(
+        /// Left join: return row index maps for the output rows.
+        fn left_join_indices(
             left_keys: &TableView,
             right_keys: &TableView,
-            left_payload: &TableView,
-        ) -> Result<UniquePtr<Table>>;
+        ) -> Result<UniquePtr<JoinIndices>>;
+
+        /// Full join: return row index maps for the output rows.
+        fn full_join_indices(
+            left_keys: &TableView,
+            right_keys: &TableView,
+        ) -> Result<UniquePtr<JoinIndices>>;
+
+        /// Left semi join: return row indices for matching left rows.
+        fn left_semi_join_indices(
+            left_keys: &TableView,
+            right_keys: &TableView,
+        ) -> Result<UniquePtr<Column>>;
+
+        /// Left anti join: return row indices for non-matching left rows.
+        fn left_anti_join_indices(
+            left_keys: &TableView,
+            right_keys: &TableView,
+        ) -> Result<UniquePtr<Column>>;
 
         /// Cross join: returns a full Cartesian product table
         fn cross_join(left: &TableView, right: &TableView) -> Result<UniquePtr<Table>>;
@@ -678,6 +740,50 @@ pub enum NullOrder {
     After = 0,
     /// Nulls appear before all other values
     Before = 1,
+}
+
+/// Policy for out-of-bounds gather indices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum OutOfBoundsPolicy {
+    /// Out-of-bounds rows become null rows.
+    Nullify = 0,
+    /// Do not check bounds.
+    DontCheck = 1,
+}
+
+/// Null comparison policy for join keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum NullEquality {
+    /// Null values compare equal.
+    Equal = 0,
+    /// Null values do not compare equal.
+    Unequal = 1,
+}
+
+/// NaN comparison policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum NanEquality {
+    /// All NaN values compare equal.
+    AllEqual = 0,
+    /// NaN values do not compare equal.
+    Unequal = 1,
+}
+
+/// Duplicate row retention policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum DuplicateKeepOption {
+    /// Keep an unspecified duplicate occurrence.
+    KeepAny = 0,
+    /// Keep the first duplicate occurrence.
+    KeepFirst = 1,
+    /// Keep the last duplicate occurrence.
+    KeepLast = 2,
+    /// Remove all duplicate occurrences.
+    KeepNone = 3,
 }
 
 /// Binary operators supported by cuDF
@@ -992,6 +1098,9 @@ unsafe impl Send for ffi::GroupBy {}
 
 /// SAFETY: GroupBy configuration can be accessed from multiple threads.
 unsafe impl Sync for ffi::GroupBy {}
+
+/// SAFETY: HashJoin owns its cuDF state and is only moved across threads.
+unsafe impl Send for ffi::HashJoin {}
 
 /// SAFETY: AggregationRequest configuration can be sent between threads.
 unsafe impl Send for ffi::AggregationRequest {}

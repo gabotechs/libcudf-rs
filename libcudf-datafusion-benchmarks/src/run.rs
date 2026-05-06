@@ -299,14 +299,14 @@ impl RunOpt {
 
         let plan = state.optimize(&plan)?;
         let physical_plan = state.create_physical_plan(&plan).await?;
-        let result = collect(physical_plan.clone(), state.task_ctx()).await?;
+        let result = collect(physical_plan.clone(), state.task_ctx()).await;
         if self.debug {
             println!(
                 "=== Physical plan with metrics ===\n{}\n",
                 DisplayableExecutionPlan::with_metrics(physical_plan.as_ref()).indent(true)
             );
         }
-        Ok(result)
+        result
     }
 
     fn get_path(&self) -> Result<PathBuf> {

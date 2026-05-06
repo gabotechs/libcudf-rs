@@ -3,10 +3,14 @@
 
 #include <cudf/table/table.hpp>
 #include <cudf/column/column.hpp>
+#include <cudf/column/column_factories.hpp>
 #include <cudf/concatenate.hpp>
 #include <cudf/copying.hpp>
+#include <cudf/filling.hpp>
 #include <cudf/interop.hpp>
+#include <cudf/scalar/scalar.hpp>
 #include <cudf/stream_compaction.hpp>
+#include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/pinned_memory.hpp>
 #include <cudf/version_config.hpp>
 
@@ -16,6 +20,8 @@
 
 #include <nanoarrow/nanoarrow.h>
 
+#include <functional>
+#include <limits>
 #include <sstream>
 
 namespace libcudf_bridge {
@@ -69,6 +75,33 @@ namespace libcudf_bridge {
         return table;
     }
 
+    std::unique_ptr<Column> make_column_from_scalar(const Scalar &scalar, size_t size) {
+        if (size > static_cast<size_t>(std::numeric_limits<cudf::size_type>::max())) {
+            throw std::out_of_range("column size exceeds cudf::size_type");
+        }
+
+        auto result = std::make_unique<Column>();
+        result->inner = cudf::make_column_from_scalar(
+            *scalar.inner,
+            static_cast<cudf::size_type>(size));
+        return result;
+    }
+
+    std::unique_ptr<Column> sequence(size_t size, const Scalar &init, const Scalar &step) {
+        if (size > static_cast<size_t>(std::numeric_limits<cudf::size_type>::max())) {
+            throw std::out_of_range("sequence size exceeds cudf::size_type");
+        }
+
+        auto stream = cudf::get_default_stream();
+        auto result = std::make_unique<Column>();
+        result->inner = cudf::sequence(
+            static_cast<cudf::size_type>(size),
+            *init.inner,
+            *step.inner,
+            stream);
+        return result;
+    }
+
     // Direct cuDF operations - 1:1 mappings
     std::unique_ptr<Table> apply_boolean_mask(const TableView &table, const ColumnView &boolean_mask) {
         auto result = std::make_unique<Table>();
@@ -78,12 +111,57 @@ namespace libcudf_bridge {
 
     // Gather rows from a table based on a gather map
     std::unique_ptr<Table> gather(const TableView &source_table, const ColumnView &gather_map) {
+        return gather_with_policy(source_table, gather_map,
+                                  static_cast<int32_t>(cudf::out_of_bounds_policy::DONT_CHECK));
+    }
+
+    std::unique_ptr<Table> gather_with_policy(
+        const TableView &source_table,
+        const ColumnView &gather_map,
+        int32_t out_of_bounds_policy) {
         auto result = std::make_unique<Table>();
         result->inner = cudf::gather(
             *source_table.inner,
             *gather_map.inner,
-            cudf::out_of_bounds_policy::DONT_CHECK
+            static_cast<cudf::out_of_bounds_policy>(out_of_bounds_policy)
         );
+        return result;
+    }
+
+    std::unique_ptr<Table> scatter_scalars(
+        rust::Slice<const Scalar *const> source,
+        const ColumnView &indices,
+        const TableView &target) {
+        std::vector<std::reference_wrapper<cudf::scalar const>> scalars;
+        scalars.reserve(source.size());
+        for (auto *scalar: source) {
+            scalars.emplace_back(*scalar->inner);
+        }
+
+        auto result = std::make_unique<Table>();
+        result->inner = cudf::scatter(scalars, *indices.inner, *target.inner);
+        return result;
+    }
+
+    std::unique_ptr<Table> distinct(
+        const TableView &input,
+        rust::Slice<const int32_t> keys,
+        int32_t keep,
+        int32_t nulls_equal,
+        int32_t nans_equal) {
+        std::vector<cudf::size_type> key_indices;
+        key_indices.reserve(keys.size());
+        for (auto key: keys) {
+            key_indices.push_back(static_cast<cudf::size_type>(key));
+        }
+
+        auto result = std::make_unique<Table>();
+        result->inner = cudf::distinct(
+            *input.inner,
+            key_indices,
+            static_cast<cudf::duplicate_keep_option>(keep),
+            static_cast<cudf::null_equality>(nulls_equal),
+            static_cast<cudf::nan_equality>(nans_equal));
         return result;
     }
 

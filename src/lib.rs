@@ -44,7 +44,10 @@ pub use cudf_reference::CuDFRef;
 pub use device_pool::DevicePoolConfig;
 pub use errors::{CuDFError, Result};
 pub use group_by::*;
-pub use join::{cross_join, full_join, inner_join, left_anti_join, left_join, left_semi_join};
+pub use join::{
+    cross_join, full_join, inner_join, left_anti_join, left_join, left_semi_join, CuDFHashJoin,
+    CuDFNullEquality,
+};
 pub use operations::{apply_boolean_mask, cast, gather, slice_column};
 pub use pinned::{pin_record_batch, synchronize_default_stream, PinnedHostBuffer};
 pub use pinned_pool::PinnedPoolConfig;
