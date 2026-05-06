@@ -328,6 +328,9 @@ pub mod ffi {
         /// Create a table from vertically concatenating ColumnView together
         fn concat_column_views(views: &[UniquePtr<ColumnView>]) -> Result<UniquePtr<Column>>;
 
+        /// Create a column by repeating a scalar value.
+        fn make_column_from_scalar(scalar: &Scalar, size: usize) -> Result<UniquePtr<Column>>;
+
         /// Fill a column with a sequence starting at `init` and stepping by `step`.
         fn sequence(size: usize, init: &Scalar, step: &Scalar) -> Result<UniquePtr<Column>>;
 
@@ -367,6 +370,22 @@ pub mod ffi {
             source_table: &TableView,
             gather_map: &ColumnView,
             out_of_bounds_policy: i32,
+        ) -> Result<UniquePtr<Table>>;
+
+        /// Scatter scalar rows into a copy of a target table.
+        fn scatter_scalars(
+            source: &[*const Scalar],
+            indices: &ColumnView,
+            target: &TableView,
+        ) -> Result<UniquePtr<Table>>;
+
+        /// Create a table without duplicate rows.
+        fn distinct(
+            input: &TableView,
+            keys: &[i32],
+            keep: i32,
+            nulls_equal: i32,
+            nans_equal: i32,
         ) -> Result<UniquePtr<Table>>;
 
         /// Create a sliced view of a column
@@ -741,6 +760,30 @@ pub enum NullEquality {
     Equal = 0,
     /// Null values do not compare equal.
     Unequal = 1,
+}
+
+/// NaN comparison policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum NanEquality {
+    /// All NaN values compare equal.
+    AllEqual = 0,
+    /// NaN values do not compare equal.
+    Unequal = 1,
+}
+
+/// Duplicate row retention policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum DuplicateKeepOption {
+    /// Keep an unspecified duplicate occurrence.
+    KeepAny = 0,
+    /// Keep the first duplicate occurrence.
+    KeepFirst = 1,
+    /// Keep the last duplicate occurrence.
+    KeepLast = 2,
+    /// Remove all duplicate occurrences.
+    KeepNone = 3,
 }
 
 /// Binary operators supported by cuDF

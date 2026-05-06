@@ -1056,6 +1056,48 @@ mod tests {
         Ok(())
     }
 
+    async fn assert_streamed_left_join_with_duplicate_matches(
+        partition_mode: PartitionMode,
+    ) -> Result<(), Box<dyn Error>> {
+        let out = run_join_with_right_batches(
+            left_batch(),
+            vec![
+                right_batch_from_rows(&[(2, 200), (2, 201)])?,
+                right_batch_from_rows(&[(3, 300), (3, 301), (5, 500)])?,
+            ],
+            JoinType::Left,
+            partition_mode,
+        )
+        .await?;
+
+        assert_eq!(out.len(), 3);
+        assert_eq!(total_rows(&out), 6);
+        assert_eq!(total_nulls(&out, 0), 0);
+        assert_eq!(total_nulls(&out, 2), 2);
+        Ok(())
+    }
+
+    async fn assert_streamed_full_join_with_duplicate_matches(
+        partition_mode: PartitionMode,
+    ) -> Result<(), Box<dyn Error>> {
+        let out = run_join_with_right_batches(
+            left_batch(),
+            vec![
+                right_batch_from_rows(&[(2, 200), (2, 201)])?,
+                right_batch_from_rows(&[(3, 300), (3, 301), (5, 500)])?,
+            ],
+            JoinType::Full,
+            partition_mode,
+        )
+        .await?;
+
+        assert_eq!(out.len(), 3);
+        assert_eq!(total_rows(&out), 7);
+        assert_eq!(total_nulls(&out, 0), 1);
+        assert_eq!(total_nulls(&out, 2), 2);
+        Ok(())
+    }
+
     fn conversion_join(
         join_type: JoinType,
         partition_mode: PartitionMode,
@@ -1152,6 +1194,22 @@ mod tests {
     async fn test_collect_left_full_join_streams_and_finalizes_unmatched(
     ) -> Result<(), Box<dyn Error>> {
         assert_streamed_full_join(PartitionMode::CollectLeft).await
+    }
+
+    #[tokio::test]
+    async fn test_left_join_duplicate_matches_update_mask_once() -> Result<(), Box<dyn Error>> {
+        for partition_mode in [PartitionMode::CollectLeft, PartitionMode::Partitioned] {
+            assert_streamed_left_join_with_duplicate_matches(partition_mode).await?;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_full_join_duplicate_matches_update_mask_once() -> Result<(), Box<dyn Error>> {
+        for partition_mode in [PartitionMode::CollectLeft, PartitionMode::Partitioned] {
+            assert_streamed_full_join_with_duplicate_matches(partition_mode).await?;
+        }
+        Ok(())
     }
 
     #[tokio::test]
