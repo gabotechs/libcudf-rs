@@ -1,11 +1,11 @@
 use crate::aggregate::PreparedCuDFAggregate;
 use crate::errors::cudf_to_df;
+use crate::metrics::CuDFBaselineMetrics;
 use arrow::array::{Array, ArrayRef, RecordBatch};
 use arrow_schema::SchemaRef;
 use datafusion::common::{exec_err, internal_err};
 use datafusion::error::Result;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream};
-use crate::metrics::CuDFBaselineMetrics;
 use datafusion::physical_expr_common::metrics::{
     ExecutionPlanMetricsSet, MetricBuilder, MetricType, RatioMetrics, Time,
 };
@@ -52,8 +52,7 @@ impl GroupByMetrics {
                 .subset_time("aggregate_arguments_time", partition),
             aggregation_time: MetricBuilder::new(metrics)
                 .subset_time("aggregation_time", partition),
-            emitting_time: MetricBuilder::new(metrics)
-                .subset_time("emitting_time", partition),
+            emitting_time: MetricBuilder::new(metrics).subset_time("emitting_time", partition),
         }
     }
 }
@@ -267,11 +266,7 @@ impl CuDFAggregateStream {
 
         // Concat each state column pair
         let mut combined_state_columns = Vec::with_capacity(running.state_columns.len());
-        for (run_col, new_col) in running
-            .state_columns
-            .into_iter()
-            .zip(new_state_columns.into_iter())
-        {
+        for (run_col, new_col) in running.state_columns.into_iter().zip(new_state_columns) {
             let combined = CuDFColumn::concat(vec![run_col.into_view(), new_col.into_view()])
                 .map_err(cudf_to_df)?;
             combined_state_columns.push(combined);

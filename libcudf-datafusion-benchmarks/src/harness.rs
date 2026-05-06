@@ -212,6 +212,7 @@ impl HarnessOpt {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn dfbench_run_args(
         &self,
         gpu: bool,
@@ -550,7 +551,7 @@ fn load_results(dir: &Path) -> Result<Vec<BenchResult>> {
             .map_err(|err| datafusion::error::DataFusionError::External(Box::new(err)))?;
         results.push(result);
     }
-    results.sort_by(|a, b| query_sort_key(&a.id).cmp(&query_sort_key(&b.id)));
+    results.sort_by_key(|r| query_sort_key(&r.id));
     Ok(results)
 }
 
@@ -586,7 +587,7 @@ fn stats(result: &BenchResult) -> RunStats {
     values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
     let avg_ms = values.iter().sum::<f64>() / values.len() as f64;
     let mid = values.len() / 2;
-    let median_ms = if values.len() % 2 == 0 {
+    let median_ms = if values.len().is_multiple_of(2) {
         (values[mid - 1] + values[mid]) / 2.0
     } else {
         values[mid]

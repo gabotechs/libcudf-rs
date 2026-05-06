@@ -75,8 +75,11 @@ fn build_join_schema(left: &SchemaRef, right: &SchemaRef, join_type: JoinType) -
     cudf_schema_compatibility_map(Arc::new(Schema::new(fields)))
 }
 
+/// `(left_key, right_key)` pairs used to express equi-join conditions.
+type JoinOnExprs = [(Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>)];
+
 fn extract_column_indices(
-    on: &[(Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>)],
+    on: &JoinOnExprs,
     left_side: bool,
 ) -> Result<Vec<usize>, DataFusionError> {
     on.iter()

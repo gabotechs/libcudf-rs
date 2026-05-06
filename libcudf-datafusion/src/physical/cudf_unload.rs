@@ -1,10 +1,10 @@
 use crate::errors::cudf_to_df;
+use crate::metrics::CuDFBaselineMetrics;
 use arrow::array::{RecordBatch, RecordBatchOptions};
 use arrow_schema::{DataType, Field, FieldRef, Schema, SchemaRef};
 use datafusion::common::{plan_err, DataFusionError};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
-use crate::metrics::CuDFBaselineMetrics;
 use datafusion::physical_expr_common::metrics::{ExecutionPlanMetricsSet, MetricsSet};
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};

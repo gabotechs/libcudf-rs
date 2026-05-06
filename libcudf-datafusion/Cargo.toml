@@ -83,3 +83,6 @@ harness = false
 name = "cli"
 path = "bin/cli.rs"
 required-features = ["cli"]
+
+[lints]
+workspace = true

@@ -88,7 +88,7 @@ impl Default for PinnedPoolConfig {
     fn default() -> Self {
         Self {
             pool_size: 512 * 1024 * 1024, // 512 MB
-            threshold: 1 * 1024 * 1024,   //   1 MB
+            threshold: 1024 * 1024,       //   1 MB
         }
     }
 }

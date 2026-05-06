@@ -561,8 +561,10 @@ mod test {
     }
 
     fn task_ctx_with_aggregate_chunk_target_bytes(bytes: usize) -> Arc<TaskContext> {
-        let mut cudf_config = CuDFConfig::default();
-        cudf_config.aggregate_chunk_target_bytes = Some(bytes);
+        let cudf_config = CuDFConfig {
+            aggregate_chunk_target_bytes: Some(bytes),
+            ..CuDFConfig::default()
+        };
         let session_config = SessionConfig::new().with_option_extension(cudf_config);
 
         Arc::new(TaskContext::new(

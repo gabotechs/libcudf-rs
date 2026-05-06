@@ -15,6 +15,9 @@ use arrow::ffi::FFI_ArrowArray;
 /// - The C++ cuDF library headers
 /// - The safe wrapper functions in `libcudf-rs`
 #[allow(clippy::missing_safety_doc)]
+// `PinnedHostAlloc::len` is a `cxx` bridge declaration that maps directly to
+// the C++ method; we can't add a Rust `is_empty` to an opaque foreign type.
+#[allow(clippy::len_without_is_empty)]
 #[cxx::bridge(namespace = "libcudf_bridge")]
 pub mod ffi {
     // Opaque C++ types

@@ -13,6 +13,16 @@ arrow-schema = "58"
 cxx = "1.0"
 thiserror = "2.0"
 
+# Promote rustc + clippy warnings to errors workspace-wide. Member crates
+# opt in via `[lints] workspace = true`. Per-call-site `#[allow(...)]` still
+# works for cases where the lint genuinely doesn't apply (FFI bindings,
+# helpers with intentionally many arguments, etc.).
+[workspace.lints.rust]
+unused = "deny"
+
+[workspace.lints.clippy]
+all = "deny"
+
 [package]
 name = "libcudf-rs"
 version = "0.1.0"
@@ -31,3 +41,6 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 cuda-runtime-sys = "0.3.0-alpha.1"
+
+[lints]
+workspace = true

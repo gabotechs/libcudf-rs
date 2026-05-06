@@ -27,3 +27,6 @@ zip = "6.0"
 [[bin]]
 name = "dfbench"
 path = "src/main.rs"
+
+[lints]
+workspace = true

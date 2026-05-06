@@ -88,7 +88,7 @@ impl ExecutionPlan for CuDFLoadExec {
             .options()
             .extensions
             .get::<CuDFConfig>()
-            .map_or(true, |cfg| cfg.pinned_input);
+            .is_none_or(|cfg| cfg.pinned_input);
         let host_stream = self.input.execute(partition, context)?;
         let target_schema = self.schema();
 

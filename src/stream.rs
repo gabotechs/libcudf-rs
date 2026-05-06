@@ -30,6 +30,9 @@ impl From<CuDFStreamFlags> for u32 {
 /// stream executes in order; sharing the handle does not by itself synchronize
 /// access to GPU memory used by those operations.
 pub struct CuDFStream {
+    // Kept alive so the underlying C++ `rmm::cuda_stream` is destroyed on
+    // drop. Accessed via `inner()` from within the crate.
+    #[allow(dead_code)]
     inner: UniquePtr<libcudf_sys::ffi::CudaStream>,
 }
 
@@ -49,6 +52,7 @@ impl CuDFStream {
     }
 
     /// Get a reference to the underlying FFI stream handle.
+    #[allow(dead_code)]
     pub(crate) fn inner(&self) -> &libcudf_sys::ffi::CudaStream {
         self.inner.as_ref().expect("CudaStream should not be null")
     }

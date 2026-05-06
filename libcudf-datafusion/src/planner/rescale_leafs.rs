@@ -25,7 +25,7 @@ impl PhysicalOptimizerRule for RescaleLeafsRule {
                 return Ok(Transformed::no(plan));
             }
 
-            match plan.repartitioned(*leaf_node_partitions, &config)? {
+            match plan.repartitioned(*leaf_node_partitions, config)? {
                 Some(rescaled) => Ok(Transformed::yes(Arc::new(CoalescePartitionsExec::new(
                     rescaled,
                 )))),
