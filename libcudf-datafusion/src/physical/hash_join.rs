@@ -279,12 +279,7 @@ impl ExecutionPlan for CuDFHashJoinExec {
             projection,
         };
 
-        if matches!(self.partition_mode, PartitionMode::CollectLeft)
-            && matches!(
-                plan.join_type,
-                JoinType::Inner | JoinType::Left | JoinType::Full
-            )
-        {
+        if supports_streaming_join(&self.partition_mode, plan.join_type) {
             let stream = futures::stream::try_unfold(
                 StreamingJoinState::new(plan, left_fut, right_stream, metrics),
                 next_streaming_join_batch,
@@ -340,6 +335,22 @@ fn collect_shared(
     })
 }
 
+/// Join shapes that can stream right-side batches through a reusable build-side hash table.
+///
+/// `CollectLeft` streams against the one shared left/build table. `Partitioned`
+/// streams per partition, where each partition has its own left/build table.
+/// `Auto` stays on the non-streaming path until this wrapper knows which
+/// distribution DataFusion selected for the physical join.
+fn supports_streaming_join(partition_mode: &PartitionMode, join_type: JoinType) -> bool {
+    matches!(
+        (partition_mode, join_type),
+        (
+            PartitionMode::CollectLeft | PartitionMode::Partitioned,
+            JoinType::Inner | JoinType::Left | JoinType::Full
+        )
+    )
+}
+
 /// Immutable join metadata shared by streaming and non-streaming execution.
 struct JoinPlan {
     join_type: JoinType,
@@ -361,7 +372,7 @@ struct StreamingBuildSide {
     right_out: Option<Vec<usize>>,
 }
 
-/// Lifecycle state for streamed `CollectLeft` joins.
+/// Lifecycle state for streamed joins.
 ///
 /// The left side is materialized lazily on the first poll. Right-side batches
 /// are then probed one at a time; `Left` and `Full` emit unmatched build rows
@@ -562,10 +573,10 @@ fn unmatched_build_batch(
     }
 }
 
-/// Execute joins that cannot use the streamed `CollectLeft` path.
+/// Execute joins that cannot use the streamed reusable-hash-join path.
 ///
-/// Partitioned and Auto modes still need this collect-both-sides path because
-/// they do not share one global left/build table across right-side partitions.
+/// Today this is used for `Auto` mode, plus any future join types admitted by
+/// planning before a streamed implementation exists.
 async fn execute_non_streaming_join(
     left_fut: SharedTableFuture,
     right_stream: SendableRecordBatchStream,
@@ -896,6 +907,78 @@ mod test {
         batches.iter().map(|b| b.column(column).null_count()).sum()
     }
 
+    fn right_batch_from_rows(rows: &[(i32, i32)]) -> Result<RecordBatch, Box<dyn Error>> {
+        let keys: Vec<_> = rows.iter().map(|(key, _)| *key).collect();
+        let vals: Vec<_> = rows.iter().map(|(_, val)| *val).collect();
+        Ok(RecordBatch::try_new(
+            right_batch().schema(),
+            vec![
+                Arc::new(Int32Array::from(keys)),
+                Arc::new(Int32Array::from(vals)),
+            ],
+        )?)
+    }
+
+    async fn assert_streamed_inner_join(
+        partition_mode: PartitionMode,
+    ) -> Result<(), Box<dyn Error>> {
+        let out = run_join_with_right_batches(
+            left_batch(),
+            vec![
+                right_batch_from_rows(&[(2, 200)])?,
+                right_batch_from_rows(&[(3, 300)])?,
+            ],
+            JoinType::Inner,
+            partition_mode,
+        )
+        .await?;
+
+        assert_eq!(out.len(), 2);
+        assert_eq!(total_rows(&out), 2);
+        Ok(())
+    }
+
+    async fn assert_streamed_left_join(
+        partition_mode: PartitionMode,
+    ) -> Result<(), Box<dyn Error>> {
+        let out = run_join_with_right_batches(
+            left_batch(),
+            vec![
+                right_batch_from_rows(&[(2, 200)])?,
+                right_batch_from_rows(&[(3, 300)])?,
+            ],
+            JoinType::Left,
+            partition_mode,
+        )
+        .await?;
+
+        assert_eq!(out.len(), 3);
+        assert_eq!(total_rows(&out), 4);
+        assert_eq!(total_nulls(&out, 2), 2);
+        Ok(())
+    }
+
+    async fn assert_streamed_full_join(
+        partition_mode: PartitionMode,
+    ) -> Result<(), Box<dyn Error>> {
+        let out = run_join_with_right_batches(
+            left_batch(),
+            vec![
+                right_batch_from_rows(&[(2, 200), (5, 500)])?,
+                right_batch_from_rows(&[(3, 300), (6, 600)])?,
+            ],
+            JoinType::Full,
+            partition_mode,
+        )
+        .await?;
+
+        assert_eq!(out.len(), 3);
+        assert_eq!(total_rows(&out), 6);
+        assert_eq!(total_nulls(&out, 0), 2);
+        assert_eq!(total_nulls(&out, 2), 2);
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_inner_join() -> Result<(), Box<dyn Error>> {
         let out = run_join(
@@ -925,100 +1008,36 @@ mod test {
 
     #[tokio::test]
     async fn test_collect_left_inner_join_streams_right_batches() -> Result<(), Box<dyn Error>> {
-        let schema = right_batch().schema();
-        let right_a = RecordBatch::try_new(
-            schema.clone(),
-            vec![
-                Arc::new(Int32Array::from(vec![2])),
-                Arc::new(Int32Array::from(vec![200])),
-            ],
-        )?;
-        let right_b = RecordBatch::try_new(
-            schema,
-            vec![
-                Arc::new(Int32Array::from(vec![3])),
-                Arc::new(Int32Array::from(vec![300])),
-            ],
-        )?;
-
-        let out = run_join_with_right_batches(
-            left_batch(),
-            vec![right_a, right_b],
-            JoinType::Inner,
-            PartitionMode::CollectLeft,
-        )
-        .await?;
-
-        assert_eq!(out.len(), 2);
-        assert_eq!(total_rows(&out), 2);
-        Ok(())
+        assert_streamed_inner_join(PartitionMode::CollectLeft).await
     }
 
     #[tokio::test]
     async fn test_collect_left_left_join_streams_and_finalizes_unmatched(
     ) -> Result<(), Box<dyn Error>> {
-        let schema = right_batch().schema();
-        let right_a = RecordBatch::try_new(
-            schema.clone(),
-            vec![
-                Arc::new(Int32Array::from(vec![2])),
-                Arc::new(Int32Array::from(vec![200])),
-            ],
-        )?;
-        let right_b = RecordBatch::try_new(
-            schema,
-            vec![
-                Arc::new(Int32Array::from(vec![3])),
-                Arc::new(Int32Array::from(vec![300])),
-            ],
-        )?;
-
-        let out = run_join_with_right_batches(
-            left_batch(),
-            vec![right_a, right_b],
-            JoinType::Left,
-            PartitionMode::CollectLeft,
-        )
-        .await?;
-
-        assert_eq!(out.len(), 3);
-        assert_eq!(total_rows(&out), 4);
-        assert_eq!(total_nulls(&out, 2), 2);
-        Ok(())
+        assert_streamed_left_join(PartitionMode::CollectLeft).await
     }
 
     #[tokio::test]
     async fn test_collect_left_full_join_streams_and_finalizes_unmatched(
     ) -> Result<(), Box<dyn Error>> {
-        let schema = right_batch().schema();
-        let right_a = RecordBatch::try_new(
-            schema.clone(),
-            vec![
-                Arc::new(Int32Array::from(vec![2, 5])),
-                Arc::new(Int32Array::from(vec![200, 500])),
-            ],
-        )?;
-        let right_b = RecordBatch::try_new(
-            schema,
-            vec![
-                Arc::new(Int32Array::from(vec![3, 6])),
-                Arc::new(Int32Array::from(vec![300, 600])),
-            ],
-        )?;
+        assert_streamed_full_join(PartitionMode::CollectLeft).await
+    }
 
-        let out = run_join_with_right_batches(
-            left_batch(),
-            vec![right_a, right_b],
-            JoinType::Full,
-            PartitionMode::CollectLeft,
-        )
-        .await?;
+    #[tokio::test]
+    async fn test_partitioned_inner_join_streams_right_batches() -> Result<(), Box<dyn Error>> {
+        assert_streamed_inner_join(PartitionMode::Partitioned).await
+    }
 
-        assert_eq!(out.len(), 3);
-        assert_eq!(total_rows(&out), 6);
-        assert_eq!(total_nulls(&out, 0), 2);
-        assert_eq!(total_nulls(&out, 2), 2);
-        Ok(())
+    #[tokio::test]
+    async fn test_partitioned_left_join_streams_and_finalizes_unmatched(
+    ) -> Result<(), Box<dyn Error>> {
+        assert_streamed_left_join(PartitionMode::Partitioned).await
+    }
+
+    #[tokio::test]
+    async fn test_partitioned_full_join_streams_and_finalizes_unmatched(
+    ) -> Result<(), Box<dyn Error>> {
+        assert_streamed_full_join(PartitionMode::Partitioned).await
     }
 
     #[tokio::test]
