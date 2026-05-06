@@ -37,8 +37,7 @@ mod tests {
                 CuDFUnloadExec
                   CuDFFilterExec: AdvEngineID@0 != 0, projection=[]
                     CuDFLoadExec
-                      CoalescePartitionsExec
-                        DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[AdvEngineID], file_type=parquet, predicate=AdvEngineID@40 != 0, pruning_predicate=AdvEngineID_null_count@2 != row_count@3 AND (AdvEngineID_min@0 != 0 OR 0 != AdvEngineID_max@1), required_guarantees=[AdvEngineID not in (0)]
+                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[AdvEngineID], file_type=parquet, predicate=AdvEngineID@40 != 0, pruning_predicate=AdvEngineID_null_count@2 != row_count@3 AND (AdvEngineID_min@0 != 0 OR 0 != AdvEngineID_max@1), required_guarantees=[AdvEngineID not in (0)]
         ");
         Ok(())
     }
@@ -79,8 +78,7 @@ mod tests {
                 CuDFUnloadExec
                   CuDFAggregateExec: mode=Single, group_by=[alias1@UserID@0], aggr_expr=[]
                     CuDFLoadExec
-                      CoalescePartitionsExec
-                        DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID], file_type=parquet
+                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID], file_type=parquet
         ");
         Ok(())
     }
@@ -96,8 +94,7 @@ mod tests {
                 CuDFUnloadExec
                   CuDFAggregateExec: mode=Single, group_by=[alias1@SearchPhrase@0], aggr_expr=[]
                     CuDFLoadExec
-                      CoalescePartitionsExec
-                        DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[SearchPhrase], file_type=parquet
+                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[SearchPhrase], file_type=parquet
         ");
         Ok(())
     }
@@ -124,8 +121,7 @@ mod tests {
               CuDFAggregateExec: mode=Single, group_by=[AdvEngineID@AdvEngineID@0], aggr_expr=[count(Int64(1))]
                 CuDFFilterExec: AdvEngineID@0 != 0
                   CuDFLoadExec
-                    CoalescePartitionsExec
-                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[AdvEngineID], file_type=parquet, predicate=AdvEngineID@40 != 0, pruning_predicate=AdvEngineID_null_count@2 != row_count@3 AND (AdvEngineID_min@0 != 0 OR 0 != AdvEngineID_max@1), required_guarantees=[AdvEngineID not in (0)]
+                    DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[AdvEngineID], file_type=parquet, predicate=AdvEngineID@40 != 0, pruning_predicate=AdvEngineID_null_count@2 != row_count@3 AND (AdvEngineID_min@0 != 0 OR 0 != AdvEngineID_max@1), required_guarantees=[AdvEngineID not in (0)]
         ");
         Ok(())
     }
@@ -140,8 +136,7 @@ mod tests {
               CuDFAggregateExec: mode=Single, group_by=[RegionID@RegionID@0], aggr_expr=[count(alias1)]
                 CuDFAggregateExec: mode=Single, group_by=[RegionID@RegionID@0, alias1@UserID@1], aggr_expr=[]
                   CuDFLoadExec
-                    CoalescePartitionsExec
-                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[RegionID, UserID], file_type=parquet
+                    DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[RegionID, UserID], file_type=parquet
         ");
         Ok(())
     }
@@ -172,8 +167,7 @@ mod tests {
                 CuDFAggregateExec: mode=Single, group_by=[MobilePhoneModel@MobilePhoneModel@1, alias1@UserID@0], aggr_expr=[]
                   CuDFFilterExec: MobilePhoneModel@1 != 
                     CuDFLoadExec
-                      CoalescePartitionsExec
-                        DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID, MobilePhoneModel], file_type=parquet, predicate=MobilePhoneModel@34 != , pruning_predicate=MobilePhoneModel_null_count@2 != row_count@3 AND (MobilePhoneModel_min@0 !=  OR  != MobilePhoneModel_max@1), required_guarantees=[MobilePhoneModel not in ()]
+                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID, MobilePhoneModel], file_type=parquet, predicate=MobilePhoneModel@34 != , pruning_predicate=MobilePhoneModel_null_count@2 != row_count@3 AND (MobilePhoneModel_min@0 !=  OR  != MobilePhoneModel_max@1), required_guarantees=[MobilePhoneModel not in ()]
         ");
         Ok(())
     }
@@ -189,8 +183,7 @@ mod tests {
                 CuDFAggregateExec: mode=Single, group_by=[MobilePhone@MobilePhone@1, MobilePhoneModel@MobilePhoneModel@2, alias1@UserID@0], aggr_expr=[]
                   CuDFFilterExec: MobilePhoneModel@2 != 
                     CuDFLoadExec
-                      CoalescePartitionsExec
-                        DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID, MobilePhone, MobilePhoneModel], file_type=parquet, predicate=MobilePhoneModel@34 != , pruning_predicate=MobilePhoneModel_null_count@2 != row_count@3 AND (MobilePhoneModel_min@0 !=  OR  != MobilePhoneModel_max@1), required_guarantees=[MobilePhoneModel not in ()]
+                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID, MobilePhone, MobilePhoneModel], file_type=parquet, predicate=MobilePhoneModel@34 != , pruning_predicate=MobilePhoneModel_null_count@2 != row_count@3 AND (MobilePhoneModel_min@0 !=  OR  != MobilePhoneModel_max@1), required_guarantees=[MobilePhoneModel not in ()]
         ");
         Ok(())
     }
@@ -205,8 +198,7 @@ mod tests {
               CuDFAggregateExec: mode=Single, group_by=[SearchPhrase@SearchPhrase@0], aggr_expr=[count(Int64(1))]
                 CuDFFilterExec: SearchPhrase@0 != 
                   CuDFLoadExec
-                    CoalescePartitionsExec
-                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
+                    DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
         ");
         Ok(())
     }
@@ -222,8 +214,7 @@ mod tests {
                 CuDFAggregateExec: mode=Single, group_by=[SearchPhrase@SearchPhrase@1, alias1@UserID@0], aggr_expr=[]
                   CuDFFilterExec: SearchPhrase@1 != 
                     CuDFLoadExec
-                      CoalescePartitionsExec
-                        DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID, SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
+                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID, SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
         ");
         Ok(())
     }
@@ -238,8 +229,7 @@ mod tests {
               CuDFAggregateExec: mode=Single, group_by=[SearchEngineID@SearchEngineID@0, SearchPhrase@SearchPhrase@1], aggr_expr=[count(Int64(1))]
                 CuDFFilterExec: SearchPhrase@1 != 
                   CuDFLoadExec
-                    CoalescePartitionsExec
-                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[SearchEngineID, SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
+                    DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[SearchEngineID, SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
         ");
         Ok(())
     }
@@ -253,8 +243,7 @@ mod tests {
             CuDFProjectionExec: expr=[UserID@0 as UserID, count(Int64(1))@1 as count(*)]
               CuDFAggregateExec: mode=Single, group_by=[UserID@UserID@0], aggr_expr=[count(Int64(1))]
                 CuDFLoadExec
-                  CoalescePartitionsExec
-                    DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID], file_type=parquet
+                  DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID], file_type=parquet
         ");
         Ok(())
     }
@@ -268,8 +257,7 @@ mod tests {
             CuDFProjectionExec: expr=[UserID@0 as UserID, SearchPhrase@1 as SearchPhrase, count(Int64(1))@2 as count(*)]
               CuDFAggregateExec: mode=Single, group_by=[UserID@UserID@0, SearchPhrase@SearchPhrase@1], aggr_expr=[count(Int64(1))]
                 CuDFLoadExec
-                  CoalescePartitionsExec
-                    DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID, SearchPhrase], file_type=parquet
+                  DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID, SearchPhrase], file_type=parquet
         ");
         Ok(())
     }
@@ -285,8 +273,7 @@ mod tests {
                 CuDFUnloadExec
                   CuDFAggregateExec: mode=Single, group_by=[UserID@UserID@0, SearchPhrase@SearchPhrase@1], aggr_expr=[count(Int64(1))]
                     CuDFLoadExec
-                      CoalescePartitionsExec
-                        DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID, SearchPhrase], file_type=parquet
+                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID, SearchPhrase], file_type=parquet
         ");
         Ok(())
     }
@@ -298,8 +285,8 @@ mod tests {
         CuDFUnloadExec
           CuDFSortExec: TopK(fetch=10), expr=[count(*)@3 DESC], preserve_partitioning=[false]
             CuDFProjectionExec: expr=[UserID@0 as UserID, date_part(Utf8("MINUTE"),to_timestamp_seconds(hits.EventTime))@1 as m, SearchPhrase@2 as SearchPhrase, count(Int64(1))@3 as count(*)]
-              CuDFAggregateExec: mode=Single, group_by=[UserID@UserID@1, date_part(Utf8("MINUTE"),to_timestamp_seconds(hits.EventTime))@date_part(MINUTE, to_timestamp_seconds(EventTime@0)), SearchPhrase@SearchPhrase@2], aggr_expr=[count(Int64(1))]
-                CuDFLoadExec
+              CuDFLoadExec
+                AggregateExec: mode=Single, gby=[UserID@1 as UserID, date_part(MINUTE, to_timestamp_seconds(EventTime@0)) as date_part(Utf8("MINUTE"),to_timestamp_seconds(hits.EventTime)), SearchPhrase@2 as SearchPhrase], aggr=[count(Int64(1))]
                   CoalescePartitionsExec
                     DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[EventTime, UserID, SearchPhrase], file_type=parquet
         "#);
@@ -313,8 +300,7 @@ mod tests {
         CuDFUnloadExec
           CuDFFilterExec: UserID@0 = 435090932899640449
             CuDFLoadExec
-              CoalescePartitionsExec
-                DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID], file_type=parquet, predicate=UserID@9 = 435090932899640449, pruning_predicate=UserID_null_count@2 != row_count@3 AND UserID_min@0 <= 435090932899640449 AND 435090932899640449 <= UserID_max@1, required_guarantees=[UserID in (435090932899640449)]
+              DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[UserID], file_type=parquet, predicate=UserID@9 = 435090932899640449, pruning_predicate=UserID_null_count@2 != row_count@3 AND UserID_min@0 <= 435090932899640449 AND 435090932899640449 <= UserID_max@1, required_guarantees=[UserID in (435090932899640449)]
         ");
         Ok(())
     }
@@ -390,8 +376,7 @@ mod tests {
               CuDFProjectionExec: expr=[SearchPhrase@1 as SearchPhrase, EventTime@0 as EventTime]
                 CuDFFilterExec: SearchPhrase@1 != 
                   CuDFLoadExec
-                    CoalescePartitionsExec
-                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[EventTime, SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 !=  AND DynamicFilter [ empty ], pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
+                    DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[EventTime, SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 !=  AND DynamicFilter [ empty ], pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
         ");
         Ok(())
     }
@@ -404,8 +389,7 @@ mod tests {
           CuDFSortExec: TopK(fetch=10), expr=[SearchPhrase@0 ASC NULLS LAST], preserve_partitioning=[false]
             CuDFFilterExec: SearchPhrase@0 != 
               CuDFLoadExec
-                CoalescePartitionsExec
-                  DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 !=  AND DynamicFilter [ empty ], pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
+                DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 !=  AND DynamicFilter [ empty ], pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
         ");
         Ok(())
     }
@@ -420,8 +404,7 @@ mod tests {
               CuDFProjectionExec: expr=[SearchPhrase@1 as SearchPhrase, EventTime@0 as EventTime]
                 CuDFFilterExec: SearchPhrase@1 != 
                   CuDFLoadExec
-                    CoalescePartitionsExec
-                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[EventTime, SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 !=  AND DynamicFilter [ empty ], pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
+                    DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[EventTime, SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 !=  AND DynamicFilter [ empty ], pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
         ");
         Ok(())
     }
@@ -439,8 +422,7 @@ mod tests {
                     CuDFUnloadExec
                       CuDFFilterExec: URL@1 != 
                         CuDFLoadExec
-                          CoalescePartitionsExec
-                            DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[CounterID, URL], file_type=parquet, predicate=URL@13 != , pruning_predicate=URL_null_count@2 != row_count@3 AND (URL_min@0 !=  OR  != URL_max@1), required_guarantees=[URL not in ()]
+                          DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[CounterID, URL], file_type=parquet, predicate=URL@13 != , pruning_predicate=URL_null_count@2 != row_count@3 AND (URL_min@0 !=  OR  != URL_max@1), required_guarantees=[URL not in ()]
         ");
         Ok(())
     }
@@ -458,8 +440,7 @@ mod tests {
                     CuDFUnloadExec
                       CuDFFilterExec: Referer@0 != 
                         CuDFLoadExec
-                          CoalescePartitionsExec
-                            DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[Referer], file_type=parquet, predicate=Referer@14 != , pruning_predicate=Referer_null_count@2 != row_count@3 AND (Referer_min@0 !=  OR  != Referer_max@1), required_guarantees=[Referer not in ()]
+                          DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[Referer], file_type=parquet, predicate=Referer@14 != , pruning_predicate=Referer_null_count@2 != row_count@3 AND (Referer_min@0 !=  OR  != Referer_max@1), required_guarantees=[Referer not in ()]
         "#);
         Ok(())
     }
@@ -487,8 +468,7 @@ mod tests {
                   CuDFUnloadExec
                     CuDFFilterExec: SearchPhrase@4 != , projection=[ClientIP@0, IsRefresh@1, ResolutionWidth@2, SearchEngineID@3]
                       CuDFLoadExec
-                        CoalescePartitionsExec
-                          DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[ClientIP, IsRefresh, ResolutionWidth, SearchEngineID, SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
+                        DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[ClientIP, IsRefresh, ResolutionWidth, SearchEngineID, SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
         ");
         Ok(())
     }
@@ -505,8 +485,7 @@ mod tests {
                   CuDFUnloadExec
                     CuDFFilterExec: SearchPhrase@4 != , projection=[WatchID@0, ClientIP@1, IsRefresh@2, ResolutionWidth@3]
                       CuDFLoadExec
-                        CoalescePartitionsExec
-                          DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[WatchID, ClientIP, IsRefresh, ResolutionWidth, SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
+                        DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[WatchID, ClientIP, IsRefresh, ResolutionWidth, SearchPhrase], file_type=parquet, predicate=SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
         ");
         Ok(())
     }
@@ -535,8 +514,7 @@ mod tests {
             CuDFProjectionExec: expr=[URL@0 as URL, count(Int64(1))@1 as c]
               CuDFAggregateExec: mode=Single, group_by=[URL@URL@0], aggr_expr=[count(Int64(1))]
                 CuDFLoadExec
-                  CoalescePartitionsExec
-                    DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[URL], file_type=parquet
+                  DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[URL], file_type=parquet
         ");
         Ok(())
     }
@@ -550,8 +528,7 @@ mod tests {
             CuDFProjectionExec: expr=[1 as Int64(1), URL@0 as URL, count(Int64(1))@1 as c]
               CuDFAggregateExec: mode=Single, group_by=[URL@URL@0], aggr_expr=[count(Int64(1))]
                 CuDFLoadExec
-                  CoalescePartitionsExec
-                    DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[URL], file_type=parquet
+                  DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[URL], file_type=parquet
         ");
         Ok(())
     }
@@ -563,8 +540,8 @@ mod tests {
         CuDFUnloadExec
           CuDFSortExec: TopK(fetch=10), expr=[c@4 DESC], preserve_partitioning=[false]
             CuDFProjectionExec: expr=[ClientIP@0 as ClientIP, hits.ClientIP - Int64(1)@1 as hits.ClientIP - Int64(1), hits.ClientIP - Int64(2)@2 as hits.ClientIP - Int64(2), hits.ClientIP - Int64(3)@3 as hits.ClientIP - Int64(3), count(Int64(1))@4 as c]
-              CuDFAggregateExec: mode=Single, group_by=[ClientIP@ClientIP@1, hits.ClientIP - Int64(1)@__common_expr_1@0 - 1, hits.ClientIP - Int64(2)@__common_expr_1@0 - 2, hits.ClientIP - Int64(3)@__common_expr_1@0 - 3], aggr_expr=[count(Int64(1))]
-                CuDFLoadExec
+              CuDFLoadExec
+                AggregateExec: mode=Single, gby=[ClientIP@1 as ClientIP, __common_expr_1@0 - 1 as hits.ClientIP - Int64(1), __common_expr_1@0 - 2 as hits.ClientIP - Int64(2), __common_expr_1@0 - 3 as hits.ClientIP - Int64(3)], aggr=[count(Int64(1))]
                   CoalescePartitionsExec
                     DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[CAST(ClientIP@7 AS Int64) as __common_expr_1, ClientIP], file_type=parquet
         ");
@@ -628,8 +605,8 @@ mod tests {
           CuDFUnloadExec
             CuDFSortExec: TopK(fetch=1010), expr=[pageviews@5 DESC], preserve_partitioning=[false]
               CuDFProjectionExec: expr=[TraficSourceID@0 as TraficSourceID, SearchEngineID@1 as SearchEngineID, AdvEngineID@2 as AdvEngineID, CASE WHEN hits.SearchEngineID = Int64(0) AND hits.AdvEngineID = Int64(0) THEN hits.Referer ELSE Utf8("") END@3 as src, URL@4 as dst, count(Int64(1))@5 as pageviews]
-                CuDFAggregateExec: mode=Single, group_by=[TraficSourceID@TraficSourceID@2, SearchEngineID@SearchEngineID@3, AdvEngineID@AdvEngineID@4, CASE WHEN hits.SearchEngineID = Int64(0) AND hits.AdvEngineID = Int64(0) THEN hits.Referer ELSE Utf8("") END@CASE WHEN SearchEngineID@3 = 0 AND AdvEngineID@4 = 0 THEN Referer@1 ELSE  END, URL@URL@0], aggr_expr=[count(Int64(1))]
-                  CuDFLoadExec
+                CuDFLoadExec
+                  AggregateExec: mode=Single, gby=[TraficSourceID@2 as TraficSourceID, SearchEngineID@3 as SearchEngineID, AdvEngineID@4 as AdvEngineID, CASE WHEN SearchEngineID@3 = 0 AND AdvEngineID@4 = 0 THEN Referer@1 ELSE  END as CASE WHEN hits.SearchEngineID = Int64(0) AND hits.AdvEngineID = Int64(0) THEN hits.Referer ELSE Utf8("") END, URL@0 as URL], aggr=[count(Int64(1))]
                     FilterExec: CounterID@1 = 62 AND CAST(EventDate@0 AS Utf8) >= 2013-07-01 AND CAST(EventDate@0 AS Utf8) <= 2013-07-31 AND IsRefresh@4 = 0, projection=[URL@2, Referer@3, TraficSourceID@5, SearchEngineID@6, AdvEngineID@7]
                       CoalescePartitionsExec
                         DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[EventDate, CounterID, URL, Referer, IsRefresh, TraficSourceID, SearchEngineID, AdvEngineID], file_type=parquet, predicate=CounterID@6 = 62 AND CAST(EventDate@5 AS Utf8) >= 2013-07-01 AND CAST(EventDate@5 AS Utf8) <= 2013-07-31 AND IsRefresh@15 = 0, pruning_predicate=CounterID_null_count@2 != row_count@3 AND CounterID_min@0 <= 62 AND 62 <= CounterID_max@1 AND IsRefresh_null_count@6 != row_count@3 AND IsRefresh_min@4 <= 0 AND 0 <= IsRefresh_max@5, required_guarantees=[CounterID in (62), IsRefresh in (0)]
@@ -679,8 +656,8 @@ mod tests {
           CuDFUnloadExec
             CuDFSortExec: TopK(fetch=1010), expr=[date_trunc(minute, m@0) ASC NULLS LAST], preserve_partitioning=[false]
               CuDFProjectionExec: expr=[date_trunc(Utf8("minute"),to_timestamp_seconds(hits.EventTime))@0 as m, count(Int64(1))@1 as pageviews]
-                CuDFAggregateExec: mode=Single, group_by=[date_trunc(Utf8("minute"),to_timestamp_seconds(hits.EventTime))@date_trunc(minute, to_timestamp_seconds(EventTime@0))], aggr_expr=[count(Int64(1))]
-                  CuDFLoadExec
+                CuDFLoadExec
+                  AggregateExec: mode=Single, gby=[date_trunc(minute, to_timestamp_seconds(EventTime@0)) as date_trunc(Utf8("minute"),to_timestamp_seconds(hits.EventTime))], aggr=[count(Int64(1))]
                     FilterExec: CounterID@2 = 62 AND CAST(EventDate@1 AS Utf8) >= 2013-07-14 AND CAST(EventDate@1 AS Utf8) <= 2013-07-15 AND IsRefresh@3 = 0 AND DontCountHits@4 = 0, projection=[EventTime@0]
                       CoalescePartitionsExec
                         DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[EventTime, EventDate, CounterID, IsRefresh, DontCountHits], file_type=parquet, predicate=CounterID@6 = 62 AND CAST(EventDate@5 AS Utf8) >= 2013-07-14 AND CAST(EventDate@5 AS Utf8) <= 2013-07-15 AND IsRefresh@15 = 0 AND DontCountHits@61 = 0, pruning_predicate=CounterID_null_count@2 != row_count@3 AND CounterID_min@0 <= 62 AND 62 <= CounterID_max@1 AND IsRefresh_null_count@6 != row_count@3 AND IsRefresh_min@4 <= 0 AND 0 <= IsRefresh_max@5 AND DontCountHits_null_count@9 != row_count@3 AND DontCountHits_min@7 <= 0 AND 0 <= DontCountHits_max@8, required_guarantees=[CounterID in (62), DontCountHits in (0), IsRefresh in (0)]
