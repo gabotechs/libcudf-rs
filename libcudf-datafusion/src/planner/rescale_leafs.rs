@@ -1,7 +1,6 @@
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::config::ConfigOptions;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
-use datafusion_physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion_physical_plan::ExecutionPlan;
 use std::sync::Arc;
 
@@ -25,10 +24,8 @@ impl PhysicalOptimizerRule for RescaleLeafsRule {
                 return Ok(Transformed::no(plan));
             }
 
-            match plan.repartitioned(*leaf_node_partitions, &config)? {
-                Some(rescaled) => Ok(Transformed::yes(Arc::new(CoalescePartitionsExec::new(
-                    rescaled,
-                )))),
+            match plan.repartitioned(*leaf_node_partitions, config)? {
+                Some(rescaled) => Ok(Transformed::yes(rescaled)),
                 None => Ok(Transformed::no(plan)),
             }
         })?;
