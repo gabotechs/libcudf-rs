@@ -84,6 +84,11 @@ pub mod ffi {
         /// various aggregations on value columns based on those keys.
         type GroupBy;
 
+        /// Reusable cuDF hash join object.
+        ///
+        /// Builds a hash table once and probes it with subsequent join calls.
+        type HashJoin;
+
         /// Opaque owning wrapper for an RMM CUDA stream.
         type CudaStream;
 
@@ -449,6 +454,20 @@ pub mod ffi {
         ) -> Result<UniquePtr<Table>>;
 
         // Join operations.
+
+        /// Create a reusable hash join object from build-side keys.
+        fn hash_join_create(
+            build_keys: &TableView,
+            nulls_equal: bool,
+        ) -> Result<UniquePtr<HashJoin>>;
+
+        /// Probe a reusable hash join object and gather matching payload rows.
+        fn hash_join_inner_join_gather(
+            join: &HashJoin,
+            probe_keys: &TableView,
+            build_payload: &TableView,
+            probe_payload: &TableView,
+        ) -> Result<UniquePtr<Table>>;
 
         /// Inner join: gather matching rows from both payloads into one output table.
         fn inner_join_gather(
@@ -992,6 +1011,12 @@ unsafe impl Send for ffi::GroupBy {}
 
 /// SAFETY: GroupBy configuration can be accessed from multiple threads.
 unsafe impl Sync for ffi::GroupBy {}
+
+/// SAFETY: cuDF hash_join supports repeated probe calls after construction.
+unsafe impl Send for ffi::HashJoin {}
+
+/// SAFETY: cuDF hash_join probe methods take shared references and are safe to share.
+unsafe impl Sync for ffi::HashJoin {}
 
 /// SAFETY: AggregationRequest configuration can be sent between threads.
 unsafe impl Send for ffi::AggregationRequest {}

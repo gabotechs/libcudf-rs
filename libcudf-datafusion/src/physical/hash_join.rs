@@ -18,11 +18,18 @@ use datafusion_physical_plan::{
     ExecutionPlanProperties, PhysicalExpr, PlanProperties,
 };
 use futures::{StreamExt, TryStreamExt};
-use libcudf_rs::{full_join, inner_join, left_join, CuDFTable, CuDFTableView};
+use libcudf_rs::{
+    full_join, inner_join, left_join, CuDFHashJoin, CuDFNullEquality, CuDFTable, CuDFTableView,
+};
 use std::any::Any;
 use std::fmt::Formatter;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
+
+type SharedTableFuture =
+    Pin<Box<dyn Future<Output = Result<Arc<CuDFTable>, DataFusionError>> + Send>>;
 
 /// GPU-accelerated hash join execution node.
 ///
@@ -263,6 +270,31 @@ impl ExecutionPlan for CuDFHashJoinExec {
         let output_schema = self.schema();
         let right_schema = self.right.schema();
 
+        if matches!(self.partition_mode, PartitionMode::CollectLeft)
+            && matches!(join_type, JoinType::Inner)
+        {
+            let stream = futures::stream::try_unfold(
+                InnerJoinStreamState {
+                    left_fut: Some(left_fut),
+                    left: None,
+                    join: None,
+                    right_stream,
+                    metrics,
+                    left_on,
+                    right_on,
+                    output_schema: output_schema.clone(),
+                    projection,
+                    left_out: None,
+                    right_out: None,
+                },
+                next_inner_join_batch,
+            );
+            return Ok(Box::pin(RecordBatchStreamAdapter::new(
+                output_schema,
+                stream,
+            )));
+        }
+
         let stream = futures::stream::once(async move {
             let left = left_fut.await?;
             let right_batches: Vec<RecordBatch> = {
@@ -328,9 +360,7 @@ fn collect_shared(
     left_child: Arc<dyn ExecutionPlan>,
     ctx: Arc<TaskContext>,
     metrics: CuDFHashJoinMetrics,
-) -> std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<Arc<CuDFTable>, DataFusionError>> + Send>,
-> {
+) -> SharedTableFuture {
     Box::pin(async move {
         shared
             .get_or_try_init(|| async move {
@@ -346,6 +376,106 @@ fn collect_shared(
             .map(Arc::clone)
             .map_err(|e: Arc<DataFusionError>| DataFusionError::External(Box::new(e)))
     })
+}
+
+struct InnerJoinStreamState {
+    left_fut: Option<SharedTableFuture>,
+    left: Option<Arc<CuDFTable>>,
+    join: Option<CuDFHashJoin>,
+    right_stream: SendableRecordBatchStream,
+    metrics: CuDFHashJoinMetrics,
+    left_on: Vec<usize>,
+    right_on: Vec<usize>,
+    output_schema: SchemaRef,
+    projection: Option<Vec<usize>>,
+    left_out: Option<Vec<usize>>,
+    right_out: Option<Vec<usize>>,
+}
+
+async fn ensure_inner_join_ready(state: &mut InnerJoinStreamState) -> Result<(), DataFusionError> {
+    if state.join.is_some() {
+        return Ok(());
+    }
+
+    let left = state
+        .left_fut
+        .take()
+        .expect("left future should be present before first streamed join batch")
+        .await?;
+    let left_view = Arc::clone(&left).view();
+    let (left_out, right_out) = split_join_projection(&state.projection, left_view.num_columns());
+    let join = {
+        let _timer = state.metrics.build_time.timer();
+        CuDFHashJoin::try_new(&left_view, &state.left_on, CuDFNullEquality::Unequal)
+            .map_err(cudf_to_df)?
+    };
+
+    state.left = Some(left);
+    state.join = Some(join);
+    state.left_out = left_out;
+    state.right_out = right_out;
+    Ok(())
+}
+
+async fn next_inner_join_batch(
+    mut state: InnerJoinStreamState,
+) -> Result<Option<(RecordBatch, InnerJoinStreamState)>, DataFusionError> {
+    ensure_inner_join_ready(&mut state).await?;
+
+    loop {
+        let right_batch = {
+            let _timer = state.metrics.probe_collect_time.timer();
+            state.right_stream.next().await.transpose()?
+        };
+        let Some(right_batch) = right_batch else {
+            state.metrics.baseline.done();
+            return Ok(None);
+        };
+
+        state
+            .metrics
+            .record_probe_input(std::slice::from_ref(&right_batch));
+
+        if right_batch.num_rows() == 0 {
+            continue;
+        }
+
+        let right =
+            Arc::new(batches_to_table(std::slice::from_ref(&right_batch)).map_err(cudf_to_df)?);
+        let result = {
+            let left = state
+                .left
+                .as_ref()
+                .expect("left table should be initialized before probing");
+            let join = state
+                .join
+                .as_ref()
+                .expect("hash join should be initialized before probing");
+            let left_view = Arc::clone(left).view();
+            let right_view = Arc::clone(&right).view();
+            let _timer = state.metrics.join_time.timer();
+            join.inner_join(
+                &right_view,
+                &state.right_on,
+                &left_view,
+                &right_view,
+                state.left_out.as_deref(),
+                state.right_out.as_deref(),
+            )
+            .map_err(cudf_to_df)?
+        };
+        let batch = result
+            .into_view()
+            .to_record_batch_with_schema(&state.output_schema)
+            .map_err(cudf_to_df)?;
+
+        if batch.num_rows() == 0 {
+            continue;
+        }
+
+        state.metrics.baseline.record_output(&batch);
+        return Ok(Some((batch, state)));
+    }
 }
 
 #[derive(Clone)]
@@ -428,30 +558,7 @@ fn perform_join(
     let left_view = left.view();
     let right_view = right.view();
 
-    // Decompose projection into per-side column lists.
-    //
-    // Projection must be strictly ascending with all left-side indices (< left_width)
-    // appearing before right-side indices. DataFusion always emits join projections in
-    // this order.
-    debug_assert!(
-        projection
-            .as_ref()
-            .is_none_or(|p| p.windows(2).all(|w| w[0] < w[1])),
-        "join projection indices must be strictly ascending"
-    );
-    let left_width = left_view.num_columns();
-    let (left_out, right_out) = match projection {
-        None => (None, None),
-        Some(proj) => {
-            let lc: Vec<usize> = proj.iter().filter(|&&i| i < left_width).copied().collect();
-            let rc: Vec<usize> = proj
-                .iter()
-                .filter(|&&i| i >= left_width)
-                .map(|&i| i - left_width)
-                .collect();
-            (Some(lc), Some(rc))
-        }
-    };
+    let (left_out, right_out) = split_join_projection(projection, left_view.num_columns());
 
     let result = match join_type {
         JoinType::Inner => inner_join(
@@ -492,6 +599,31 @@ fn perform_join(
         .map_err(cudf_to_df)?;
 
     Ok(Some(batch))
+}
+
+fn split_join_projection(
+    projection: &Option<Vec<usize>>,
+    left_width: usize,
+) -> (Option<Vec<usize>>, Option<Vec<usize>>) {
+    debug_assert!(
+        projection
+            .as_ref()
+            .is_none_or(|p| p.windows(2).all(|w| w[0] < w[1])),
+        "join projection indices must be strictly ascending"
+    );
+
+    match projection {
+        None => (None, None),
+        Some(proj) => {
+            let left = proj.iter().filter(|&&i| i < left_width).copied().collect();
+            let right = proj
+                .iter()
+                .filter(|&&i| i >= left_width)
+                .map(|&i| i - left_width)
+                .collect();
+            (Some(left), Some(right))
+        }
+    }
 }
 
 /// Concat GPU-resident record batches into one table.
@@ -587,8 +719,20 @@ mod test {
         join_type: JoinType,
         partition_mode: PartitionMode,
     ) -> Result<Vec<RecordBatch>, Box<dyn Error>> {
+        run_join_with_right_batches(left, vec![right], join_type, partition_mode).await
+    }
+
+    async fn run_join_with_right_batches(
+        left: RecordBatch,
+        right_batches: Vec<RecordBatch>,
+        join_type: JoinType,
+        partition_mode: PartitionMode,
+    ) -> Result<Vec<RecordBatch>, Box<dyn Error>> {
         let ls = left.schema();
-        let rs = right.schema();
+        let rs = right_batches
+            .first()
+            .expect("right side should have at least one batch")
+            .schema();
         // Both sides go through CuDFLoadExec — symmetric GPU upload.
         let left_in = Arc::new(CuDFLoadExec::try_new(Arc::new(TestMemoryExec::try_new(
             &[vec![left]],
@@ -596,7 +740,7 @@ mod test {
             None,
         )?))?);
         let right_in = Arc::new(CuDFLoadExec::try_new(Arc::new(TestMemoryExec::try_new(
-            &[vec![right]],
+            &[right_batches],
             rs.clone(),
             None,
         )?))?);
@@ -639,6 +783,37 @@ mod test {
         )
         .await?;
         assert_eq!(total_rows(&out), 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_collect_left_inner_join_streams_right_batches() -> Result<(), Box<dyn Error>> {
+        let schema = right_batch().schema();
+        let right_a = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Int32Array::from(vec![2])),
+                Arc::new(Int32Array::from(vec![200])),
+            ],
+        )?;
+        let right_b = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int32Array::from(vec![3])),
+                Arc::new(Int32Array::from(vec![300])),
+            ],
+        )?;
+
+        let out = run_join_with_right_batches(
+            left_batch(),
+            vec![right_a, right_b],
+            JoinType::Inner,
+            PartitionMode::CollectLeft,
+        )
+        .await?;
+
+        assert_eq!(out.len(), 2);
+        assert_eq!(total_rows(&out), 2);
         Ok(())
     }
 

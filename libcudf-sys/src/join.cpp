@@ -73,6 +73,34 @@ std::unique_ptr<Table> full_join_gather(
                           cudf::out_of_bounds_policy::NULLIFY);
 }
 
+HashJoin::HashJoin() = default;
+
+HashJoin::~HashJoin() = default;
+
+std::unique_ptr<HashJoin> hash_join_create(
+    const TableView& build_keys, bool nulls_equal)
+{
+    auto result = std::make_unique<HashJoin>();
+    auto compare_nulls = nulls_equal
+        ? cudf::null_equality::EQUAL
+        : cudf::null_equality::UNEQUAL;
+    result->inner = std::make_unique<cudf::hash_join>(*build_keys.inner, compare_nulls);
+    return result;
+}
+
+std::unique_ptr<Table> hash_join_inner_join_gather(
+    const HashJoin& join,
+    const TableView& probe_keys,
+    const TableView& build_payload,
+    const TableView& probe_payload)
+{
+    auto [probe_idx, build_idx] = join.inner->inner_join(*probe_keys.inner);
+    return gather_combine(std::move(build_idx), std::move(probe_idx),
+                          *build_payload.inner, *probe_payload.inner,
+                          cudf::out_of_bounds_policy::DONT_CHECK,
+                          cudf::out_of_bounds_policy::DONT_CHECK);
+}
+
 std::unique_ptr<Table> left_semi_join_gather(
     const TableView& left_keys, const TableView& right_keys,
     const TableView& left_payload)
