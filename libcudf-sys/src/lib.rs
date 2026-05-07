@@ -779,6 +779,8 @@ pub mod ffi {
         unsafe fn table_from_arrow_host(
             schema_ptr: *const u8,
             device_array_ptr: *const u8,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
         /// Convert an Arrow array to a cuDF column
@@ -789,6 +791,8 @@ pub mod ffi {
         unsafe fn column_from_arrow(
             schema_ptr: *const u8,
             array_ptr: *const u8,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Column>>;
 
         /// Cast a column to a different data type using GPU-native cudf::cast
@@ -1521,7 +1525,6 @@ mod tests {
 
     const CUDA_STREAM_FLAG_SYNC_DEFAULT: u32 = 0;
     const CUDA_STREAM_FLAG_NON_BLOCKING: u32 = 1;
-
     // Sorting tests
     #[test]
     fn test_sort_table_ascending() -> Result<(), Box<dyn std::error::Error>> {
@@ -2192,7 +2195,16 @@ mod tests {
 
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
-        Ok(unsafe { ffi::table_from_arrow_host(schema_ptr, device_array_ptr) }?)
+        let stream = ffi::get_default_stream();
+        let mr = ffi::get_current_device_resource_ref();
+        Ok(unsafe {
+            ffi::table_from_arrow_host(
+                schema_ptr,
+                device_array_ptr,
+                stream.as_ref().expect("default stream should not be null"),
+                mr.as_ref().expect("device resource should not be null"),
+            )
+        }?)
     }
 
     fn table_from_nullable_i32_column(
@@ -2210,7 +2222,16 @@ mod tests {
 
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
-        Ok(unsafe { ffi::table_from_arrow_host(schema_ptr, device_array_ptr) }?)
+        let stream = ffi::get_default_stream();
+        let mr = ffi::get_current_device_resource_ref();
+        Ok(unsafe {
+            ffi::table_from_arrow_host(
+                schema_ptr,
+                device_array_ptr,
+                stream.as_ref().expect("default stream should not be null"),
+                mr.as_ref().expect("device resource should not be null"),
+            )
+        }?)
     }
 
     fn table_from_decimal128_column(
@@ -2230,7 +2251,16 @@ mod tests {
 
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
-        Ok(unsafe { ffi::table_from_arrow_host(schema_ptr, device_array_ptr) }?)
+        let stream = ffi::get_default_stream();
+        let mr = ffi::get_current_device_resource_ref();
+        Ok(unsafe {
+            ffi::table_from_arrow_host(
+                schema_ptr,
+                device_array_ptr,
+                stream.as_ref().expect("default stream should not be null"),
+                mr.as_ref().expect("device resource should not be null"),
+            )
+        }?)
     }
 
     fn pretty_table(table_view: &ffi::TableView) -> Result<impl Display + use<>, ArrowError> {

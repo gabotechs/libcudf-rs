@@ -160,7 +160,16 @@ impl CuDFTable {
 
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
-        let inner = unsafe { ffi::table_from_arrow_host(schema_ptr, device_array_ptr) }?;
+        let stream = ffi::get_default_stream();
+        let mr = ffi::get_current_device_resource_ref();
+        let inner = unsafe {
+            ffi::table_from_arrow_host(
+                schema_ptr,
+                device_array_ptr,
+                stream.as_ref().expect("default stream should not be null"),
+                mr.as_ref().expect("device resource should not be null"),
+            )
+        }?;
 
         Ok(Self { inner })
     }

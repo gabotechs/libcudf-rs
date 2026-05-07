@@ -205,22 +205,30 @@ namespace libcudf_bridge {
     }
 
     // Arrow interop - convert Arrow data to cuDF table
-    std::unique_ptr<Table> table_from_arrow_host(uint8_t const *schema_ptr, uint8_t const *device_array_ptr) {
+    std::unique_ptr<Table> table_from_arrow_host(
+        uint8_t const *schema_ptr,
+        uint8_t const *device_array_ptr,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) {
         auto *schema = reinterpret_cast<const ArrowSchema *>(schema_ptr);
         auto *device_array = reinterpret_cast<const ArrowDeviceArray *>(device_array_ptr);
 
         auto result = std::make_unique<Table>();
-        result->inner = cudf::from_arrow_host(schema, device_array);
+        result->inner = cudf::from_arrow_host(schema, device_array, stream.inner, mr.inner);
         return result;
     }
 
     // Arrow interop - convert Arrow array to cuDF column
-    std::unique_ptr<Column> column_from_arrow(uint8_t const *schema_ptr, uint8_t const *array_ptr) {
+    std::unique_ptr<Column> column_from_arrow(
+        uint8_t const *schema_ptr,
+        uint8_t const *array_ptr,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) {
         auto *schema = reinterpret_cast<const ArrowSchema *>(schema_ptr);
         auto *array = reinterpret_cast<const ArrowArray *>(array_ptr);
 
         auto result = std::make_unique<Column>();
-        result->inner = cudf::from_arrow_column(schema, array);
+        result->inner = cudf::from_arrow_column(schema, array, stream.inner, mr.inner);
         return result;
     }
 } // namespace libcudf_bridge

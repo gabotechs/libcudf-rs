@@ -5,6 +5,7 @@ use arrow::ffi::FFI_ArrowArray;
 use arrow_schema::ffi::FFI_ArrowSchema;
 use arrow_schema::ArrowError;
 use cxx::UniquePtr;
+use libcudf_sys::ffi;
 use std::sync::Arc;
 
 /// A GPU-accelerated column (similar to an Arrow Array)
@@ -58,7 +59,16 @@ impl CuDFColumn {
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let array_ptr = &ffi_array as *const FFI_ArrowArray as *const u8;
 
-        let inner = unsafe { libcudf_sys::ffi::column_from_arrow(schema_ptr, array_ptr) }?;
+        let stream = ffi::get_default_stream();
+        let mr = ffi::get_current_device_resource_ref();
+        let inner = unsafe {
+            ffi::column_from_arrow(
+                schema_ptr,
+                array_ptr,
+                stream.as_ref().expect("default stream should not be null"),
+                mr.as_ref().expect("device resource should not be null"),
+            )
+        }?;
         Ok(Self { inner })
     }
 

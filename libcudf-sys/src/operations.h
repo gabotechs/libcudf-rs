@@ -6,6 +6,8 @@
 #include "table.h"
 #include "column.h"
 #include "scalar.h"
+#include "stream.h"
+#include "memory_resource.h"
 
 // Forward declarations of Arrow C ABI types
 struct ArrowSchema;
@@ -17,9 +19,17 @@ namespace libcudf_bridge {
     std::unique_ptr<Table> apply_boolean_mask(const TableView &table, const ColumnView &boolean_mask);
 
     // Arrow interop - direct cuDF calls
-    std::unique_ptr<Table> table_from_arrow_host(uint8_t const *schema_ptr, uint8_t const *device_array_ptr);
+    std::unique_ptr<Table> table_from_arrow_host(
+        uint8_t const *schema_ptr,
+        uint8_t const *device_array_ptr,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr);
 
-    std::unique_ptr<Column> column_from_arrow(uint8_t const *schema_ptr, uint8_t const *array_ptr);
+    std::unique_ptr<Column> column_from_arrow(
+        uint8_t const *schema_ptr,
+        uint8_t const *array_ptr,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr);
 
     std::unique_ptr<Table> concat_table_views(rust::Slice<const std::unique_ptr<TableView>> views);
 
