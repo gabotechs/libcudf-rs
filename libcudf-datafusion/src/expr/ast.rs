@@ -22,6 +22,10 @@ use libcudf_rs::{
 pub(crate) fn join_filter_to_cudf_ast(
     filter: &JoinFilter,
 ) -> Result<CuDFAstExpression, DataFusionError> {
+    if filter.expression().data_type(filter.schema().as_ref())? != DataType::Boolean {
+        return not_impl_err!("Join filter expression must evaluate to Boolean for cuDF AST");
+    }
+
     let mut ast = CuDFAstExpression::new();
     lower_expr(
         filter.expression().as_ref(),
@@ -29,6 +33,19 @@ pub(crate) fn join_filter_to_cudf_ast(
         &mut ast,
     )?;
     Ok(ast)
+}
+
+pub(crate) fn is_join_filter_supported_by_cudf_ast(
+    filter: &JoinFilter,
+) -> Result<bool, DataFusionError> {
+    if filter.expression().data_type(filter.schema().as_ref())? != DataType::Boolean {
+        return Ok(false);
+    }
+
+    Ok(can_lower_expr(
+        filter.expression().as_ref(),
+        filter.column_indices(),
+    ))
 }
 
 fn lower_expr(
@@ -72,6 +89,44 @@ fn lower_expr(
     }
 
     not_impl_err!("Join filter expression {expr} is not supported by cuDF AST")
+}
+
+fn can_lower_expr(expr: &dyn PhysicalExpr, column_indices: &[ColumnIndex]) -> bool {
+    let any = expr.as_any();
+    if let Some(binary) = any.downcast_ref::<BinaryExpr>() {
+        return can_lower_expr(binary.left().as_ref(), column_indices)
+            && can_lower_expr(binary.right().as_ref(), column_indices)
+            && (map_binary_op(binary.op()).is_some()
+                || matches!(
+                    binary.op(),
+                    Operator::IsDistinctFrom | Operator::IsNotDistinctFrom
+                ));
+    }
+    if let Some(column) = any.downcast_ref::<Column>() {
+        return column_indices
+            .get(column.index())
+            .is_some_and(|column_index| column_index.side != JoinSide::None);
+    }
+    if any.downcast_ref::<Literal>().is_some() {
+        return true;
+    }
+    if let Some(cast) = any.downcast_ref::<CastExpr>() {
+        return matches!(
+            cast.cast_type(),
+            DataType::Int64 | DataType::UInt64 | DataType::Float64
+        ) && can_lower_expr(cast.expr().as_ref(), column_indices);
+    }
+    if let Some(not) = any.downcast_ref::<NotExpr>() {
+        return can_lower_expr(not.arg().as_ref(), column_indices);
+    }
+    if let Some(is_null) = any.downcast_ref::<IsNullExpr>() {
+        return can_lower_expr(is_null.arg().as_ref(), column_indices);
+    }
+    if let Some(is_not_null) = any.downcast_ref::<IsNotNullExpr>() {
+        return can_lower_expr(is_not_null.arg().as_ref(), column_indices);
+    }
+
+    false
 }
 
 fn lower_binary_expr(

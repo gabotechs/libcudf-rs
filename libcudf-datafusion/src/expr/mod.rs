@@ -11,9 +11,6 @@ use datafusion_physical_plan::expressions::Literal;
 use libcudf_rs::{CuDFColumnView, CuDFColumnViewOrScalar, CuDFScalar};
 use std::sync::Arc;
 
-// Staged for the next hash-join wiring commit; remove this allowance once
-// CuDFHashJoinExec calls join_filter_to_cudf_ast.
-#[allow(dead_code)]
 pub(crate) mod ast;
 mod binary;
 mod column;

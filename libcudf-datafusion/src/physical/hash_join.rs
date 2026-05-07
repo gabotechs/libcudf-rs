@@ -1,4 +1,5 @@
 use crate::errors::cudf_to_df;
+use crate::expr::ast::{is_join_filter_supported_by_cudf_ast, join_filter_to_cudf_ast};
 use crate::metrics::CuDFBaselineMetrics;
 use crate::physical::cudf_load::cudf_schema_compatibility_map;
 use arrow::array::RecordBatch;
@@ -8,6 +9,7 @@ use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
 use datafusion_physical_plan::expressions::Column;
+use datafusion_physical_plan::joins::utils::JoinFilter;
 use datafusion_physical_plan::joins::{HashJoinExec, PartitionMode};
 use datafusion_physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, Gauge, MetricBuilder, MetricsSet, Time,
@@ -18,7 +20,7 @@ use datafusion_physical_plan::{
     ExecutionPlanProperties, PhysicalExpr, PlanProperties,
 };
 use futures::{StreamExt, TryStreamExt};
-use libcudf_rs::{CuDFHashJoin, CuDFNullEquality, CuDFTable, CuDFTableView};
+use libcudf_rs::{CuDFAstExpression, CuDFHashJoin, CuDFNullEquality, CuDFTable, CuDFTableView};
 use std::any::Any;
 use std::fmt::Formatter;
 use std::future::Future;
@@ -38,6 +40,7 @@ pub struct CuDFHashJoinExec {
     left: Arc<dyn ExecutionPlan>,
     right: Arc<dyn ExecutionPlan>,
     on: Vec<(Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>)>,
+    filter: Option<JoinFilter>,
     join_type: JoinType,
     projection: Option<Vec<usize>>,
     partition_mode: PartitionMode,
@@ -112,6 +115,7 @@ impl CuDFHashJoinExec {
         left: Arc<dyn ExecutionPlan>,
         right: Arc<dyn ExecutionPlan>,
         on: Vec<(Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>)>,
+        filter: Option<JoinFilter>,
         join_type: JoinType,
         projection: Option<Vec<usize>>,
         partition_mode: PartitionMode,
@@ -159,6 +163,7 @@ impl CuDFHashJoinExec {
             left,
             right,
             on,
+            filter,
             join_type,
             projection,
             partition_mode,
@@ -176,6 +181,7 @@ impl CuDFHashJoinExec {
             node.left().clone(),
             node.right().clone(),
             node.on().to_vec(),
+            node.filter().cloned(),
             *node.join_type(),
             node.projection.as_ref().map(|p| p.to_vec()),
             *node.partition_mode(),
@@ -192,7 +198,11 @@ impl DisplayAs for CuDFHashJoinExec {
             self.partition_mode,
             self.join_type,
             on_keys.join(", ")
-        )
+        )?;
+        if let Some(filter) = &self.filter {
+            write!(f, ", filter={}", filter.expression())?;
+        }
+        Ok(())
     }
 }
 
@@ -234,6 +244,7 @@ impl ExecutionPlan for CuDFHashJoinExec {
             left,
             right,
             self.on.clone(),
+            self.filter.clone(),
             self.join_type,
             self.projection.clone(),
             self.partition_mode,
@@ -273,6 +284,7 @@ impl ExecutionPlan for CuDFHashJoinExec {
         let join_type = self.join_type;
         let left_on = self.left_on.clone();
         let right_on = self.right_on.clone();
+        let filter = self.filter.clone();
         let projection = self.projection.clone();
         let output_schema = self.schema();
         let right_schema = self.right.schema();
@@ -281,6 +293,7 @@ impl ExecutionPlan for CuDFHashJoinExec {
             join_type,
             left_on,
             right_on,
+            filter,
             output_schema: output_schema.clone(),
             right_schema,
             projection,
@@ -356,6 +369,7 @@ struct JoinPlan {
     join_type: JoinType,
     left_on: Vec<usize>,
     right_on: Vec<usize>,
+    filter: Option<JoinFilter>,
     output_schema: SchemaRef,
     right_schema: SchemaRef,
     projection: Option<Vec<usize>>,
@@ -368,6 +382,7 @@ struct JoinPlan {
 struct StreamingBuildSide {
     left: Arc<CuDFTable>,
     join: CuDFHashJoin,
+    filter: Option<CuDFAstExpression>,
     left_out: Option<Vec<usize>>,
     right_out: Option<Vec<usize>>,
 }
@@ -468,6 +483,12 @@ impl StreamingJoinState {
         let left_view = Arc::clone(&left).view();
         let (left_out, right_out) =
             split_join_projection(&self.plan.projection, left_view.num_columns());
+        let filter = self
+            .plan
+            .filter
+            .as_ref()
+            .map(join_filter_to_cudf_ast)
+            .transpose()?;
         let join = {
             let _timer = self.metrics.build_time.timer();
             CuDFHashJoin::try_new(&left_view, &self.plan.left_on, CuDFNullEquality::Unequal)
@@ -477,6 +498,7 @@ impl StreamingJoinState {
         self.build = Some(StreamingBuildSide {
             left,
             join,
+            filter,
             left_out,
             right_out,
         });
@@ -493,8 +515,19 @@ impl StreamingJoinState {
         let right_view = right.view();
         let _timer = self.metrics.join_time.timer();
 
-        let result = match self.plan.join_type {
-            JoinType::Inner => build.join.inner_join(
+        let result = match (self.plan.join_type, build.filter.as_ref()) {
+            (JoinType::Inner, Some(predicate)) => build.join.inner_join_filtered(
+                &right_view,
+                &self.plan.right_on,
+                &left_view,
+                &right_view,
+                predicate,
+                &left_view,
+                &right_view,
+                build.left_out.as_deref(),
+                build.right_out.as_deref(),
+            ),
+            (JoinType::Inner, None) => build.join.inner_join(
                 &right_view,
                 &self.plan.right_on,
                 &left_view,
@@ -502,7 +535,18 @@ impl StreamingJoinState {
                 build.left_out.as_deref(),
                 build.right_out.as_deref(),
             ),
-            JoinType::Left => build.join.inner_join_and_record_matches(
+            (JoinType::Left, Some(predicate)) => build.join.inner_join_filtered_and_record_matches(
+                &right_view,
+                &self.plan.right_on,
+                &left_view,
+                &right_view,
+                predicate,
+                &left_view,
+                &right_view,
+                build.left_out.as_deref(),
+                build.right_out.as_deref(),
+            ),
+            (JoinType::Left, None) => build.join.inner_join_and_record_matches(
                 &right_view,
                 &self.plan.right_on,
                 &left_view,
@@ -510,7 +554,20 @@ impl StreamingJoinState {
                 build.left_out.as_deref(),
                 build.right_out.as_deref(),
             ),
-            JoinType::Full => build.join.probe_left_join_and_record_matches(
+            (JoinType::Full, Some(predicate)) => {
+                build.join.probe_left_join_filtered_and_record_matches(
+                    &right_view,
+                    &self.plan.right_on,
+                    &left_view,
+                    &right_view,
+                    predicate,
+                    &left_view,
+                    &right_view,
+                    build.left_out.as_deref(),
+                    build.right_out.as_deref(),
+                )
+            }
+            (JoinType::Full, None) => build.join.probe_left_join_and_record_matches(
                 &right_view,
                 &self.plan.right_on,
                 &left_view,
@@ -520,7 +577,8 @@ impl StreamingJoinState {
             ),
             other => {
                 return Err(DataFusionError::NotImplemented(format!(
-                    "CuDFHashJoinExec: unsupported streaming join type {other:?}"
+                    "CuDFHashJoinExec: unsupported streaming join type {:?}",
+                    other.0
                 )))
             }
         };
@@ -689,8 +747,10 @@ pub fn try_as_cudf_hash_join(
         return Ok(None);
     }
 
-    if node.filter().is_some() {
-        return Ok(None);
+    if let Some(filter) = node.filter() {
+        if !is_join_filter_supported_by_cudf_ast(filter)? {
+            return Ok(None);
+        }
     }
 
     if !supports_streaming_join(
@@ -714,7 +774,8 @@ mod tests {
     use datafusion::common::{JoinSide, JoinType, NullEquality};
     use datafusion::execution::TaskContext;
     use datafusion::physical_expr::{EquivalenceProperties, Partitioning};
-    use datafusion_physical_plan::expressions::Column;
+    use datafusion_expr::Operator;
+    use datafusion_physical_plan::expressions::{BinaryExpr, Column};
     use datafusion_physical_plan::joins::utils::{ColumnIndex, JoinFilter};
     use datafusion_physical_plan::joins::{HashJoinExec, PartitionMode};
     use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
@@ -779,11 +840,23 @@ mod tests {
         join_type: JoinType,
         partition_mode: PartitionMode,
     ) -> Result<Vec<RecordBatch>, Box<dyn Error>> {
+        run_join_with_right_batches_and_filter(left, right_batches, join_type, partition_mode, None)
+            .await
+    }
+
+    async fn run_join_with_right_batches_and_filter(
+        left: RecordBatch,
+        right_batches: Vec<RecordBatch>,
+        join_type: JoinType,
+        partition_mode: PartitionMode,
+        filter: Option<JoinFilter>,
+    ) -> Result<Vec<RecordBatch>, Box<dyn Error>> {
         run_join_with_partitions(
             vec![vec![left]],
             vec![right_batches],
             join_type,
             partition_mode,
+            filter,
         )
         .await
     }
@@ -793,6 +866,7 @@ mod tests {
         right_partitions: Vec<Vec<RecordBatch>>,
         join_type: JoinType,
         partition_mode: PartitionMode,
+        filter: Option<JoinFilter>,
     ) -> Result<Vec<RecordBatch>, Box<dyn Error>> {
         let left_schema = partition_schema(&left_partitions, left_batch().schema());
         let right_schema = partition_schema(&right_partitions, right_batch().schema());
@@ -839,6 +913,7 @@ mod tests {
             left_in,
             right_in,
             key_on(),
+            filter,
             join_type,
             None,
             partition_mode,
@@ -970,6 +1045,26 @@ mod tests {
         batches.iter().map(|b| b.column(column).null_count()).sum()
     }
 
+    fn int32_options(batches: &[RecordBatch], column: usize) -> Vec<Option<i32>> {
+        batches
+            .iter()
+            .flat_map(|batch| {
+                let values = batch
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<Int32Array>()
+                    .unwrap();
+                (0..values.len()).map(move |i| {
+                    if values.is_null(i) {
+                        None
+                    } else {
+                        Some(values.value(i))
+                    }
+                })
+            })
+            .collect()
+    }
+
     fn right_batch_from_rows(rows: &[(i32, i32)]) -> Result<RecordBatch, Box<dyn Error>> {
         let keys: Vec<_> = rows.iter().map(|(key, _)| *key).collect();
         let vals: Vec<_> = rows.iter().map(|(_, val)| *val).collect();
@@ -994,6 +1089,31 @@ mod tests {
             vec![right_batch_from_rows(&[(2, 200), (5, 500)])?],
             vec![right_batch_from_rows(&[(3, 300), (6, 600)])?],
         ])
+    }
+
+    fn value_less_join_filter() -> JoinFilter {
+        let filter_schema = Arc::new(Schema::new(vec![
+            Field::new("left_val", DataType::Int32, false),
+            Field::new("right_val", DataType::Int32, false),
+        ]));
+        JoinFilter::new(
+            Arc::new(BinaryExpr::new(
+                Arc::new(Column::new("left_val", 0)),
+                Operator::Lt,
+                Arc::new(Column::new("right_val", 1)),
+            )) as Arc<dyn PhysicalExpr>,
+            vec![
+                ColumnIndex {
+                    index: 1,
+                    side: JoinSide::Left,
+                },
+                ColumnIndex {
+                    index: 1,
+                    side: JoinSide::Right,
+                },
+            ],
+            filter_schema,
+        )
     }
 
     async fn assert_streamed_inner_join(
@@ -1167,6 +1287,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_filtered_inner_join() -> Result<(), Box<dyn Error>> {
+        let out = run_join_with_right_batches_and_filter(
+            left_batch(),
+            vec![right_batch_from_rows(&[(2, 25), (3, 25), (5, 500)])?],
+            JoinType::Inner,
+            PartitionMode::CollectLeft,
+            Some(value_less_join_filter()),
+        )
+        .await?;
+
+        assert_eq!(total_rows(&out), 1);
+        assert_eq!(int32_options(&out, 1), vec![Some(20)]);
+        assert_eq!(int32_options(&out, 3), vec![Some(25)]);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_inner_join_empty_right() -> Result<(), Box<dyn Error>> {
         let out = run_join(
             left_batch(),
@@ -1219,6 +1356,7 @@ mod tests {
             partitioned_right_batches()?,
             JoinType::Inner,
             PartitionMode::Partitioned,
+            None,
         )
         .await?;
 
@@ -1235,6 +1373,7 @@ mod tests {
             partitioned_right_batches()?,
             JoinType::Left,
             PartitionMode::Partitioned,
+            None,
         )
         .await?;
 
@@ -1252,6 +1391,7 @@ mod tests {
             partitioned_right_batches()?,
             JoinType::Full,
             PartitionMode::Partitioned,
+            None,
         )
         .await?;
 
@@ -1280,6 +1420,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_filtered_left_join_preserves_failed_build_rows() -> Result<(), Box<dyn Error>> {
+        let out = run_join_with_right_batches_and_filter(
+            left_batch(),
+            vec![right_batch_from_rows(&[(2, 25), (3, 25), (5, 500)])?],
+            JoinType::Left,
+            PartitionMode::CollectLeft,
+            Some(value_less_join_filter()),
+        )
+        .await?;
+
+        let mut key_pairs: Vec<_> = int32_options(&out, 0)
+            .into_iter()
+            .zip(int32_options(&out, 2))
+            .collect();
+        key_pairs.sort();
+        assert_eq!(
+            key_pairs,
+            vec![
+                (Some(1), None),
+                (Some(2), Some(2)),
+                (Some(3), None),
+                (Some(4), None),
+            ]
+        );
+        assert_eq!(total_nulls(&out, 2), 3);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_left_join() -> Result<(), Box<dyn Error>> {
         let out = run_join(
             left_batch(),
@@ -1290,6 +1459,37 @@ mod tests {
         .await?;
         assert_eq!(total_rows(&out), 4); // all 4 left rows preserved
         assert_eq!(out[0].num_columns(), 4);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_filtered_full_join_handles_failed_and_duplicate_matches(
+    ) -> Result<(), Box<dyn Error>> {
+        let out = run_join_with_right_batches_and_filter(
+            right_batch_from_rows(&[(2, 20), (2, 30), (4, 40)])?,
+            vec![right_batch_from_rows(&[(2, 25), (5, 50)])?],
+            JoinType::Full,
+            PartitionMode::CollectLeft,
+            Some(value_less_join_filter()),
+        )
+        .await?;
+
+        let mut value_pairs: Vec<_> = int32_options(&out, 1)
+            .into_iter()
+            .zip(int32_options(&out, 3))
+            .collect();
+        value_pairs.sort();
+        assert_eq!(
+            value_pairs,
+            vec![
+                (None, Some(50)),
+                (Some(20), Some(25)),
+                (Some(30), None),
+                (Some(40), None),
+            ]
+        );
+        assert_eq!(total_nulls(&out, 0), 1);
+        assert_eq!(total_nulls(&out, 2), 2);
         Ok(())
     }
 
@@ -1386,7 +1586,7 @@ mod tests {
     }
 
     #[test]
-    fn test_join_filter_bails_to_cpu() -> Result<(), Box<dyn Error>> {
+    fn test_non_boolean_join_filter_bails_to_cpu() -> Result<(), Box<dyn Error>> {
         let schema = Arc::new(Schema::new(vec![Field::new("key", DataType::Int32, false)]));
         let left = Arc::new(TestMemoryExec::try_new(&[], schema.clone(), None)?);
         let right = Arc::new(TestMemoryExec::try_new(&[], schema.clone(), None)?);
@@ -1410,6 +1610,34 @@ mod tests {
             false,
         )?;
         assert!(try_as_cudf_hash_join(&join)?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_supported_join_filter_converts_to_gpu() -> Result<(), Box<dyn Error>> {
+        let schema = left_batch().schema();
+        let left = Arc::new(TestMemoryExec::try_new(
+            &[vec![left_batch()]],
+            schema.clone(),
+            None,
+        )?);
+        let right = Arc::new(TestMemoryExec::try_new(
+            &one_right_partition()?,
+            schema,
+            None,
+        )?);
+        let join = HashJoinExec::try_new(
+            left,
+            right,
+            key_on(),
+            Some(value_less_join_filter()),
+            &JoinType::Inner,
+            None,
+            PartitionMode::CollectLeft,
+            NullEquality::NullEqualsNothing,
+            false,
+        )?;
+        assert!(try_as_cudf_hash_join(&join)?.is_some());
         Ok(())
     }
 
@@ -1505,6 +1733,7 @@ mod tests {
             left,
             right,
             key_on(),
+            None,
             JoinType::Left,
             None,
             PartitionMode::CollectLeft,
