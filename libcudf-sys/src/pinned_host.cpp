@@ -4,17 +4,6 @@
 #include <utility>
 
 namespace libcudf_bridge {
-    size_t cuda_malloc_host(const size_t bytes) {
-        void* raw = nullptr;
-        cudaMallocHost(&raw, bytes);
-        return reinterpret_cast<size_t>(raw);
-    }
-
-    void cuda_free_host(const size_t ptr) {
-        if (ptr == 0) return;
-        cudaFreeHost(reinterpret_cast<void*>(ptr));
-    }
-
     HostDeviceAsyncResourceRef::HostDeviceAsyncResourceRef(rmm::host_device_async_resource_ref ref)
         : inner(std::move(ref)) {}
 

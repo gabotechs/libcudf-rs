@@ -677,15 +677,6 @@ pub mod ffi {
         /// Create a CUDA stream with explicit creation flags.
         fn cuda_stream_create_with_flags(flags: u32) -> UniquePtr<CudaStream>;
 
-        /// 1:1 with `cudaMallocHost`. Pointer is encoded as `usize` because
-        /// cxx does not currently expose `*mut u8` return values across the
-        /// bridge.
-        fn cuda_malloc_host(bytes: usize) -> Result<usize>;
-
-        /// 1:1 with `cudaFreeHost`. Pointer is encoded as `usize` for the
-        /// same cxx reason.
-        fn cuda_free_host(ptr: usize) -> Result<()>;
-
         /// 1:1 wrapper around `rmm::host_device_async_resource_ref`.
         type HostDeviceAsyncResourceRef;
 

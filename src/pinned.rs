@@ -14,163 +14,55 @@ use crate::errors::Result;
 use arrow::alloc::Allocation;
 use arrow::array::{make_array, ArrayData, ArrayDataBuilder, RecordBatch};
 use arrow::buffer::{BooleanBuffer, Buffer, NullBuffer};
-use libcudf_sys::ffi::{cuda_default_stream_synchronize, cuda_free_host, cuda_malloc_host};
-use std::cell::RefCell;
+use cxx::UniquePtr;
+use libcudf_sys::ffi::{
+    cuda_default_stream_synchronize, get_pinned_memory_resource, HostDeviceAsyncResourceRef,
+};
 use std::ptr::NonNull;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
-/// Internal owner for a single `cudaMallocHost` allocation. Frees on drop.
-///
-/// `ptr == 0` means the allocation has been transferred elsewhere (e.g. into
-/// the thread-local pool) and this owner shouldn't free.
-struct PinnedAllocOwner {
-    ptr: usize,
-    capacity: usize,
+/// Process-global handle to cuDF's pinned MR. Lazily initialized once;
+/// thereafter every alloc/dealloc reads through the same `&'static` handle.
+/// The underlying cuDF MR (a `pinned_pool_with_fallback_memory_resource`
+/// backed by `rmm::mr::pool_memory_resource`) is itself thread-safe.
+fn pinned_mr() -> &'static HostDeviceAsyncResourceRef {
+    static MR: OnceLock<UniquePtr<HostDeviceAsyncResourceRef>> = OnceLock::new();
+    MR.get_or_init(get_pinned_memory_resource)
+        .as_ref()
+        .expect("pinned MR is null")
+}
+
+/// RAII wrapper for a single pinned host allocation drawn from cuDF's pinned
+/// memory resource. The pool is process-global and shared with cuDF's own
+/// pinned-memory consumers (e.g. the download path).
+pub struct PinnedHostBuffer {
+    ptr: *mut u8,
+    bytes: usize,
 }
 
 // SAFETY: A pinned host allocation is plain memory addressable by both the
 // host and the device. There is no thread-affinity on the CUDA side, so the
-// owner can be moved across threads.
-unsafe impl Send for PinnedAllocOwner {}
-unsafe impl Sync for PinnedAllocOwner {}
-
-impl PinnedAllocOwner {
-    fn new(bytes: usize) -> Result<Self> {
-        let ptr = cuda_malloc_host(bytes)?;
-        Ok(Self {
-            ptr,
-            capacity: bytes,
-        })
-    }
-
-    fn capacity(&self) -> usize {
-        self.capacity
-    }
-
-    fn data_ptr(&self) -> *mut u8 {
-        self.ptr as *mut u8
-    }
-}
-
-impl Drop for PinnedAllocOwner {
-    fn drop(&mut self) {
-        if self.ptr == 0 {
-            return;
-        }
-        if let Err(err) = cuda_free_host(self.ptr) {
-            if std::thread::panicking() {
-                // Already unwinding — surface the failure but don't abort by
-                // double-panicking.
-                eprintln!("libcudf_rs: cudaFreeHost failed during unwinding: {err}");
-            } else {
-                panic!("cudaFreeHost failed: {err}");
-            }
-        }
-    }
-}
-
-/// RAII wrapper for a single pinned host allocation, backed by a thread-local
-/// pool of `cudaMallocHost` slabs. Profiling on TPC-H q1 showed the load
-/// path's pin/dealloc has to be lock-free and vtable-free to keep up; routing
-/// through cuDF's `host_device_async_resource_ref` adds ~9% wall clock.
-pub struct PinnedHostBuffer {
-    inner: Option<PinnedAllocOwner>,
-}
-
-thread_local! {
-    /// Thread-local pool of pinned host allocations available for reuse.
-    ///
-    /// `cudaMallocHost` / `cudaFreeHost` each take hundreds of microseconds,
-    /// so allocations are recycled here instead of being freed on drop. On a
-    /// `new(bytes)` request we linearly pick the smallest pooled allocation
-    /// with capacity >= `bytes`; the pool stays small enough that the linear
-    /// scan is fine. `cudaFreeHost` only runs when the pool itself drops at
-    /// thread exit (see [`PinnedAllocOwner::drop`]).
-    ///
-    /// # Why thread-local instead of a global pool
-    ///
-    /// 1. No locking on the hot path (~20K allocs per aggregate query). A
-    ///    global pool would need a `Mutex<Vec<...>>` on every alloc/free.
-    /// 2. NUMA locality — the memory stays close to the CPU that pinned it.
-    ///
-    /// Tradeoff: a buffer allocated on Thread A and dropped on Thread B
-    /// (e.g. across an `.await` where a tokio task hopped workers) ends up
-    /// in B's pool, not A's. That's an efficiency loss, not a correctness
-    /// bug, and our hot path (`pin_record_batch` → `from_arrow_host` →
-    /// drop) is synchronous within a single closure so it doesn't trip that
-    /// case in practice.
-    ///
-    /// # Why `RefCell` is sufficient (no `Mutex`)
-    ///
-    /// `thread_local!` gives each thread its own `RefCell`, and the only
-    /// way to reach it — `PINNED_POOL.with(|cell| ...)` — hands out a borrow
-    /// whose lifetime is tied to the closure; that borrow can't be returned,
-    /// stored, or `Send`-ed to another thread. So no two threads ever hold
-    /// a reference to the same `RefCell`, and the runtime borrow check only
-    /// has to guard same-thread reentrancy.
-    ///
-    /// # Why we don't reuse cuDF's pinned MR for this path
-    ///
-    /// We tested it. cuDF's `host_device_async_resource_ref` adds vtable
-    /// dispatch + a global mutex per alloc/free, costing ~9% wall clock on
-    /// q1. The download path (`to_arrow_host`) still goes through cuDF's
-    /// pinned MR (configured in [`crate::config`]) because cuDF allocates
-    /// the destination buffer there.
-    static PINNED_POOL: RefCell<Vec<PinnedAllocOwner>> =
-        const { RefCell::new(Vec::new()) };
-}
-
-#[cfg(test)]
-fn pool_len() -> usize {
-    PINNED_POOL.with(|p| p.borrow().len())
-}
-
-/// Drop every cached allocation on the current thread. Drains via
-/// [`PinnedAllocOwner::drop`], so any `cudaFreeHost` failure becomes a panic
-/// here. Test-only — production code never needs to drain explicitly.
-#[cfg(test)]
-fn drain_pool() {
-    PINNED_POOL.with(|p| p.borrow_mut().clear());
-}
+// buffer can be moved across threads.
+unsafe impl Send for PinnedHostBuffer {}
+unsafe impl Sync for PinnedHostBuffer {}
 
 impl PinnedHostBuffer {
-    /// Allocate `bytes` of pinned host memory, reusing a pooled buffer if one
-    /// of sufficient capacity is available on the current thread.
+    /// Allocate `bytes` of pinned host memory from cuDF's pinned MR.
     fn new(bytes: usize) -> Result<Self> {
-        let pooled = PINNED_POOL.with(|pool| {
-            let mut pool = pool.borrow_mut();
-            // Pick the smallest pooled buffer with capacity >= requested.
-            let pos = pool
-                .iter()
-                .enumerate()
-                .filter(|(_, owner)| owner.capacity() >= bytes)
-                .min_by_key(|(_, owner)| owner.capacity())
-                .map(|(i, _)| i);
-            pos.map(|i| pool.swap_remove(i))
-        });
-        let inner = match pooled {
-            Some(owner) => owner,
-            None => PinnedAllocOwner::new(bytes)?,
-        };
-        Ok(Self { inner: Some(inner) })
+        let ptr = pinned_mr().allocate_sync(bytes)? as *mut u8;
+        Ok(Self { ptr, bytes })
     }
 
     /// Raw pointer to the start of the allocation.
     fn as_ptr(&self) -> *mut u8 {
-        self.inner
-            .as_ref()
-            .expect("PinnedHostBuffer must own an allocation")
-            .data_ptr()
+        self.ptr
     }
 }
 
 impl Drop for PinnedHostBuffer {
     fn drop(&mut self) {
-        if let Some(owner) = self.inner.take() {
-            // Return to the thread-local pool for reuse rather than freeing.
-            // The actual `cudaFreeHost` happens when the pool itself drops at
-            // thread exit, via `PinnedAllocOwner::drop`.
-            PINNED_POOL.with(|pool| pool.borrow_mut().push(owner));
+        if !self.ptr.is_null() {
+            pinned_mr().deallocate_sync(self.ptr as usize, self.bytes);
         }
     }
 }
@@ -325,37 +217,6 @@ mod tests {
         assert!(out.is_null(1));
         assert_eq!(out.value(2), "beta");
         assert_eq!(out.value(3), "gamma");
-        Ok(())
-    }
-
-    /// Dropping a [`PinnedHostBuffer`] should return its allocation to the
-    /// thread-local pool so the next allocation of the same size reuses it
-    /// instead of calling `cudaMallocHost` again.
-    #[test]
-    fn drop_returns_buffer_to_pool() -> Result<()> {
-        drain_pool();
-
-        let buf = PinnedHostBuffer::new(2048)?;
-        let ptr_before = buf.as_ptr() as usize;
-        assert_eq!(pool_len(), 0);
-        drop(buf);
-        assert_eq!(
-            pool_len(),
-            1,
-            "drop should push the allocation into the pool"
-        );
-
-        let buf2 = PinnedHostBuffer::new(2048)?;
-        assert_eq!(
-            buf2.as_ptr() as usize,
-            ptr_before,
-            "pool should return the same allocation"
-        );
-        assert_eq!(
-            pool_len(),
-            0,
-            "reuse should remove the allocation from the pool"
-        );
         Ok(())
     }
 

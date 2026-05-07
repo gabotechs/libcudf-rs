@@ -7,15 +7,6 @@
 #include <rmm/resource_ref.hpp>
 
 namespace libcudf_bridge {
-    /// 1:1 with `cudaMallocHost`. Returns the allocation pointer encoded as
-    /// `size_t` because cxx does not currently expose `*mut u8` return values
-    /// across the bridge.
-    size_t cuda_malloc_host(size_t bytes);
-
-    /// 1:1 with `cudaFreeHost`. Takes the pointer encoded as `size_t` for the
-    /// same cxx reason.
-    void cuda_free_host(size_t ptr);
-
     /// Thin wrapper around `rmm::host_device_async_resource_ref`, the type
     /// returned by `cudf::get_pinned_memory_resource()`. When
     /// `cudf::config_default_pinned_memory_resource` has been called, the
