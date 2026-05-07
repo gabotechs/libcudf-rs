@@ -18,22 +18,18 @@ use cxx::UniquePtr;
 use libcudf_sys::ffi::{
     cuda_default_stream_synchronize, get_pinned_memory_resource, HostDeviceAsyncResourceRef,
 };
-use std::cell::RefCell;
 use std::ptr::NonNull;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
-thread_local! {
-    /// Per-thread cached handle to cuDF's pinned MR. The handle is a
-    /// non-owning ref to a process-global resource — each thread holds its own
-    /// copy so allocate/deallocate doesn't need locking on the Rust side. The
-    /// underlying cuDF MR serializes its own allocate/deallocate internally.
-    ///
-    /// `RefCell` (rather than a plain field) gives interior mutability so we
-    /// can satisfy the cxx bridge's `Pin<&mut Self>` requirement on
-    /// `allocate_sync` / `deallocate_sync` without needing `&mut` access from
-    /// the caller.
-    static PINNED_MR: RefCell<UniquePtr<HostDeviceAsyncResourceRef>> =
-        RefCell::new(get_pinned_memory_resource());
+/// Process-global handle to cuDF's pinned MR. Lazily initialized once;
+/// thereafter every alloc/dealloc reads through the same `&'static` handle.
+/// The underlying cuDF MR serializes its own concurrent allocate / deallocate,
+/// so no Rust-side locking is needed.
+fn pinned_mr() -> &'static HostDeviceAsyncResourceRef {
+    static MR: OnceLock<UniquePtr<HostDeviceAsyncResourceRef>> = OnceLock::new();
+    MR.get_or_init(get_pinned_memory_resource)
+        .as_ref()
+        .expect("pinned MR is null")
 }
 
 /// RAII wrapper for a single pinned host allocation drawn from cuDF's pinned
@@ -63,12 +59,7 @@ impl PinnedHostBuffer {
     /// `CuDFColumn::*`, etc.) trigger the init themselves so this allocation
     /// path stays branch-free on the hot path.
     fn new(bytes: usize) -> Result<Self> {
-        let ptr = PINNED_MR.with(|mr| {
-            mr.borrow_mut()
-                .as_mut()
-                .expect("pinned MR is null")
-                .allocate_sync(bytes)
-        })? as *mut u8;
+        let ptr = pinned_mr().allocate_sync(bytes)? as *mut u8;
         Ok(Self { ptr, bytes })
     }
 
@@ -80,14 +71,9 @@ impl PinnedHostBuffer {
 
 impl Drop for PinnedHostBuffer {
     fn drop(&mut self) {
-        if self.ptr.is_null() {
-            return;
+        if !self.ptr.is_null() {
+            pinned_mr().deallocate_sync(self.ptr as usize, self.bytes);
         }
-        PINNED_MR.with(|mr| {
-            if let Some(mr) = mr.borrow_mut().as_mut() {
-                mr.deallocate_sync(self.ptr as usize, self.bytes);
-            }
-        });
     }
 }
 

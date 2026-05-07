@@ -6,11 +6,11 @@ namespace libcudf_bridge {
     HostDeviceAsyncResourceRef::HostDeviceAsyncResourceRef(rmm::host_device_async_resource_ref ref)
         : inner(ref) {}
 
-    size_t HostDeviceAsyncResourceRef::allocate_sync(const size_t bytes) {
+    size_t HostDeviceAsyncResourceRef::allocate_sync(const size_t bytes) const {
         return reinterpret_cast<size_t>(inner.allocate_sync(bytes));
     }
 
-    void HostDeviceAsyncResourceRef::deallocate_sync(const size_t ptr, const size_t bytes) {
+    void HostDeviceAsyncResourceRef::deallocate_sync(const size_t ptr, const size_t bytes) const {
         inner.deallocate_sync(reinterpret_cast<void *>(ptr), bytes);
     }
 

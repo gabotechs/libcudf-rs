@@ -2,7 +2,6 @@ use crate::errors::cudf_to_df;
 use crate::metrics::CuDFBaselineMetrics;
 use arrow::array::{Array, RecordBatch, RecordBatchOptions};
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Schema, SchemaRef};
-use datafusion::common::runtime::SpawnedTask;
 use datafusion::common::{assert_eq_or_internal_err, exec_err, plan_err, ScalarValue};
 use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -13,8 +12,7 @@ use datafusion_physical_plan::stream::{
     RecordBatchReceiverStream, RecordBatchReceiverStreamBuilder,
 };
 use datafusion_physical_plan::{
-    internal_err, DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties,
-    PlanProperties,
+    DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties, PlanProperties,
 };
 use futures_util::stream::StreamExt;
 use libcudf_rs::{is_cudf_array, pin_record_batch, synchronize_default_stream, CuDFTable};
@@ -135,54 +133,33 @@ impl CuDFRecordBatchReceiverStreamBuilder {
         let ctx = self.ctx.clone();
         let output = self.inner.tx();
         self.inner.spawn(async move {
-            // Transfer batches from inner stream to the output tx
-            // immediately.
             while let Some(batch_or_err) = host_stream.next().await {
                 let ctx = ctx.clone();
-                let task = SpawnedTask::spawn_blocking(move || {
-                    let _timer_guard = ctx.metrics.elapsed_compute().timer();
-                    let batch = match batch_or_err {
-                        Ok(batch) => cast_to_target_schema(batch, Arc::clone(&ctx.schema))?,
-                        Err(err) => return Err(err),
-                    };
-
-                    if batch.columns().iter().any(|c| is_cudf_array(c)) {
-                        return exec_err!("Cannot move RecordBatch from host to CuDF: a column is already a CuDF array");
-                    }
-                    let schema = batch.schema();
-                    // Stage the host batch through pinned (page-locked) memory so the
-                    // upload is a direct DMA without the driver's pageable-staging
-                    // step. The pinned source must outlive the async copy, so the
-                    // default stream is synchronized before the pinned batch is
-                    // dropped at the end of this closure.
-                    //
-                    // TODO(memory-tracking): the bytes we pin here are not registered
-                    // against DataFusion's `MemoryPool`, so they don't show up in
-                    // `EXPLAIN ANALYZE` and won't trigger backpressure if a query has
-                    // a memory cap. The OS-level `RLIMIT_MEMLOCK` / `cudaMallocHost`
-                    // failure path is the current safety net. Worth wiring through a
-                    // `MemoryReservation` (try_grow / shrink per batch) if someone
-                    // starts configuring per-query memory caps for cuDF operators.
-                    let pinned_batch = pin_record_batch(batch).map_err(cudf_to_df)?;
-                    let table = CuDFTable::from_arrow_host(pinned_batch).map_err(cudf_to_df)?;
-                    synchronize_default_stream().map_err(cudf_to_df)?;
-                    let num_rows = table.num_rows();
-                    let cudf_cols: Vec<Arc<dyn Array>> = table
-                        .into_columns()
-                        .into_iter()
-                        .map(|c| Arc::new(c.into_view()) as Arc<dyn Array>)
-                        .collect();
-                    let batch =
-                        libcudf_rs::record_batch_with_schema(cudf_cols, &schema, num_rows)?;
-                    ctx.metrics.record_output(&batch);
-                    Ok(batch)
-                });
-                let send_result = match task.await {
-                    Ok(result) => output.send(result).await,
-                    Err(err) => output.send(internal_err!("{err}")).await,
+                let _timer_guard = ctx.metrics.elapsed_compute().timer();
+                let batch = match batch_or_err {
+                    Ok(batch) => cast_to_target_schema(batch, Arc::clone(&ctx.schema))?,
+                    Err(err) => return Err(err),
                 };
+
+                if batch.columns().iter().any(|c| is_cudf_array(c)) {
+                    return exec_err!("Cannot move RecordBatch from host to CuDF: a column is already a CuDF array");
+                }
+                let schema = batch.schema();
+                let pinned_batch = pin_record_batch(batch).map_err(cudf_to_df)?;
+                let table = CuDFTable::from_arrow_host(pinned_batch).map_err(cudf_to_df)?;
+                synchronize_default_stream().map_err(cudf_to_df)?;
+                let num_rows = table.num_rows();
+                let cudf_cols: Vec<Arc<dyn Array>> = table
+                    .into_columns()
+                    .into_iter()
+                    .map(|c| Arc::new(c.into_view()) as Arc<dyn Array>)
+                    .collect();
+                let batch =
+                    libcudf_rs::record_batch_with_schema(cudf_cols, &schema, num_rows)?;
+                ctx.metrics.record_output(&batch);
+                let send_result = output.send(Ok(batch)).await;
                 if send_result.is_err() {
-                    break
+                    break;
                 }
             }
 

@@ -683,17 +683,10 @@ pub mod ffi {
         /// 1:1 with `host_device_async_resource_ref::allocate_sync`.
         /// The returned pointer is encoded as `usize` because cxx does not
         /// currently expose `*mut u8` return values across the bridge.
-        fn allocate_sync(
-            self: Pin<&mut HostDeviceAsyncResourceRef>,
-            bytes: usize,
-        ) -> Result<usize>;
+        fn allocate_sync(self: &HostDeviceAsyncResourceRef, bytes: usize) -> Result<usize>;
 
         /// 1:1 with `host_device_async_resource_ref::deallocate_sync`.
-        fn deallocate_sync(
-            self: Pin<&mut HostDeviceAsyncResourceRef>,
-            ptr: usize,
-            bytes: usize,
-        );
+        fn deallocate_sync(self: &HostDeviceAsyncResourceRef, ptr: usize, bytes: usize);
 
         /// 1:1 with `cudf::get_pinned_memory_resource()`.
         fn get_pinned_memory_resource() -> UniquePtr<HostDeviceAsyncResourceRef>;
@@ -1140,6 +1133,13 @@ unsafe impl Sync for ffi::CudaMemoryResource {}
 /// deallocate, so shared references to the handle are safe.
 unsafe impl Send for ffi::PoolMemoryResource {}
 unsafe impl Sync for ffi::PoolMemoryResource {}
+
+/// SAFETY: `HostDeviceAsyncResourceRef` is a non-owning handle to the
+/// process-global pinned MR. The handle itself is movable across threads,
+/// and the cuDF MR behind it serializes its own concurrent allocate /
+/// deallocate, so shared references are safe.
+unsafe impl Send for ffi::HostDeviceAsyncResourceRef {}
+unsafe impl Sync for ffi::HostDeviceAsyncResourceRef {}
 
 #[cfg(test)]
 mod tests {

@@ -23,6 +23,11 @@ unused = "deny"
 [workspace.lints.clippy]
 all = "deny"
 
+# Profile-aware debug info so samply / perf can resolve Rust frames in
+# release builds without bloating the binary too much.
+[profile.release]
+debug = "line-tables-only"
+
 [package]
 name = "libcudf-rs"
 version = "0.1.0"
