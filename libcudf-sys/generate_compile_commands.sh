@@ -77,30 +77,38 @@ WARNINGS="-Wno-unused-parameter -Wno-deprecated-declarations"
 
 # Array of C++ source files
 CPP_FILES=(
-    "libcudf-sys/src/table.cpp"
-    "libcudf-sys/src/column.cpp"
-    "libcudf-sys/src/groupby.cpp"
     "libcudf-sys/src/aggregation.cpp"
-    "libcudf-sys/src/io.cpp"
-    "libcudf-sys/src/operations.cpp"
     "libcudf-sys/src/binaryop.cpp"
-    "libcudf-sys/src/sorting.cpp"
+    "libcudf-sys/src/column.cpp"
     "libcudf-sys/src/data_type.cpp"
+    "libcudf-sys/src/groupby.cpp"
+    "libcudf-sys/src/io.cpp"
+    "libcudf-sys/src/join.cpp"
+    "libcudf-sys/src/lib.rs"
+    "libcudf-sys/src/operations.cpp"
+    "libcudf-sys/src/pinned_host.cpp"
     "libcudf-sys/src/scalar.cpp"
+    "libcudf-sys/src/sorting.cpp"
+    "libcudf-sys/src/stream.cpp"
+    "libcudf-sys/src/table.cpp"
 )
 
 # Array of header files
 HEADER_FILES=(
-    "libcudf-sys/src/table.h"
-    "libcudf-sys/src/column.h"
-    "libcudf-sys/src/groupby.h"
     "libcudf-sys/src/aggregation.h"
-    "libcudf-sys/src/io.h"
-    "libcudf-sys/src/operations.h"
     "libcudf-sys/src/binaryop.h"
-    "libcudf-sys/src/sorting.h"
+    "libcudf-sys/src/column.h"
     "libcudf-sys/src/data_type.h"
+    "libcudf-sys/src/groupby.h"
+    "libcudf-sys/src/io.h"
+    "libcudf-sys/src/join.h"
+    "libcudf-sys/src/lib.rs"
+    "libcudf-sys/src/operations.h"
+    "libcudf-sys/src/pinned_host.h"
     "libcudf-sys/src/scalar.h"
+    "libcudf-sys/src/sorting.h"
+    "libcudf-sys/src/stream.h"
+    "libcudf-sys/src/table.h"
 )
 
 # Start JSON array
