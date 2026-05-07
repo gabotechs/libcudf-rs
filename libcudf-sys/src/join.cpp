@@ -1,34 +1,104 @@
 #include "join.h"
+
 #include <cudf/column/column.hpp>
-#include <cudf/join/join.hpp>
 #include <cudf/join/filtered_join.hpp>
-#include <cudf/utilities/default_stream.hpp>
+#include <cudf/join/join.hpp>
 #include <cudf/utilities/span.hpp>
+
+#include <limits>
 #include <stdexcept>
+#include <type_traits>
 
 namespace libcudf_bridge {
+namespace {
+static_assert(std::is_same_v<cudf::size_type, int32_t>);
+static_assert(static_cast<int32_t>(cudf::JoinNoMatch) == std::numeric_limits<int32_t>::min());
+static_assert(static_cast<int32_t>(cudf::join_kind::INNER_JOIN) == 0);
+static_assert(static_cast<int32_t>(cudf::join_kind::LEFT_JOIN) == 1);
+static_assert(static_cast<int32_t>(cudf::join_kind::FULL_JOIN) == 2);
+static_assert(static_cast<int32_t>(cudf::join_kind::LEFT_SEMI_JOIN) == 3);
+static_assert(static_cast<int32_t>(cudf::join_kind::LEFT_ANTI_JOIN) == 4);
+static_assert(static_cast<int32_t>(cudf::null_equality::EQUAL) == 0);
+static_assert(static_cast<int32_t>(cudf::null_equality::UNEQUAL) == 1);
+static_assert(static_cast<int32_t>(cudf::set_as_build_table::LEFT) == 0);
+static_assert(static_cast<int32_t>(cudf::set_as_build_table::RIGHT) == 1);
 
-static std::unique_ptr<cudf::column> uvector_to_column(
+std::unique_ptr<DeviceIndexVector> make_device_index_vector(
     std::unique_ptr<rmm::device_uvector<cudf::size_type>> vec)
 {
-    return std::make_unique<cudf::column>(std::move(*vec), rmm::device_buffer{}, 0);
-}
-
-static std::unique_ptr<Column> uvector_to_bridge_column(
-    std::unique_ptr<rmm::device_uvector<cudf::size_type>> vec)
-{
-    auto result = std::make_unique<Column>();
-    result->inner = uvector_to_column(std::move(vec));
+    auto result = std::make_unique<DeviceIndexVector>();
+    result->inner = std::move(vec);
     return result;
 }
 
-static std::unique_ptr<JoinIndices> make_join_indices(
+std::unique_ptr<JoinIndices> make_join_indices(
     std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_idx,
     std::unique_ptr<rmm::device_uvector<cudf::size_type>> right_idx)
 {
     auto result = std::make_unique<JoinIndices>();
-    result->left = uvector_to_bridge_column(std::move(left_idx));
-    result->right = uvector_to_bridge_column(std::move(right_idx));
+    result->left = make_device_index_vector(std::move(left_idx));
+    result->right = make_device_index_vector(std::move(right_idx));
+    return result;
+}
+
+std::unique_ptr<HashJoinIndices> make_hash_join_indices(
+    std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_idx,
+    std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_idx)
+{
+    auto result = std::make_unique<HashJoinIndices>();
+    result->probe = make_device_index_vector(std::move(probe_idx));
+    result->build = make_device_index_vector(std::move(build_idx));
+    return result;
+}
+
+cudf::device_span<cudf::size_type const> index_span(const DeviceIndexVector& indices)
+{
+    if (!indices.inner) {
+        throw std::runtime_error("Cannot use null device vector as join indices");
+    }
+    return cudf::device_span<cudf::size_type const>(indices.inner->data(), indices.inner->size());
+}
+
+cudf::hash_join const& require_hash_join(const HashJoin& join)
+{
+    if (!join.inner) {
+        throw std::runtime_error("Cannot use null hash join");
+    }
+    return *join.inner;
+}
+
+cudf::filtered_join const& require_filtered_join(const FilteredJoin& join)
+{
+    if (!join.inner) {
+        throw std::runtime_error("Cannot use null filtered join");
+    }
+    return *join.inner;
+}
+} // namespace
+
+DeviceIndexVector::DeviceIndexVector() = default;
+
+DeviceIndexVector::~DeviceIndexVector() = default;
+
+size_t DeviceIndexVector::size() const {
+    if (!inner) {
+        throw std::runtime_error("Cannot get size of null device index vector");
+    }
+    return inner->size();
+}
+
+std::unique_ptr<ColumnView> DeviceIndexVector::view() const {
+    if (!inner) {
+        throw std::runtime_error("Cannot view null device index vector");
+    }
+
+    auto result = std::make_unique<ColumnView>();
+    result->inner = std::make_unique<cudf::column_view>(
+        cudf::data_type{cudf::type_id::INT32},
+        static_cast<cudf::size_type>(inner->size()),
+        inner->data(),
+        nullptr,
+        0);
     return result;
 }
 
@@ -36,11 +106,11 @@ JoinIndices::JoinIndices() = default;
 
 JoinIndices::~JoinIndices() = default;
 
-std::unique_ptr<Column> JoinIndices::release_left() {
+std::unique_ptr<DeviceIndexVector> JoinIndices::release_left() {
     return std::move(left);
 }
 
-std::unique_ptr<Column> JoinIndices::release_right() {
+std::unique_ptr<DeviceIndexVector> JoinIndices::release_right() {
     return std::move(right);
 }
 
@@ -48,69 +118,83 @@ HashJoinIndices::HashJoinIndices() = default;
 
 HashJoinIndices::~HashJoinIndices() = default;
 
-std::unique_ptr<Column> HashJoinIndices::release_probe() {
+std::unique_ptr<DeviceIndexVector> HashJoinIndices::release_probe() {
     return std::move(probe);
 }
 
-std::unique_ptr<Column> HashJoinIndices::release_build() {
+std::unique_ptr<DeviceIndexVector> HashJoinIndices::release_build() {
     return std::move(build);
 }
 
-static std::unique_ptr<HashJoinIndices> make_hash_join_indices(
-    std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_idx,
-    std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_idx)
-{
-    auto result = std::make_unique<HashJoinIndices>();
-    result->probe = uvector_to_bridge_column(std::move(probe_idx));
-    result->build = uvector_to_bridge_column(std::move(build_idx));
-    return result;
+HashJoin::HashJoin() = default;
+
+HashJoin::~HashJoin() = default;
+
+FilteredJoin::FilteredJoin() = default;
+
+FilteredJoin::~FilteredJoin() = default;
+
+int32_t join_no_match() {
+    return static_cast<int32_t>(cudf::JoinNoMatch);
 }
 
 std::unique_ptr<JoinIndices> inner_join_indices(
     const TableView& left_keys,
-    const TableView& right_keys)
+    const TableView& right_keys,
+    int32_t null_equality,
+    const CudaStreamView& stream,
+    const DeviceAsyncResourceRef& mr)
 {
-    auto [left_idx, right_idx] = cudf::inner_join(*left_keys.inner, *right_keys.inner);
+    auto [left_idx, right_idx] = cudf::inner_join(
+        *left_keys.inner,
+        *right_keys.inner,
+        static_cast<cudf::null_equality>(null_equality),
+        stream.inner,
+        mr.inner);
     return make_join_indices(std::move(left_idx), std::move(right_idx));
 }
 
 std::unique_ptr<JoinIndices> left_join_indices(
     const TableView& left_keys,
-    const TableView& right_keys)
+    const TableView& right_keys,
+    int32_t null_equality,
+    const CudaStreamView& stream,
+    const DeviceAsyncResourceRef& mr)
 {
-    auto [left_idx, right_idx] = cudf::left_join(*left_keys.inner, *right_keys.inner);
+    auto [left_idx, right_idx] = cudf::left_join(
+        *left_keys.inner,
+        *right_keys.inner,
+        static_cast<cudf::null_equality>(null_equality),
+        stream.inner,
+        mr.inner);
     return make_join_indices(std::move(left_idx), std::move(right_idx));
 }
 
 std::unique_ptr<JoinIndices> full_join_indices(
     const TableView& left_keys,
-    const TableView& right_keys)
+    const TableView& right_keys,
+    int32_t null_equality,
+    const CudaStreamView& stream,
+    const DeviceAsyncResourceRef& mr)
 {
-    auto [left_idx, right_idx] = cudf::full_join(*left_keys.inner, *right_keys.inner);
+    auto [left_idx, right_idx] = cudf::full_join(
+        *left_keys.inner,
+        *right_keys.inner,
+        static_cast<cudf::null_equality>(null_equality),
+        stream.inner,
+        mr.inner);
     return make_join_indices(std::move(left_idx), std::move(right_idx));
-}
-
-static cudf::device_span<cudf::size_type const> indices_span(const ColumnView& indices)
-{
-    if (!indices.inner) {
-        throw std::runtime_error("Cannot use null column view as join indices");
-    }
-    if (indices.inner->type().id() != cudf::type_id::INT32) {
-        throw std::runtime_error("Join indices must have cudf::size_type type");
-    }
-
-    return cudf::device_span<cudf::size_type const>(
-        indices.inner->begin<cudf::size_type>(),
-        indices.inner->size());
 }
 
 std::unique_ptr<JoinIndices> filter_join_indices(
     const TableView& left,
     const TableView& right,
-    const ColumnView& left_indices,
-    const ColumnView& right_indices,
+    const DeviceIndexVector& left_indices,
+    const DeviceIndexVector& right_indices,
     const AstExpressionTree& predicate,
-    int32_t join_kind)
+    int32_t join_kind,
+    const CudaStreamView& stream,
+    const DeviceAsyncResourceRef& mr)
 {
     if (predicate.inner.size() == 0) {
         throw std::runtime_error("Cannot filter join indices with an empty AST predicate");
@@ -119,63 +203,99 @@ std::unique_ptr<JoinIndices> filter_join_indices(
     auto [filtered_left, filtered_right] = cudf::filter_join_indices(
         *left.inner,
         *right.inner,
-        indices_span(left_indices),
-        indices_span(right_indices),
+        index_span(left_indices),
+        index_span(right_indices),
         predicate.inner.back(),
-        static_cast<cudf::join_kind>(join_kind));
+        static_cast<cudf::join_kind>(join_kind),
+        stream.inner,
+        mr.inner);
     return make_join_indices(std::move(filtered_left), std::move(filtered_right));
 }
 
-HashJoin::HashJoin() = default;
-
-HashJoin::~HashJoin() = default;
-
 std::unique_ptr<HashJoin> hash_join_create(
-    const TableView& build_keys, int32_t null_equality)
+    const TableView& build_keys,
+    int32_t null_equality,
+    const CudaStreamView& stream)
 {
     auto result = std::make_unique<HashJoin>();
-    auto compare_nulls = static_cast<cudf::null_equality>(null_equality);
-    result->inner = std::make_unique<cudf::hash_join>(*build_keys.inner, compare_nulls);
+    result->inner = std::make_unique<cudf::hash_join>(
+        *build_keys.inner,
+        static_cast<cudf::null_equality>(null_equality),
+        stream.inner);
     return result;
 }
 
 std::unique_ptr<HashJoinIndices> hash_join_inner_join_indices(
     const HashJoin& join,
-    const TableView& probe_keys)
+    const TableView& probe_keys,
+    const CudaStreamView& stream,
+    const DeviceAsyncResourceRef& mr)
 {
-    auto [probe_idx, build_idx] = join.inner->inner_join(*probe_keys.inner);
+    auto [probe_idx, build_idx] = require_hash_join(join).inner_join(
+        *probe_keys.inner,
+        {},
+        stream.inner,
+        mr.inner);
     return make_hash_join_indices(std::move(probe_idx), std::move(build_idx));
 }
 
 std::unique_ptr<HashJoinIndices> hash_join_left_join_indices(
     const HashJoin& join,
-    const TableView& probe_keys)
+    const TableView& probe_keys,
+    const CudaStreamView& stream,
+    const DeviceAsyncResourceRef& mr)
 {
-    auto [probe_idx, build_idx] = join.inner->left_join(*probe_keys.inner);
+    auto [probe_idx, build_idx] = require_hash_join(join).left_join(
+        *probe_keys.inner,
+        {},
+        stream.inner,
+        mr.inner);
     return make_hash_join_indices(std::move(probe_idx), std::move(build_idx));
 }
 
-std::unique_ptr<Column> left_semi_join_indices(
-    const TableView& left_keys,
-    const TableView& right_keys)
+std::unique_ptr<FilteredJoin> filtered_join_create(
+    const TableView& build_keys,
+    int32_t null_equality,
+    int32_t set_as_build_table,
+    const CudaStreamView& stream)
 {
-    cudf::filtered_join fj(*right_keys.inner, cudf::null_equality::EQUAL,
-                           cudf::set_as_build_table::RIGHT, cudf::get_default_stream());
-    return uvector_to_bridge_column(fj.semi_join(*left_keys.inner));
+    auto result = std::make_unique<FilteredJoin>();
+    result->inner = std::make_unique<cudf::filtered_join>(
+        *build_keys.inner,
+        static_cast<cudf::null_equality>(null_equality),
+        static_cast<cudf::set_as_build_table>(set_as_build_table),
+        stream.inner);
+    return result;
 }
 
-std::unique_ptr<Column> left_anti_join_indices(
-    const TableView& left_keys,
-    const TableView& right_keys)
+std::unique_ptr<DeviceIndexVector> filtered_join_semi_join(
+    const FilteredJoin& join,
+    const TableView& probe_keys,
+    const CudaStreamView& stream,
+    const DeviceAsyncResourceRef& mr)
 {
-    cudf::filtered_join fj(*right_keys.inner, cudf::null_equality::EQUAL,
-                           cudf::set_as_build_table::RIGHT, cudf::get_default_stream());
-    return uvector_to_bridge_column(fj.anti_join(*left_keys.inner));
+    return make_device_index_vector(
+        require_filtered_join(join).semi_join(*probe_keys.inner, stream.inner, mr.inner));
 }
 
-std::unique_ptr<Table> cross_join(const TableView& left, const TableView& right) {
+std::unique_ptr<DeviceIndexVector> filtered_join_anti_join(
+    const FilteredJoin& join,
+    const TableView& probe_keys,
+    const CudaStreamView& stream,
+    const DeviceAsyncResourceRef& mr)
+{
+    return make_device_index_vector(
+        require_filtered_join(join).anti_join(*probe_keys.inner, stream.inner, mr.inner));
+}
+
+std::unique_ptr<Table> cross_join(
+    const TableView& left,
+    const TableView& right,
+    const CudaStreamView& stream,
+    const DeviceAsyncResourceRef& mr)
+{
     auto result = std::make_unique<Table>();
-    result->inner = cudf::cross_join(*left.inner, *right.inner);
+    result->inner = cudf::cross_join(*left.inner, *right.inner, stream.inner, mr.inner);
     return result;
 }
 

@@ -1,17 +1,16 @@
 use crate::data_type::arrow_type_to_cudf_data_type;
 use crate::{
-    CuDFAstExpression, CuDFColumn, CuDFError, CuDFRef, CuDFScalar, CuDFTable, CuDFTableView,
+    CuDFAstExpression, CuDFColumn, CuDFColumnView, CuDFError, CuDFRef, CuDFScalar, CuDFTable,
+    CuDFTableView,
 };
 use arrow::array::{BooleanArray, Int32Array, Scalar};
 use arrow_schema::DataType;
 use cxx::UniquePtr;
 use libcudf_sys::{
     ffi, BinaryOperator, DuplicateKeepOption, JoinKind, NanEquality, NullEquality,
-    OutOfBoundsPolicy,
+    OutOfBoundsPolicy, SetAsBuildTable,
 };
 use std::sync::Arc;
-
-const NULL_GATHER_INDEX: i32 = i32::MIN;
 
 /// Arguments for probing a reusable hash join with an AST predicate.
 ///
@@ -38,6 +37,85 @@ pub struct CuDFFilteredHashJoinArgs<'a> {
     pub build_out_cols: Option<&'a [usize]>,
     /// Optional probe payload columns to gather.
     pub probe_out_cols: Option<&'a [usize]>,
+}
+
+struct JoinIndexVector {
+    inner: UniquePtr<ffi::DeviceIndexVector>,
+}
+
+impl JoinIndexVector {
+    fn new(inner: UniquePtr<ffi::DeviceIndexVector>) -> Self {
+        Self { inner }
+    }
+
+    fn len(&self) -> usize {
+        self.inner.size()
+    }
+
+    fn as_sys(&self) -> &ffi::DeviceIndexVector {
+        self.inner
+            .as_ref()
+            .expect("device index vector should not be null")
+    }
+
+    fn view(self: Arc<Self>) -> CuDFColumnView {
+        let view = self.inner.view();
+        CuDFColumnView::new_with_ref(view, Some(self))
+    }
+}
+
+impl CuDFRef for JoinIndexVector {}
+
+fn default_join_context() -> (
+    UniquePtr<ffi::CudaStreamView>,
+    UniquePtr<ffi::DeviceAsyncResourceRef>,
+) {
+    (
+        ffi::get_default_stream(),
+        ffi::get_current_device_resource_ref(),
+    )
+}
+
+fn stream_ref(stream: &UniquePtr<ffi::CudaStreamView>) -> &ffi::CudaStreamView {
+    stream
+        .as_ref()
+        .expect("default CUDA stream view should not be null")
+}
+
+fn resource_ref(resource: &UniquePtr<ffi::DeviceAsyncResourceRef>) -> &ffi::DeviceAsyncResourceRef {
+    resource
+        .as_ref()
+        .expect("current device resource ref should not be null")
+}
+
+fn null_gather_index() -> i32 {
+    ffi::join_no_match()
+}
+
+fn sys_hash_join_inner_join_indices(
+    join: &ffi::HashJoin,
+    probe_keys: &ffi::TableView,
+) -> Result<UniquePtr<ffi::HashJoinIndices>, CuDFError> {
+    let (stream, resource) = default_join_context();
+    Ok(ffi::hash_join_inner_join_indices(
+        join,
+        probe_keys,
+        stream_ref(&stream),
+        resource_ref(&resource),
+    )?)
+}
+
+fn sys_hash_join_left_join_indices(
+    join: &ffi::HashJoin,
+    probe_keys: &ffi::TableView,
+) -> Result<UniquePtr<ffi::HashJoinIndices>, CuDFError> {
+    let (stream, resource) = default_join_context();
+    Ok(ffi::hash_join_left_join_indices(
+        join,
+        probe_keys,
+        stream_ref(&stream),
+        resource_ref(&resource),
+    )?)
 }
 
 fn select_cols(view: &CuDFTableView, cols: &[usize]) -> cxx::UniquePtr<ffi::TableView> {
@@ -75,15 +153,15 @@ fn gather_join_indices(
     left_policy: OutOfBoundsPolicy,
     right_policy: OutOfBoundsPolicy,
 ) -> Result<CuDFTable, CuDFError> {
-    let left_indices = indices.pin_mut().release_left();
-    let right_indices = indices.pin_mut().release_right();
-    let left_indices_view = left_indices.view();
-    let right_indices_view = right_indices.view();
+    let left_indices = Arc::new(JoinIndexVector::new(indices.pin_mut().release_left()));
+    let right_indices = Arc::new(JoinIndexVector::new(indices.pin_mut().release_right()));
+    let left_indices_view = Arc::clone(&left_indices).view();
+    let right_indices_view = Arc::clone(&right_indices).view();
     gather_join_output(
         left_payload,
         right_payload,
-        &left_indices_view,
-        &right_indices_view,
+        left_indices_view.inner(),
+        right_indices_view.inner(),
         left_policy,
         right_policy,
     )
@@ -95,9 +173,9 @@ fn gather_hash_join_indices(
     probe_payload: &ffi::TableView,
     build_policy: OutOfBoundsPolicy,
     probe_policy: OutOfBoundsPolicy,
-) -> Result<(CuDFTable, Arc<CuDFColumn>), CuDFError> {
-    let probe_indices = Arc::new(CuDFColumn::new(indices.pin_mut().release_probe()));
-    let build_indices = Arc::new(CuDFColumn::new(indices.pin_mut().release_build()));
+) -> Result<(CuDFTable, Arc<JoinIndexVector>), CuDFError> {
+    let probe_indices = Arc::new(JoinIndexVector::new(indices.pin_mut().release_probe()));
+    let build_indices = Arc::new(JoinIndexVector::new(indices.pin_mut().release_build()));
     let probe_indices_view = Arc::clone(&probe_indices).view();
     let build_indices_view = Arc::clone(&build_indices).view();
     let result = gather_join_output(
@@ -125,26 +203,29 @@ struct FilteredHashJoinIndicesArgs<'a> {
 fn gather_filtered_hash_join_indices(
     mut indices: UniquePtr<ffi::HashJoinIndices>,
     args: FilteredHashJoinIndicesArgs<'_>,
-) -> Result<(CuDFTable, Arc<CuDFColumn>, Arc<CuDFColumn>), CuDFError> {
+) -> Result<(CuDFTable, Arc<JoinIndexVector>, Arc<JoinIndexVector>), CuDFError> {
     // Hash join returns probe/build maps. cuDF filter_join_indices expects
     // left/right maps, so pass build as left and probe as right to preserve
     // the public `[build_cols | probe_cols]` output order.
-    let probe_indices = indices.pin_mut().release_probe();
-    let build_indices = indices.pin_mut().release_build();
-    let probe_indices_view = probe_indices.view();
-    let build_indices_view = build_indices.view();
+    let probe_indices = Arc::new(JoinIndexVector::new(indices.pin_mut().release_probe()));
+    let build_indices = Arc::new(JoinIndexVector::new(indices.pin_mut().release_build()));
+    let (stream, resource) = default_join_context();
     let mut filtered_indices = ffi::filter_join_indices(
         args.build_conditional,
         args.probe_conditional,
-        &build_indices_view,
-        &probe_indices_view,
+        build_indices.as_sys(),
+        probe_indices.as_sys(),
         args.predicate.inner(),
         args.join_kind as i32,
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?;
-    let filtered_build_indices =
-        Arc::new(CuDFColumn::new(filtered_indices.pin_mut().release_left()));
-    let filtered_probe_indices =
-        Arc::new(CuDFColumn::new(filtered_indices.pin_mut().release_right()));
+    let filtered_build_indices = Arc::new(JoinIndexVector::new(
+        filtered_indices.pin_mut().release_left(),
+    ));
+    let filtered_probe_indices = Arc::new(JoinIndexVector::new(
+        filtered_indices.pin_mut().release_right(),
+    ));
     let filtered_build_indices_view = Arc::clone(&filtered_build_indices).view();
     let filtered_probe_indices_view = Arc::clone(&filtered_probe_indices).view();
     let result = gather_join_output(
@@ -168,19 +249,19 @@ fn concat_join_outputs(first: CuDFTable, second: CuDFTable) -> Result<CuDFTable,
     CuDFTable::concat(vec![first.into_view(), second.into_view()])
 }
 
-fn distinct_valid_indices(indices: Arc<CuDFColumn>) -> Result<Option<Arc<CuDFColumn>>, CuDFError> {
-    if indices.len() == 0 {
+fn distinct_valid_indices(indices: CuDFColumnView) -> Result<Option<Arc<CuDFColumn>>, CuDFError> {
+    if indices.inner().size() == 0 {
         return Ok(None);
     }
 
     let zero = int32_scalar(0)?;
     let valid_mask = Arc::new(CuDFColumn::new(ffi::binary_operation_col_scalar(
-        Arc::clone(&indices).view().inner(),
+        indices.inner(),
         zero.inner(),
         BinaryOperator::GreaterEqual as i32,
         &bool_data_type(),
     )?));
-    let indices_table = CuDFTableView::from_column_views(vec![Arc::clone(&indices).view()])?;
+    let indices_table = CuDFTableView::from_column_views(vec![indices])?;
     let valid_indices_table = CuDFTable::from_inner(ffi::apply_boolean_mask(
         indices_table.inner(),
         Arc::clone(&valid_mask).view().inner(),
@@ -212,14 +293,15 @@ fn distinct_valid_indices(indices: Arc<CuDFColumn>) -> Result<Option<Arc<CuDFCol
 
 fn matched_row_mask(
     row_count: usize,
-    matched_indices: Arc<CuDFColumn>,
+    matched_indices: Arc<JoinIndexVector>,
 ) -> Result<Arc<CuDFColumn>, CuDFError> {
     let false_scalar = bool_scalar(false)?;
     let mask = Arc::new(CuDFColumn::new(ffi::make_column_from_scalar(
         false_scalar.inner(),
         row_count,
     )?));
-    let Some(distinct_indices) = distinct_valid_indices(matched_indices)? else {
+    let Some(distinct_indices) = distinct_valid_indices(Arc::clone(&matched_indices).view())?
+    else {
         return Ok(mask);
     };
 
@@ -243,7 +325,7 @@ fn matched_row_mask(
 
 fn unmatched_indices_from_matches(
     row_count: usize,
-    matched_indices: Arc<CuDFColumn>,
+    matched_indices: Arc<JoinIndexVector>,
 ) -> Result<Arc<CuDFColumn>, CuDFError> {
     let all_indices = join_index_sequence(row_count, 0, 1)?;
     let matched_mask = matched_row_mask(row_count, matched_indices)?;
@@ -331,7 +413,12 @@ impl CuDFHashJoin {
         null_equality: CuDFNullEquality,
     ) -> Result<Self, CuDFError> {
         let build_keys = select_cols(build, build_on);
-        let inner = ffi::hash_join_create(&build_keys, null_equality.into_sys() as i32)?;
+        let stream = ffi::get_default_stream();
+        let inner = ffi::hash_join_create(
+            &build_keys,
+            null_equality.into_sys() as i32,
+            stream_ref(&stream),
+        )?;
         Ok(Self {
             inner,
             build_rows: build.num_rows(),
@@ -355,7 +442,7 @@ impl CuDFHashJoin {
         let probe_keys = select_cols(probe, probe_on);
         let selected_build_payload = build_out_cols.map(|c| select_cols(build_payload, c));
         let selected_probe_payload = probe_out_cols.map(|c| select_cols(probe_payload, c));
-        let indices = ffi::hash_join_inner_join_indices(&self.inner, &probe_keys)?;
+        let indices = sys_hash_join_inner_join_indices(&self.inner, &probe_keys)?;
         let (result, _) = gather_hash_join_indices(
             indices,
             selected_build_payload
@@ -397,7 +484,7 @@ impl CuDFHashJoin {
         let selected_probe_payload = args
             .probe_out_cols
             .map(|c| select_cols(args.probe_payload, c));
-        let indices = ffi::hash_join_inner_join_indices(&self.inner, &probe_keys)?;
+        let indices = sys_hash_join_inner_join_indices(&self.inner, &probe_keys)?;
         let (result, _, _) = gather_filtered_hash_join_indices(
             indices,
             FilteredHashJoinIndicesArgs {
@@ -439,7 +526,7 @@ impl CuDFHashJoin {
         let selected_probe_payload = args
             .probe_out_cols
             .map(|c| select_cols(args.probe_payload, c));
-        let indices = ffi::hash_join_inner_join_indices(&self.inner, &probe_keys)?;
+        let indices = sys_hash_join_inner_join_indices(&self.inner, &probe_keys)?;
         let (result, build_indices, _) = gather_filtered_hash_join_indices(
             indices,
             FilteredHashJoinIndicesArgs {
@@ -474,7 +561,7 @@ impl CuDFHashJoin {
         let probe_keys = select_cols(probe, probe_on);
         let selected_build_payload = build_out_cols.map(|c| select_cols(build_payload, c));
         let selected_probe_payload = probe_out_cols.map(|c| select_cols(probe_payload, c));
-        let indices = ffi::hash_join_inner_join_indices(&self.inner, &probe_keys)?;
+        let indices = sys_hash_join_inner_join_indices(&self.inner, &probe_keys)?;
         let (result, build_indices) = gather_hash_join_indices(
             indices,
             selected_build_payload
@@ -505,7 +592,7 @@ impl CuDFHashJoin {
         let probe_keys = select_cols(probe, probe_on);
         let selected_build_payload = build_out_cols.map(|c| select_cols(build_payload, c));
         let selected_probe_payload = probe_out_cols.map(|c| select_cols(probe_payload, c));
-        let indices = ffi::hash_join_left_join_indices(&self.inner, &probe_keys)?;
+        let indices = sys_hash_join_left_join_indices(&self.inner, &probe_keys)?;
         let (result, build_indices) = gather_hash_join_indices(
             indices,
             selected_build_payload
@@ -549,7 +636,7 @@ impl CuDFHashJoin {
         let probe_payload = selected_probe_payload
             .as_ref()
             .unwrap_or_else(|| args.probe_payload.inner());
-        let indices = ffi::hash_join_inner_join_indices(&self.inner, &probe_keys)?;
+        let indices = sys_hash_join_inner_join_indices(&self.inner, &probe_keys)?;
         let (matched, build_indices, probe_indices) = gather_filtered_hash_join_indices(
             indices,
             FilteredHashJoinIndicesArgs {
@@ -568,7 +655,7 @@ impl CuDFHashJoin {
         let unmatched_probe_indices =
             unmatched_indices_from_matches(args.probe.num_rows(), probe_indices)?;
         let null_build_indices =
-            join_index_sequence(unmatched_probe_indices.len(), NULL_GATHER_INDEX, 0)?;
+            join_index_sequence(unmatched_probe_indices.len(), null_gather_index(), 0)?;
         let null_build_indices_view = Arc::clone(&null_build_indices).view();
         let unmatched_probe_indices_view = Arc::clone(&unmatched_probe_indices).view();
         let probe_only = gather_join_output(
@@ -595,7 +682,7 @@ impl CuDFHashJoin {
         let selected_probe_payload = probe_out_cols.map(|c| select_cols(probe_payload, c));
         let unmatched_build_indices = self.unmatched_build_indices()?;
         let null_probe_indices =
-            join_index_sequence(unmatched_build_indices.len(), NULL_GATHER_INDEX, 0)?;
+            join_index_sequence(unmatched_build_indices.len(), null_gather_index(), 0)?;
         let unmatched_build_indices_view = Arc::clone(&unmatched_build_indices).view();
         let null_probe_indices_view = Arc::clone(&null_probe_indices).view();
 
@@ -615,13 +702,14 @@ impl CuDFHashJoin {
 
     fn record_matched_build_indices(
         &mut self,
-        build_indices: Arc<CuDFColumn>,
+        build_indices: Arc<JoinIndexVector>,
     ) -> Result<(), CuDFError> {
         if self.build_rows == 0 || build_indices.len() == 0 {
             return Ok(());
         }
 
-        let Some(distinct_indices) = distinct_valid_indices(build_indices)? else {
+        let Some(distinct_indices) = distinct_valid_indices(Arc::clone(&build_indices).view())?
+        else {
             return Ok(());
         };
 
@@ -703,7 +791,14 @@ pub fn inner_join(
     let right_keys = select_cols(right, right_on);
     let left_payload = left_out_cols.map(|c| select_cols(left, c));
     let right_payload = right_out_cols.map(|c| select_cols(right, c));
-    let indices = ffi::inner_join_indices(&left_keys, &right_keys)?;
+    let (stream, resource) = default_join_context();
+    let indices = ffi::inner_join_indices(
+        &left_keys,
+        &right_keys,
+        NullEquality::Equal as i32,
+        stream_ref(&stream),
+        resource_ref(&resource),
+    )?;
     gather_join_indices(
         indices,
         left_payload.as_ref().unwrap_or_else(|| left.inner()),
@@ -730,7 +825,14 @@ pub fn left_join(
     let right_keys = select_cols(right, right_on);
     let left_payload = left_out_cols.map(|c| select_cols(left, c));
     let right_payload = right_out_cols.map(|c| select_cols(right, c));
-    let indices = ffi::left_join_indices(&left_keys, &right_keys)?;
+    let (stream, resource) = default_join_context();
+    let indices = ffi::left_join_indices(
+        &left_keys,
+        &right_keys,
+        NullEquality::Equal as i32,
+        stream_ref(&stream),
+        resource_ref(&resource),
+    )?;
     gather_join_indices(
         indices,
         left_payload.as_ref().unwrap_or_else(|| left.inner()),
@@ -757,7 +859,14 @@ pub fn full_join(
     let right_keys = select_cols(right, right_on);
     let left_payload = left_out_cols.map(|c| select_cols(left, c));
     let right_payload = right_out_cols.map(|c| select_cols(right, c));
-    let indices = ffi::full_join_indices(&left_keys, &right_keys)?;
+    let (stream, resource) = default_join_context();
+    let indices = ffi::full_join_indices(
+        &left_keys,
+        &right_keys,
+        NullEquality::Equal as i32,
+        stream_ref(&stream),
+        resource_ref(&resource),
+    )?;
     gather_join_indices(
         indices,
         left_payload.as_ref().unwrap_or_else(|| left.inner()),
@@ -778,11 +887,23 @@ pub fn left_semi_join(
 ) -> Result<CuDFTable, CuDFError> {
     let left_keys = select_cols(left, left_on);
     let right_keys = select_cols(right, right_on);
-    let indices = ffi::left_semi_join_indices(&left_keys, &right_keys)?;
+    let (stream, resource) = default_join_context();
+    let join = ffi::filtered_join_create(
+        &right_keys,
+        NullEquality::Equal as i32,
+        SetAsBuildTable::Right as i32,
+        stream_ref(&stream),
+    )?;
+    let indices = Arc::new(JoinIndexVector::new(ffi::filtered_join_semi_join(
+        &join,
+        &left_keys,
+        stream_ref(&stream),
+        resource_ref(&resource),
+    )?));
     let indices_view = indices.view();
     Ok(CuDFTable::from_inner(ffi::gather(
         left.inner(),
-        &indices_view,
+        indices_view.inner(),
     )?))
 }
 
@@ -797,11 +918,23 @@ pub fn left_anti_join(
 ) -> Result<CuDFTable, CuDFError> {
     let left_keys = select_cols(left, left_on);
     let right_keys = select_cols(right, right_on);
-    let indices = ffi::left_anti_join_indices(&left_keys, &right_keys)?;
+    let (stream, resource) = default_join_context();
+    let join = ffi::filtered_join_create(
+        &right_keys,
+        NullEquality::Equal as i32,
+        SetAsBuildTable::Right as i32,
+        stream_ref(&stream),
+    )?;
+    let indices = Arc::new(JoinIndexVector::new(ffi::filtered_join_anti_join(
+        &join,
+        &left_keys,
+        stream_ref(&stream),
+        resource_ref(&resource),
+    )?));
     let indices_view = indices.view();
     Ok(CuDFTable::from_inner(ffi::gather(
         left.inner(),
-        &indices_view,
+        indices_view.inner(),
     )?))
 }
 
@@ -809,9 +942,12 @@ pub fn left_anti_join(
 ///
 /// Returns all combinations of rows from both inputs.
 pub fn cross_join(left: &CuDFTableView, right: &CuDFTableView) -> Result<CuDFTable, CuDFError> {
+    let (stream, resource) = default_join_context();
     Ok(CuDFTable::from_inner(ffi::cross_join(
         left.inner(),
         right.inner(),
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?))
 }
 

@@ -92,23 +92,35 @@ pub mod ffi {
         /// Builds a hash table once and probes it with subsequent join calls.
         type HashJoin;
 
+        /// Reusable cuDF filtered join object.
+        type FilteredJoin;
+
+        /// Owning device vector of cuDF row indices.
+        type DeviceIndexVector;
+
+        /// Return the number of row indices.
+        fn size(self: &DeviceIndexVector) -> usize;
+
+        /// View the row indices as a non-owning cuDF column view.
+        fn view(self: &DeviceIndexVector) -> UniquePtr<ColumnView>;
+
         /// Pair of cuDF join index maps.
         type JoinIndices;
 
         /// Take the left input indices from this join result.
-        fn release_left(self: Pin<&mut JoinIndices>) -> UniquePtr<Column>;
+        fn release_left(self: Pin<&mut JoinIndices>) -> UniquePtr<DeviceIndexVector>;
 
         /// Take the right input indices from this join result.
-        fn release_right(self: Pin<&mut JoinIndices>) -> UniquePtr<Column>;
+        fn release_right(self: Pin<&mut JoinIndices>) -> UniquePtr<DeviceIndexVector>;
 
         /// Pair of reusable hash-join probe/build index maps.
         type HashJoinIndices;
 
         /// Take the probe-side indices from this reusable hash join result.
-        fn release_probe(self: Pin<&mut HashJoinIndices>) -> UniquePtr<Column>;
+        fn release_probe(self: Pin<&mut HashJoinIndices>) -> UniquePtr<DeviceIndexVector>;
 
         /// Take the build-side indices from this reusable hash join result.
-        fn release_build(self: Pin<&mut HashJoinIndices>) -> UniquePtr<Column>;
+        fn release_build(self: Pin<&mut HashJoinIndices>) -> UniquePtr<DeviceIndexVector>;
 
         /// Create an empty cuDF AST expression tree.
         fn ast_expression_tree_create() -> UniquePtr<AstExpressionTree>;
@@ -560,66 +572,102 @@ pub mod ffi {
 
         // Join operations.
 
+        /// Sentinel row index cuDF uses for unmatched join rows.
+        fn join_no_match() -> i32;
+
         /// Create a reusable hash join object from build-side keys.
         fn hash_join_create(
             build_keys: &TableView,
             null_equality: i32,
+            stream: &CudaStreamView,
         ) -> Result<UniquePtr<HashJoin>>;
 
         /// Probe a reusable hash join object and return probe/build row indices.
         fn hash_join_inner_join_indices(
             join: &HashJoin,
             probe_keys: &TableView,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<HashJoinIndices>>;
 
         /// Probe a reusable hash join object preserving probe rows.
         fn hash_join_left_join_indices(
             join: &HashJoin,
             probe_keys: &TableView,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<HashJoinIndices>>;
 
         /// Inner join: return row index maps for the matching rows.
         fn inner_join_indices(
             left_keys: &TableView,
             right_keys: &TableView,
+            null_equality: i32,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<JoinIndices>>;
 
         /// Left join: return row index maps for the output rows.
         fn left_join_indices(
             left_keys: &TableView,
             right_keys: &TableView,
+            null_equality: i32,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<JoinIndices>>;
 
         /// Full join: return row index maps for the output rows.
         fn full_join_indices(
             left_keys: &TableView,
             right_keys: &TableView,
+            null_equality: i32,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<JoinIndices>>;
 
         /// Filter join index maps with a cuDF AST predicate.
         fn filter_join_indices(
             left: &TableView,
             right: &TableView,
-            left_indices: &ColumnView,
-            right_indices: &ColumnView,
+            left_indices: &DeviceIndexVector,
+            right_indices: &DeviceIndexVector,
             predicate: &AstExpressionTree,
             join_kind: i32,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<JoinIndices>>;
 
-        /// Left semi join: return row indices for matching left rows.
-        fn left_semi_join_indices(
-            left_keys: &TableView,
-            right_keys: &TableView,
-        ) -> Result<UniquePtr<Column>>;
+        /// Create a reusable filtered join object from build-side keys.
+        fn filtered_join_create(
+            build_keys: &TableView,
+            null_equality: i32,
+            set_as_build_table: i32,
+            stream: &CudaStreamView,
+        ) -> Result<UniquePtr<FilteredJoin>>;
 
-        /// Left anti join: return row indices for non-matching left rows.
-        fn left_anti_join_indices(
-            left_keys: &TableView,
-            right_keys: &TableView,
-        ) -> Result<UniquePtr<Column>>;
+        /// Return row indices for a filtered semi join.
+        fn filtered_join_semi_join(
+            join: &FilteredJoin,
+            probe_keys: &TableView,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        ) -> Result<UniquePtr<DeviceIndexVector>>;
+
+        /// Return row indices for a filtered anti join.
+        fn filtered_join_anti_join(
+            join: &FilteredJoin,
+            probe_keys: &TableView,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        ) -> Result<UniquePtr<DeviceIndexVector>>;
 
         /// Cross join: returns a full Cartesian product table
-        fn cross_join(left: &TableView, right: &TableView) -> Result<UniquePtr<Table>>;
+        fn cross_join(
+            left: &TableView,
+            right: &TableView,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        ) -> Result<UniquePtr<Table>>;
 
         // Aggregation factory functions - direct cuDF mappings (for reduce)
 
@@ -909,6 +957,16 @@ pub enum JoinKind {
     LeftSemi = 3,
     /// Left anti join.
     LeftAnti = 4,
+}
+
+/// Which table a reusable filtered join treats as its build table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum SetAsBuildTable {
+    /// The build table is the left table.
+    Left = 0,
+    /// The build table is the right table.
+    Right = 1,
 }
 
 /// cuDF AST table reference.
@@ -1397,6 +1455,15 @@ unsafe impl Sync for ffi::GroupBy {}
 /// SAFETY: HashJoin owns its cuDF state and is only moved across threads.
 unsafe impl Send for ffi::HashJoin {}
 
+/// SAFETY: FilteredJoin owns its cuDF state and is only moved across threads.
+unsafe impl Send for ffi::FilteredJoin {}
+
+/// SAFETY: DeviceIndexVector owns device memory and can be moved between threads.
+unsafe impl Send for ffi::DeviceIndexVector {}
+
+/// SAFETY: DeviceIndexVector exposes immutable views over owned device memory.
+unsafe impl Sync for ffi::DeviceIndexVector {}
+
 /// SAFETY: AggregationRequest configuration can be sent between threads.
 unsafe impl Send for ffi::AggregationRequest {}
 
@@ -1758,6 +1825,21 @@ mod tests {
     }
 
     #[test]
+    fn test_join_enum_parity() -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(ffi::join_no_match(), i32::MIN);
+        assert_eq!(NullEquality::Equal as i32, 0);
+        assert_eq!(NullEquality::Unequal as i32, 1);
+        assert_eq!(JoinKind::Inner as i32, 0);
+        assert_eq!(JoinKind::Left as i32, 1);
+        assert_eq!(JoinKind::Full as i32, 2);
+        assert_eq!(JoinKind::LeftSemi as i32, 3);
+        assert_eq!(JoinKind::LeftAnti as i32, 4);
+        assert_eq!(SetAsBuildTable::Left as i32, 0);
+        assert_eq!(SetAsBuildTable::Right as i32, 1);
+        Ok(())
+    }
+
+    #[test]
     fn test_ast_filter_join_indices() -> Result<(), Box<dyn std::error::Error>> {
         let left =
             table_from_i32_columns(&[("key", vec![1, 2, 2, 3]), ("val", vec![10, 20, 25, 30])])?;
@@ -1766,9 +1848,20 @@ mod tests {
         let right_view = right.view();
         let left_keys = left_view.select(&[0]);
         let right_keys = right_view.select(&[0]);
-        let mut indices = ffi::inner_join_indices(&left_keys, &right_keys)?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let mut indices = ffi::inner_join_indices(
+            &left_keys,
+            &right_keys,
+            NullEquality::Equal as i32,
+            stream.as_ref().expect("default stream should not be null"),
+            resource
+                .as_ref()
+                .expect("current resource should not be null"),
+        )?;
         let left_indices = indices.pin_mut().release_left();
         let right_indices = indices.pin_mut().release_right();
+        let left_indices_view = left_indices.view();
 
         let mut predicate = ffi::ast_expression_tree_create();
         let left_val = ffi::ast_expression_tree_add_column_reference(
@@ -1793,15 +1886,24 @@ mod tests {
         let mut filtered = ffi::filter_join_indices(
             &left_values,
             &right_values,
-            &left_indices.view(),
-            &right_indices.view(),
+            left_indices
+                .as_ref()
+                .expect("left index vector should not be null"),
+            right_indices
+                .as_ref()
+                .expect("right index vector should not be null"),
             &predicate,
             JoinKind::Inner as i32,
+            stream.as_ref().expect("default stream should not be null"),
+            resource
+                .as_ref()
+                .expect("current resource should not be null"),
         )?;
         let filtered_left = filtered.pin_mut().release_left();
         let filtered_right = filtered.pin_mut().release_right();
 
         assert_eq!(left_indices.size(), 5);
+        assert_eq!(left_indices_view.size(), 5);
         assert_eq!(right_indices.size(), 5);
         assert_eq!(filtered_left.size(), 3);
         assert_eq!(filtered_right.size(), 3);
