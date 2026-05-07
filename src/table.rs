@@ -75,6 +75,7 @@ impl CuDFTable {
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
     pub fn from_parquet<P: AsRef<Path>>(path: P) -> Result<Self, CuDFError> {
+        crate::config::ensure_pools_configured();
         let path_str = path.as_ref().to_str().ok_or_else(|| {
             ArrowError::InvalidArgumentError("Path contains invalid UTF-8".to_string())
         })?;
@@ -142,6 +143,7 @@ impl CuDFTable {
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
     pub fn from_arrow_host(batch: RecordBatch) -> Result<Self, CuDFError> {
+        crate::config::ensure_pools_configured();
         for col in batch.columns() {
             if is_cudf_array(col) {
                 return Err(ArrowError::InvalidArgumentError("Tried to move a RecordBatch from the host to CuDF, but a column was already in CuDF".to_string()))?;

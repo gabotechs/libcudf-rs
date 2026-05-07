@@ -44,6 +44,7 @@ impl CuDFColumn {
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
     pub fn from_arrow_host(array: &dyn Array) -> Result<Self, CuDFError> {
+        crate::config::ensure_pools_configured();
         if arrow_type_to_cudf(array.data_type()).is_none() {
             return Err(CuDFError::ArrowError(ArrowError::NotYetImplemented(
                 format!("Arrow type {} not supported in CuDF", array.data_type()),

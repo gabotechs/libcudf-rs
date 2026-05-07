@@ -9,6 +9,8 @@
 //! When the source is page-locked ("pinned") memory allocated via
 //! `cudaMallocHost`, the driver can DMA directly from the source and the call
 //! is fully asynchronous.
+use crate::config::ensure_pools_configured;
+use crate::errors::Result;
 use arrow::alloc::Allocation;
 use arrow::array::{make_array, ArrayData, ArrayDataBuilder, RecordBatch};
 use arrow::buffer::{BooleanBuffer, Buffer, NullBuffer};
@@ -19,8 +21,6 @@ use libcudf_sys::ffi::{
 use std::cell::RefCell;
 use std::ptr::NonNull;
 use std::sync::Arc;
-
-use crate::errors::Result;
 
 thread_local! {
     /// Per-thread cached handle to cuDF's pinned MR. The handle is a
@@ -39,10 +39,11 @@ thread_local! {
 /// RAII wrapper for a single pinned host allocation drawn from cuDF's pinned
 /// memory resource.
 ///
-/// When [`crate::PinnedPoolConfig`] has been applied, the underlying RMM pool
-/// recycles already-allocated pinned slabs, so allocation/free is fast. The
-/// pool is process-global and shared with cuDF's own pinned-memory consumers
-/// (e.g. the download path).
+/// The first allocation through this type lazily installs the RMM device
+/// pool and cuDF's pinned pool (see [`crate::config`]). Subsequent
+/// allocations recycle slabs from the pinned pool, so allocate/free is fast.
+/// The pool is process-global and shared with cuDF's own pinned-memory
+/// consumers (e.g. the download path).
 pub struct PinnedHostBuffer {
     ptr: *mut u8,
     bytes: usize,
@@ -56,7 +57,12 @@ unsafe impl Sync for PinnedHostBuffer {}
 
 impl PinnedHostBuffer {
     /// Allocate `bytes` of pinned host memory from cuDF's pinned MR.
-    pub fn new(bytes: usize) -> Result<Self> {
+    ///
+    /// Caller must ensure [`ensure_pools_configured`] has run.
+    /// Public callers in this crate (`pin_record_batch`, `CuDFTable::*`,
+    /// `CuDFColumn::*`, etc.) trigger the init themselves so this allocation
+    /// path stays branch-free on the hot path.
+    fn new(bytes: usize) -> Result<Self> {
         let ptr = PINNED_MR.with(|mr| {
             mr.borrow_mut()
                 .as_mut()
@@ -66,18 +72,8 @@ impl PinnedHostBuffer {
         Ok(Self { ptr, bytes })
     }
 
-    /// Number of bytes the caller requested.
-    pub fn len(&self) -> usize {
-        self.bytes
-    }
-
-    /// Whether the requested allocation is zero-sized.
-    pub fn is_empty(&self) -> bool {
-        self.bytes == 0
-    }
-
     /// Raw pointer to the start of the allocation.
-    pub fn as_ptr(&self) -> *mut u8 {
+    fn as_ptr(&self) -> *mut u8 {
         self.ptr
     }
 }
@@ -111,11 +107,12 @@ pub fn synchronize_default_stream() -> Result<()> {
 ///
 /// The schema, lengths, offsets, and null counts of every column are
 /// preserved exactly; only the host-side storage of each leaf
-/// [`arrow::buffer::Buffer`] is replaced with a pinned-backed copy.
+/// [`Buffer`] is replaced with a pinned-backed copy.
 ///
 /// Empty buffers are passed through unchanged because `cudaMallocHost(0)` is
 /// not portable and a zero-byte buffer has no data to DMA.
 pub fn pin_record_batch(batch: RecordBatch) -> Result<RecordBatch> {
+    ensure_pools_configured();
     let schema = batch.schema();
     let arrays = batch
         .columns()
@@ -198,7 +195,7 @@ mod tests {
     #[test]
     fn pinned_host_buffer_round_trip() -> Result<()> {
         let buf = PinnedHostBuffer::new(64)?;
-        assert_eq!(buf.len(), 64);
+        assert_eq!(buf.bytes, 64);
         // SAFETY: we own the allocation and it has 64 bytes of capacity.
         unsafe {
             let slice = std::slice::from_raw_parts_mut(buf.as_ptr(), 64);

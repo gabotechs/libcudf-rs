@@ -49,7 +49,7 @@ use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
 use datafusion_physical_plan::{execute_stream, ExecutionPlan};
 use futures_util::TryStreamExt;
 use libcudf_datafusion::aggregate::count;
-use libcudf_datafusion::{configure_default_pools, SessionStateBuilderExt};
+use libcudf_datafusion::SessionStateBuilderExt;
 use std::env;
 use std::hint::black_box;
 use std::path::PathBuf;
@@ -151,7 +151,6 @@ async fn build_plan(ctx: &SessionContext, sql: &str) -> Arc<dyn ExecutionPlan> {
 }
 
 fn bench_tpch_pipeline(c: &mut Criterion) {
-    configure_default_pools();
     let rt = Runtime::new().unwrap();
     let scale_factor = tpch_scale_factor();
     let data_dir = tpch_data_dir(&scale_factor);

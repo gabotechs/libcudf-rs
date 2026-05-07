@@ -33,6 +33,7 @@ pub mod ffi {
         include!("libcudf-sys/src/join.h");
         include!("libcudf-sys/src/stream.h");
         include!("libcudf-sys/src/pinned_host.h");
+        include!("libcudf-sys/src/device_memory.h");
 
         /// A set of cuDF columns of the same size
         ///
@@ -664,27 +665,11 @@ pub mod ffi {
         /// Get the version of the cuDF library
         fn get_cudf_version() -> String;
 
-        /// Configure the global RMM device-memory pool.
-        ///
-        /// Reserves `initial_bytes` of GPU VRAM via `cudaMalloc` once at startup so that
-        /// `rmm::device_buffer` allocations (every cuDF column buffer) are served from the
-        /// pool instead of calling `cudaMalloc` per allocation. Returns `true` if the pool
-        /// was configured, `false` if already set by a previous call.
-        fn config_device_memory_pool(initial_bytes: usize, max_bytes: usize) -> bool;
+        /// 1:1 with `cudf::config_default_pinned_memory_resource`.
+        fn config_default_pinned_memory_resource(pool_size_bytes: usize) -> bool;
 
-        /// Configure the global cuDF pinned-memory pool.
-        ///
-        /// Reserves `pool_size_bytes` of page-locked host RAM via `cudaMallocHost`
-        /// once so eligible pinned host allocations can be served from a reusable
-        /// pool. Returns `true` if the pool was configured, `false` if it was
-        /// already set up by a previous call.
-        fn config_pinned_memory_resource(pool_size_bytes: usize) -> bool;
-
-        /// Set the maximum allocation size that will be served from the pinned pool.
-        ///
-        /// Allocations at or below `threshold_bytes` use pinned memory. Larger
-        /// allocations remain pageable.
-        fn set_host_pinned_threshold(threshold_bytes: usize);
+        /// 1:1 with `cudf::set_allocate_host_as_pinned_threshold`.
+        fn set_allocate_host_as_pinned_threshold(threshold_bytes: usize);
 
         /// Create a CUDA stream using the default creation flag.
         fn cuda_stream_create() -> UniquePtr<CudaStream>;
@@ -715,6 +700,31 @@ pub mod ffi {
 
         /// Block until all work on the CUDA default stream has completed.
         fn cuda_default_stream_synchronize() -> Result<()>;
+
+        /// 1:1 owning wrapper around `rmm::mr::cuda_memory_resource`.
+        type CudaMemoryResource;
+
+        /// 1:1 with the `rmm::mr::cuda_memory_resource()` constructor.
+        fn make_cuda_memory_resource() -> UniquePtr<CudaMemoryResource>;
+
+        /// 1:1 owning wrapper around
+        /// `rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>`.
+        type PoolMemoryResource;
+
+        /// 1:1 with the `rmm::mr::pool_memory_resource(upstream, initial, max)`
+        /// constructor.
+        fn make_pool_memory_resource(
+            upstream: &CudaMemoryResource,
+            initial_size: usize,
+            max_size: usize,
+        ) -> UniquePtr<PoolMemoryResource>;
+
+        /// 1:1 with `rmm::mr::set_current_device_resource`.
+        fn set_current_device_resource(resource: &PoolMemoryResource);
+
+        /// 1:1 with `rmm::available_device_memory().second`. Returns total
+        /// VRAM bytes on the current CUDA device.
+        fn total_device_memory() -> usize;
     }
 }
 
@@ -1119,6 +1129,17 @@ unsafe impl Send for ffi::CudaStream {}
 
 /// SAFETY: Shared references to the opaque stream wrapper are safe.
 unsafe impl Sync for ffi::CudaStream {}
+
+/// SAFETY: The cuda memory resource is a process-global allocator; the wrapper
+/// just owns its `unique_ptr` and is safe to move and share across threads.
+unsafe impl Send for ffi::CudaMemoryResource {}
+unsafe impl Sync for ffi::CudaMemoryResource {}
+
+/// SAFETY: Same as `CudaMemoryResource`. Once installed via
+/// `set_current_device_resource`, RMM serializes its own concurrent allocate /
+/// deallocate, so shared references to the handle are safe.
+unsafe impl Send for ffi::PoolMemoryResource {}
+unsafe impl Sync for ffi::PoolMemoryResource {}
 
 #[cfg(test)]
 mod tests {

@@ -20,16 +20,15 @@
 mod binary_op;
 mod column;
 mod column_view;
+mod config;
 mod cudf_array;
 mod cudf_reference;
 mod data_type;
-mod device_pool;
 mod errors;
 mod group_by;
 mod join;
 mod operations;
 mod pinned;
-mod pinned_pool;
 mod scalar;
 mod sort;
 mod stream;
@@ -41,7 +40,6 @@ pub use column::CuDFColumn;
 pub use column_view::CuDFColumnView;
 pub use cudf_array::*;
 pub use cudf_reference::CuDFRef;
-pub use device_pool::DevicePoolConfig;
 pub use errors::{CuDFError, Result};
 pub use group_by::*;
 pub use join::{
@@ -50,22 +48,11 @@ pub use join::{
 };
 pub use operations::{apply_boolean_mask, cast, gather, slice_column};
 pub use pinned::{pin_record_batch, synchronize_default_stream, PinnedHostBuffer};
-pub use pinned_pool::PinnedPoolConfig;
 pub use scalar::CuDFScalar;
 pub use sort::{sort, sort_by_all, stable_sorted_order, SortOrder};
 pub use stream::{CuDFStream, CuDFStreamFlags};
 pub use table::*;
 pub use table_view::*;
-
-/// Configure default memory pools for GPU-accelerated workloads.
-///
-/// Equivalent to calling [`PinnedPoolConfig::default().apply()`] and
-/// [`DevicePoolConfig::default().apply()`]. Call once before executing
-/// any GPU operations. See each config type to override pool sizes.
-pub fn configure_default_pools() {
-    PinnedPoolConfig::default().apply();
-    DevicePoolConfig::default().apply();
-}
 
 /// Get cuDF version information
 ///

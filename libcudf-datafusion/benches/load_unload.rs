@@ -6,7 +6,7 @@ use datafusion::execution::TaskContext;
 use datafusion_physical_plan::test::TestMemoryExec;
 use datafusion_physical_plan::{execute_stream, ExecutionPlan};
 use futures_util::TryStreamExt;
-use libcudf_datafusion::{configure_default_pools, CuDFLoadExec, CuDFUnloadExec};
+use libcudf_datafusion::{CuDFLoadExec, CuDFUnloadExec};
 use std::hint::black_box;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -136,7 +136,6 @@ fn bench_unload_unpooled(c: &mut Criterion) {
 }
 
 fn bench_load_pooled(c: &mut Criterion) {
-    configure_default_pools();
     let rt = Runtime::new().unwrap();
     let mut group = c.benchmark_group("load");
     for &total_rows in SIZES {

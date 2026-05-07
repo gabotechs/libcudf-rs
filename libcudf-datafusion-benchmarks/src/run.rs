@@ -26,7 +26,7 @@ use datafusion::physical_plan::collect;
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion::prelude::*;
 use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
-use libcudf_datafusion::{CuDFConfig, DevicePoolConfig, PinnedPoolConfig, SessionStateBuilderExt};
+use libcudf_datafusion::{CuDFConfig, SessionStateBuilderExt};
 use libcudf_datafusion_benchmarks::datasets::{clickbench, register_tables, tpcds, tpch};
 use std::fs;
 use std::path::PathBuf;
@@ -64,10 +64,6 @@ pub struct RunOpt {
     /// Target input bytes accumulated by each cuDF aggregate chunk before flushing.
     #[structopt(long = "cudf-aggregate-chunk-target-bytes")]
     aggregate_chunk_target_bytes: Option<usize>,
-
-    /// Maximum RMM device-memory pool size for GPU runs.
-    #[structopt(long = "cudf-device-pool-max-bytes")]
-    device_pool_max_bytes: Option<usize>,
 
     /// Activate debug mode to see more details
     #[structopt(short, long)]
@@ -128,32 +124,11 @@ impl RunOpt {
             let mut cudf_config = CuDFConfig::default();
             cudf_config.enable = true;
             if let Some(bytes) = self.aggregate_chunk_target_bytes {
-                cudf_config.aggregate_chunk_target_bytes = Some(bytes);
-            }
-            if let Some(bytes) = self.device_pool_max_bytes {
-                cudf_config.device_pool_max_bytes = Some(bytes);
+                cudf_config.aggregate_chunk_target_bytes = bytes;
             }
             config = config.with_option_extension(cudf_config);
         }
         Ok(config)
-    }
-
-    fn device_pool_config(&self) -> Result<DevicePoolConfig> {
-        let mut config = DevicePoolConfig::default();
-        if let Some(max_size) = self.device_pool_max_bytes {
-            if max_size == 0 {
-                return exec_err!("--cudf-device-pool-max-bytes must be greater than zero");
-            }
-            config.max_size = max_size;
-            config.initial_size = config.initial_size.min(max_size);
-        }
-        Ok(config)
-    }
-
-    fn configure_gpu_pools(&self) -> Result<()> {
-        PinnedPoolConfig::default().apply();
-        self.device_pool_config()?.apply();
-        Ok(())
     }
 
     pub fn run(self) -> Result<()> {
@@ -184,10 +159,6 @@ impl RunOpt {
     }
 
     async fn benchmark(&self) -> Result<BenchmarkRun> {
-        if self.gpu {
-            self.configure_gpu_pools()?;
-        }
-
         let mut state_builder = SessionStateBuilder::new()
             .with_default_features()
             .with_config(self.config()?);

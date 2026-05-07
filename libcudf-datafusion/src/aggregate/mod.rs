@@ -198,15 +198,8 @@ impl ExecutionPlan for CuDFAggregateExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
-        let aggregate_chunk_target_bytes = context
-            .session_config()
-            .options()
-            .extensions
-            .get::<CuDFConfig>()
-            .map_or_else(
-                || CuDFConfig::default().resolved_aggregate_chunk_target_bytes(),
-                CuDFConfig::resolved_aggregate_chunk_target_bytes,
-            );
+        let cudf_cfg = CuDFConfig::from_config_options(context.session_config().options())?;
+        let aggregate_chunk_target_bytes = cudf_cfg.aggregate_chunk_target_bytes;
         let input = self.input.execute(partition, context)?;
         let stream = stream::CuDFAggregateStream::new(
             input,
@@ -389,7 +382,9 @@ mod test {
             agg_fn,
             build_args,
             agg_alias,
-            Arc::new(TaskContext::default()),
+            Arc::new(TaskContext::default().with_session_config(
+                SessionConfig::default().with_option_extension(CuDFConfig::default()),
+            )),
         )
         .await?;
 
@@ -564,7 +559,7 @@ mod test {
 
     fn task_ctx_with_aggregate_chunk_target_bytes(bytes: usize) -> Arc<TaskContext> {
         let cudf_config = CuDFConfig {
-            aggregate_chunk_target_bytes: Some(bytes),
+            aggregate_chunk_target_bytes: bytes,
             ..CuDFConfig::default()
         };
         let session_config = SessionConfig::new().with_option_extension(cudf_config);
