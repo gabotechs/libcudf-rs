@@ -1026,6 +1026,22 @@ pub enum BinaryOperator {
     LessEqual = 25,
     /// Greater than or equal (>=)
     GreaterEqual = 26,
+    /// Null-aware equality.
+    NullEquals = 27,
+    /// Null-aware inequality.
+    NullNotEquals = 28,
+    /// Null-aware maximum.
+    NullMax = 29,
+    /// Null-aware minimum.
+    NullMin = 30,
+    /// Generic binary operation generated from PTX.
+    GenericBinary = 31,
+    /// Null-aware logical AND.
+    NullLogicalAnd = 32,
+    /// Null-aware logical OR.
+    NullLogicalOr = 33,
+    /// Invalid binary operation sentinel.
+    InvalidBinary = 34,
 }
 
 /// cuDF data type IDs
@@ -1491,10 +1507,51 @@ mod tests {
 
     #[test]
     fn test_binary_operators_enum() {
-        assert_eq!(BinaryOperator::Add as i32, 0);
-        assert_eq!(BinaryOperator::Sub as i32, 1);
-        assert_eq!(BinaryOperator::Mul as i32, 2);
-        assert_eq!(BinaryOperator::Div as i32, 3);
+        let rust_values = [
+            BinaryOperator::Add as i32,
+            BinaryOperator::Sub as i32,
+            BinaryOperator::Mul as i32,
+            BinaryOperator::Div as i32,
+            BinaryOperator::TrueDiv as i32,
+            BinaryOperator::FloorDiv as i32,
+            BinaryOperator::Mod as i32,
+            BinaryOperator::PMod as i32,
+            BinaryOperator::PyMod as i32,
+            BinaryOperator::Pow as i32,
+            BinaryOperator::IntPow as i32,
+            BinaryOperator::LogBase as i32,
+            BinaryOperator::Atan2 as i32,
+            BinaryOperator::ShiftLeft as i32,
+            BinaryOperator::ShiftRight as i32,
+            BinaryOperator::ShiftRightUnsigned as i32,
+            BinaryOperator::BitwiseAnd as i32,
+            BinaryOperator::BitwiseOr as i32,
+            BinaryOperator::BitwiseXor as i32,
+            BinaryOperator::LogicalAnd as i32,
+            BinaryOperator::LogicalOr as i32,
+            BinaryOperator::Equal as i32,
+            BinaryOperator::NotEqual as i32,
+            BinaryOperator::Less as i32,
+            BinaryOperator::Greater as i32,
+            BinaryOperator::LessEqual as i32,
+            BinaryOperator::GreaterEqual as i32,
+            BinaryOperator::NullEquals as i32,
+            BinaryOperator::NullNotEquals as i32,
+            BinaryOperator::NullMax as i32,
+            BinaryOperator::NullMin as i32,
+            BinaryOperator::GenericBinary as i32,
+            BinaryOperator::NullLogicalAnd as i32,
+            BinaryOperator::NullLogicalOr as i32,
+            BinaryOperator::InvalidBinary as i32,
+        ];
+
+        assert_eq!(
+            rust_values,
+            [
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
+            ]
+        );
     }
 
     #[test]

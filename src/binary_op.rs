@@ -81,6 +81,8 @@ pub enum CuDFBinaryOp {
     NullLogicalAnd = 32,
     /// operator || with Spark rules
     NullLogicalOr = 33,
+    /// invalid operation sentinel
+    InvalidBinary = 34,
 }
 
 pub fn cudf_binary_op(
