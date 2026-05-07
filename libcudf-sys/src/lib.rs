@@ -26,6 +26,7 @@ pub mod ffi {
         include!("libcudf-sys/src/data_type.h");
         include!("libcudf-sys/src/column.h");
         include!("libcudf-sys/src/scalar.h");
+        include!("libcudf-sys/src/ast.h");
         include!("libcudf-sys/src/table.h");
         include!("libcudf-sys/src/aggregation.h");
         include!("libcudf-sys/src/groupby.h");
@@ -72,6 +73,9 @@ pub mod ffi {
         /// Scalars can be valid or null.
         type Scalar;
 
+        /// Owning cuDF AST expression tree.
+        type AstExpressionTree;
+
         /// Abstract base class for specifying aggregation operations
         ///
         /// Represents the desired aggregation in an aggregation_request. Different aggregation
@@ -106,6 +110,37 @@ pub mod ffi {
 
         /// Take the build-side indices from this reusable hash join result.
         fn release_build(self: Pin<&mut HashJoinIndices>) -> UniquePtr<Column>;
+
+        /// Create an empty cuDF AST expression tree.
+        fn ast_expression_tree_create() -> UniquePtr<AstExpressionTree>;
+
+        /// Add a column reference expression to an AST tree.
+        fn ast_expression_tree_add_column_reference(
+            tree: Pin<&mut AstExpressionTree>,
+            column_index: i32,
+            table_reference: i32,
+        ) -> Result<usize>;
+
+        /// Add a scalar literal expression to an AST tree.
+        fn ast_expression_tree_add_literal(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+
+        /// Add a unary operation expression to an AST tree.
+        fn ast_expression_tree_add_unary_operation(
+            tree: Pin<&mut AstExpressionTree>,
+            ast_operator: i32,
+            input_index: usize,
+        ) -> Result<usize>;
+
+        /// Add a binary operation expression to an AST tree.
+        fn ast_expression_tree_add_operation(
+            tree: Pin<&mut AstExpressionTree>,
+            ast_operator: i32,
+            left_index: usize,
+            right_index: usize,
+        ) -> Result<usize>;
 
         /// Opaque owning wrapper for an RMM CUDA stream.
         type CudaStream;
@@ -538,6 +573,16 @@ pub mod ffi {
             right_keys: &TableView,
         ) -> Result<UniquePtr<JoinIndices>>;
 
+        /// Filter join index maps with a cuDF AST predicate.
+        fn filter_join_indices(
+            left: &TableView,
+            right: &TableView,
+            left_indices: &ColumnView,
+            right_indices: &ColumnView,
+            predicate: &AstExpressionTree,
+            join_kind: i32,
+        ) -> Result<UniquePtr<JoinIndices>>;
+
         /// Left semi join: return row indices for matching left rows.
         fn left_semi_join_indices(
             left_keys: &TableView,
@@ -760,6 +805,140 @@ pub enum NullEquality {
     Equal = 0,
     /// Null values do not compare equal.
     Unequal = 1,
+}
+
+/// cuDF join kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum JoinKind {
+    /// Inner join.
+    Inner = 0,
+    /// Left join.
+    Left = 1,
+    /// Full join.
+    Full = 2,
+    /// Left semi join.
+    LeftSemi = 3,
+    /// Left anti join.
+    LeftAnti = 4,
+}
+
+/// cuDF AST table reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum AstTableReference {
+    /// Column index in the left table.
+    Left = 0,
+    /// Column index in the right table.
+    Right = 1,
+    /// Column index in the output table.
+    Output = 2,
+}
+
+/// cuDF AST operators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum AstOperator {
+    /// Addition.
+    Add = 0,
+    /// Subtraction.
+    Sub = 1,
+    /// Multiplication.
+    Mul = 2,
+    /// Division.
+    Div = 3,
+    /// True division.
+    TrueDiv = 4,
+    /// Floor division.
+    FloorDiv = 5,
+    /// Modulo.
+    Mod = 6,
+    /// Python-style modulo.
+    PyMod = 7,
+    /// Power.
+    Pow = 8,
+    /// Equality comparison.
+    Equal = 9,
+    /// Null-aware equality comparison.
+    NullEqual = 10,
+    /// Non-equality comparison.
+    NotEqual = 11,
+    /// Less-than comparison.
+    Less = 12,
+    /// Greater-than comparison.
+    Greater = 13,
+    /// Less-than-or-equal comparison.
+    LessEqual = 14,
+    /// Greater-than-or-equal comparison.
+    GreaterEqual = 15,
+    /// Bitwise AND.
+    BitwiseAnd = 16,
+    /// Bitwise OR.
+    BitwiseOr = 17,
+    /// Bitwise XOR.
+    BitwiseXor = 18,
+    /// Logical AND.
+    LogicalAnd = 19,
+    /// Null-aware logical AND.
+    NullLogicalAnd = 20,
+    /// Logical OR.
+    LogicalOr = 21,
+    /// Null-aware logical OR.
+    NullLogicalOr = 22,
+    /// Identity.
+    Identity = 23,
+    /// Null check.
+    IsNull = 24,
+    /// Sine.
+    Sin = 25,
+    /// Cosine.
+    Cos = 26,
+    /// Tangent.
+    Tan = 27,
+    /// Inverse sine.
+    ArcSin = 28,
+    /// Inverse cosine.
+    ArcCos = 29,
+    /// Inverse tangent.
+    ArcTan = 30,
+    /// Hyperbolic sine.
+    Sinh = 31,
+    /// Hyperbolic cosine.
+    Cosh = 32,
+    /// Hyperbolic tangent.
+    Tanh = 33,
+    /// Inverse hyperbolic sine.
+    ArcSinh = 34,
+    /// Inverse hyperbolic cosine.
+    ArcCosh = 35,
+    /// Inverse hyperbolic tangent.
+    ArcTanh = 36,
+    /// Exponential.
+    Exp = 37,
+    /// Natural logarithm.
+    Log = 38,
+    /// Square root.
+    Sqrt = 39,
+    /// Cube root.
+    Cbrt = 40,
+    /// Ceiling.
+    Ceil = 41,
+    /// Floor.
+    Floor = 42,
+    /// Absolute value.
+    Abs = 43,
+    /// Round to integer.
+    Rint = 44,
+    /// Bitwise invert.
+    BitInvert = 45,
+    /// Logical NOT.
+    Not = 46,
+    /// Cast to int64.
+    CastToInt64 = 47,
+    /// Cast to uint64.
+    CastToUint64 = 48,
+    /// Cast to float64.
+    CastToFloat64 = 49,
 }
 
 /// NaN comparison policy.
@@ -1087,6 +1266,12 @@ unsafe impl Send for ffi::Scalar {}
 /// SAFETY: Scalar can be safely accessed from multiple threads.
 unsafe impl Sync for ffi::Scalar {}
 
+/// SAFETY: AstExpressionTree owns immutable expression configuration after construction.
+unsafe impl Send for ffi::AstExpressionTree {}
+
+/// SAFETY: AstExpressionTree can be safely accessed from multiple threads after construction.
+unsafe impl Sync for ffi::AstExpressionTree {}
+
 /// SAFETY: Aggregation is a configuration object with no thread-local state.
 unsafe impl Send for ffi::Aggregation {}
 
@@ -1124,11 +1309,11 @@ unsafe impl Sync for ffi::CudaStream {}
 mod tests {
     use super::*;
     use crate::ffi::ColumnView;
-    use arrow::array::{make_array, RecordBatch, StructArray};
+    use arrow::array::{make_array, Array, Int32Array, RecordBatch, StructArray};
     use arrow::ffi::{from_ffi, from_ffi_and_data_type, FFI_ArrowArray};
     use arrow::util::pretty::{pretty_format_batches, pretty_format_columns};
     use arrow_schema::ffi::FFI_ArrowSchema;
-    use arrow_schema::{ArrowError, DataType};
+    use arrow_schema::{ArrowError, DataType, Field, Schema};
     use insta::assert_snapshot;
     use std::fmt::Display;
     use std::sync::Arc;
@@ -1320,6 +1505,57 @@ mod tests {
         assert_eq!(TypeId::Float64 as i32, 10);
     }
 
+    #[test]
+    fn test_ast_filter_join_indices() -> Result<(), Box<dyn std::error::Error>> {
+        let left =
+            table_from_i32_columns(&[("key", vec![1, 2, 2, 3]), ("val", vec![10, 20, 25, 30])])?;
+        let right = table_from_i32_columns(&[("key", vec![2, 2, 3]), ("val", vec![15, 30, 35])])?;
+        let left_view = left.view();
+        let right_view = right.view();
+        let left_keys = left_view.select(&[0]);
+        let right_keys = right_view.select(&[0]);
+        let mut indices = ffi::inner_join_indices(&left_keys, &right_keys)?;
+        let left_indices = indices.pin_mut().release_left();
+        let right_indices = indices.pin_mut().release_right();
+
+        let mut predicate = ffi::ast_expression_tree_create();
+        let left_val = ffi::ast_expression_tree_add_column_reference(
+            predicate.pin_mut(),
+            0,
+            AstTableReference::Left as i32,
+        )?;
+        let right_val = ffi::ast_expression_tree_add_column_reference(
+            predicate.pin_mut(),
+            0,
+            AstTableReference::Right as i32,
+        )?;
+        ffi::ast_expression_tree_add_operation(
+            predicate.pin_mut(),
+            AstOperator::Less as i32,
+            left_val,
+            right_val,
+        )?;
+
+        let left_values = left_view.select(&[1]);
+        let right_values = right_view.select(&[1]);
+        let mut filtered = ffi::filter_join_indices(
+            &left_values,
+            &right_values,
+            &left_indices.view(),
+            &right_indices.view(),
+            &predicate,
+            JoinKind::Inner as i32,
+        )?;
+        let filtered_left = filtered.pin_mut().release_left();
+        let filtered_right = filtered.pin_mut().release_right();
+
+        assert_eq!(left_indices.size(), 5);
+        assert_eq!(right_indices.size(), 5);
+        assert_eq!(filtered_left.size(), 3);
+        assert_eq!(filtered_right.size(), 3);
+        Ok(())
+    }
+
     // Filter tests
     #[test]
     fn test_apply_boolean_mask() -> Result<(), Box<dyn std::error::Error>> {
@@ -1506,6 +1742,31 @@ mod tests {
 
         assert!(handle.join().expect("moved stream should be valid"));
         assert!(stream.is_valid());
+    }
+
+    fn table_from_i32_columns(
+        columns: &[(&str, Vec<i32>)],
+    ) -> Result<cxx::UniquePtr<ffi::Table>, Box<dyn std::error::Error>> {
+        let schema = Schema::new(
+            columns
+                .iter()
+                .map(|(name, _)| Field::new(*name, DataType::Int32, false))
+                .collect::<Vec<_>>(),
+        );
+        let arrays = columns
+            .iter()
+            .map(|(_, values)| Arc::new(Int32Array::from(values.clone())) as _)
+            .collect();
+        let batch = RecordBatch::try_new(Arc::new(schema.clone()), arrays)?;
+        let struct_array = StructArray::from(batch);
+        let array_data = struct_array.into_data();
+        let ffi_array = FFI_ArrowArray::new(&array_data);
+        let ffi_schema = FFI_ArrowSchema::try_from(schema)?;
+        let device_array = ArrowDeviceArray::new_cpu().with_array(ffi_array);
+
+        let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
+        let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
+        Ok(unsafe { ffi::table_from_arrow_host(schema_ptr, device_array_ptr) }?)
     }
 
     fn pretty_table(table_view: &ffi::TableView) -> Result<impl Display + use<>, ArrowError> {

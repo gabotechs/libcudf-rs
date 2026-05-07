@@ -11,6 +11,7 @@ use datafusion_physical_plan::expressions::Literal;
 use libcudf_rs::{CuDFColumnView, CuDFColumnViewOrScalar, CuDFScalar};
 use std::sync::Arc;
 
+pub(crate) mod ast;
 mod binary;
 mod column;
 mod literal;

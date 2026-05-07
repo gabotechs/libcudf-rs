@@ -17,6 +17,7 @@
 //! table.to_parquet("output.parquet").expect("Failed to write Parquet");
 //! ```
 
+mod ast;
 mod binary_op;
 mod column;
 mod column_view;
@@ -36,6 +37,7 @@ mod stream;
 mod table;
 mod table_view;
 
+pub use ast::{CuDFAstExpression, CuDFAstNode, CuDFAstOperator, CuDFAstTableReference};
 pub use binary_op::{cudf_binary_op, CuDFBinaryOp};
 pub use column::CuDFColumn;
 pub use column_view::CuDFColumnView;
@@ -45,8 +47,8 @@ pub use device_pool::DevicePoolConfig;
 pub use errors::{CuDFError, Result};
 pub use group_by::*;
 pub use join::{
-    cross_join, full_join, inner_join, left_anti_join, left_join, left_semi_join, CuDFHashJoin,
-    CuDFNullEquality,
+    cross_join, full_join, inner_join, left_anti_join, left_join, left_semi_join,
+    CuDFFilteredHashJoinArgs, CuDFHashJoin, CuDFNullEquality,
 };
 pub use operations::{apply_boolean_mask, cast, gather, slice_column};
 pub use pinned::{pin_record_batch, synchronize_default_stream, PinnedHostBuffer};
