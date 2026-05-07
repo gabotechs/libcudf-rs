@@ -53,7 +53,7 @@ pub(crate) fn expr_to_cudf_expr(
         return Ok(Arc::new(CuDFColumnExpr::from_host(column_expr.clone())));
     };
     if let Some(literal) = any.downcast_ref::<Literal>() {
-        return Ok(Arc::new(CuDFLiteral::from_host(literal.clone())));
+        return Ok(Arc::new(CuDFLiteral::from_host(literal.clone())?));
     }
 
     not_impl_err!("Expression {expr} not supported in CuDF")
