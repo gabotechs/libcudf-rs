@@ -15,9 +15,6 @@ use arrow::ffi::FFI_ArrowArray;
 /// - The C++ cuDF library headers
 /// - The safe wrapper functions in `libcudf-rs`
 #[allow(clippy::missing_safety_doc)]
-// `PinnedHostAlloc::len` is a `cxx` bridge declaration that maps directly to
-// the C++ method; we can't add a Rust `is_empty` to an opaque foreign type.
-#[allow(clippy::len_without_is_empty)]
 #[cxx::bridge(namespace = "libcudf_bridge")]
 pub mod ffi {
     // Opaque C++ types
@@ -695,23 +692,26 @@ pub mod ffi {
         /// Create a CUDA stream with explicit creation flags.
         fn cuda_stream_create_with_flags(flags: u32) -> UniquePtr<CudaStream>;
 
-        /// Owning wrapper for a pinned host allocation. See `pinned_host.h`.
-        type PinnedHostAlloc;
+        /// 1:1 wrapper around `rmm::host_device_async_resource_ref`.
+        type HostDeviceAsyncResourceRef;
 
-        /// Raw pointer (as integer) to the start of the pinned allocation.
-        /// Returned as `usize` because cxx does not currently expose `*mut u8`
-        /// return values across the bridge.
-        fn data(self: &PinnedHostAlloc) -> usize;
+        /// 1:1 with `host_device_async_resource_ref::allocate_sync`.
+        /// The returned pointer is encoded as `usize` because cxx does not
+        /// currently expose `*mut u8` return values across the bridge.
+        fn allocate_sync(
+            self: Pin<&mut HostDeviceAsyncResourceRef>,
+            bytes: usize,
+        ) -> Result<usize>;
 
-        /// Allocation size in bytes.
-        fn len(self: &PinnedHostAlloc) -> usize;
+        /// 1:1 with `host_device_async_resource_ref::deallocate_sync`.
+        fn deallocate_sync(
+            self: Pin<&mut HostDeviceAsyncResourceRef>,
+            ptr: usize,
+            bytes: usize,
+        );
 
-        /// Allocate `bytes` of pinned host memory via `cudaMallocHost`.
-        fn pinned_host_alloc(bytes: usize) -> Result<UniquePtr<PinnedHostAlloc>>;
-
-        /// Release a pinned host allocation. Consumes the unique-ptr, calls
-        /// `cudaFreeHost`, and surfaces any error back as a `Result::Err`.
-        fn pinned_host_free(alloc: UniquePtr<PinnedHostAlloc>) -> Result<()>;
+        /// 1:1 with `cudf::get_pinned_memory_resource()`.
+        fn get_pinned_memory_resource() -> UniquePtr<HostDeviceAsyncResourceRef>;
 
         /// Block until all work on the CUDA default stream has completed.
         fn cuda_default_stream_synchronize() -> Result<()>;
