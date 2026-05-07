@@ -13,7 +13,7 @@ struct ArrowDeviceArray;
 struct ArrowArray;
 
 namespace libcudf_bridge {
-    // Direct cuDF operations - 1:1 mappings
+    // Direct cuDF operations exposed through bridge-owned return types.
     std::unique_ptr<Table> apply_boolean_mask(const TableView &table, const ColumnView &boolean_mask);
 
     // Arrow interop - direct cuDF calls
@@ -55,9 +55,9 @@ namespace libcudf_bridge {
     // Utility functions
     rust::String get_cudf_version();
 
-    // 1:1 with `cudf::config_default_pinned_memory_resource`.
+    // Configure cuDF's default pinned-memory resource pool.
     bool config_default_pinned_memory_resource(size_t pool_size_bytes);
 
-    // 1:1 with `cudf::set_allocate_host_as_pinned_threshold`.
+    // Set cuDF's host allocation threshold for pinned memory.
     void set_allocate_host_as_pinned_threshold(size_t threshold_bytes);
 } // namespace libcudf_bridge

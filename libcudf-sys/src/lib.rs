@@ -33,6 +33,7 @@ pub mod ffi {
         include!("libcudf-sys/src/sorting.h");
         include!("libcudf-sys/src/join.h");
         include!("libcudf-sys/src/stream.h");
+        include!("libcudf-sys/src/memory_resource.h");
         include!("libcudf-sys/src/pinned_host.h");
         include!("libcudf-sys/src/device_memory.h");
 
@@ -143,6 +144,9 @@ pub mod ffi {
         /// Opaque owning wrapper for an RMM CUDA stream.
         type CudaStream;
 
+        /// Opaque non-owning wrapper for an RMM CUDA stream view.
+        type CudaStreamView;
+
         /// Return whether this wrapper still owns an underlying CUDA stream.
         ///
         /// In C++, you could do something like
@@ -155,6 +159,21 @@ pub mod ffi {
         /// However, there's no ffi API available right now to do this via rust, so there's no
         /// need to worry about invalidating a stream at the moment.
         fn is_valid(self: &CudaStream) -> bool;
+
+        /// Synchronize the owned CUDA stream.
+        fn synchronize(self: &CudaStream) -> Result<()>;
+
+        /// Return true if this is the CUDA legacy default stream.
+        fn is_default(self: &CudaStreamView) -> bool;
+
+        /// Return true if this is the CUDA per-thread default stream.
+        fn is_per_thread_default(self: &CudaStreamView) -> bool;
+
+        /// Synchronize the viewed CUDA stream.
+        fn synchronize(self: &CudaStreamView) -> Result<()>;
+
+        /// Opaque non-owning wrapper for an RMM device async resource reference.
+        type DeviceAsyncResourceRef;
 
         /// Request for groupby aggregation(s) to perform on a column
         ///
@@ -733,58 +752,81 @@ pub mod ffi {
         /// Get the version of the cuDF library
         fn get_cudf_version() -> String;
 
-        /// 1:1 with `cudf::config_default_pinned_memory_resource`.
+        /// Configure cuDF's default pinned-memory resource pool.
         fn config_default_pinned_memory_resource(pool_size_bytes: usize) -> bool;
 
-        /// 1:1 with `cudf::set_allocate_host_as_pinned_threshold`.
+        /// Set cuDF's host allocation threshold for pinned memory.
         fn set_allocate_host_as_pinned_threshold(threshold_bytes: usize);
 
         /// Create a CUDA stream using the default creation flag.
-        fn cuda_stream_create() -> UniquePtr<CudaStream>;
+        fn cuda_stream_create() -> Result<UniquePtr<CudaStream>>;
 
         /// Create a CUDA stream with explicit creation flags.
-        fn cuda_stream_create_with_flags(flags: u32) -> UniquePtr<CudaStream>;
+        fn cuda_stream_create_with_flags(flags: u32) -> Result<UniquePtr<CudaStream>>;
 
-        /// 1:1 wrapper around `rmm::host_device_async_resource_ref`.
+        /// Return a non-owning view for an owned CUDA stream.
+        fn cuda_stream_view(stream: &CudaStream) -> UniquePtr<CudaStreamView>;
+
+        /// Get cuDF's current default stream.
+        fn get_default_stream() -> UniquePtr<CudaStreamView>;
+
+        /// Check whether cuDF is using the CUDA per-thread default stream.
+        fn is_ptds_enabled() -> bool;
+
+        /// Return cuDF's current device memory resource reference.
+        fn get_current_device_resource_ref() -> UniquePtr<DeviceAsyncResourceRef>;
+
+        /// Set cuDF's current device memory resource reference.
+        fn set_current_device_resource_ref(
+            resource: &DeviceAsyncResourceRef,
+        ) -> UniquePtr<DeviceAsyncResourceRef>;
+
+        /// Reset cuDF's current device memory resource reference to the initial resource.
+        fn reset_current_device_resource_ref() -> UniquePtr<DeviceAsyncResourceRef>;
+
+        /// Compare two device async resource references.
+        fn device_async_resource_ref_equal(
+            lhs: &DeviceAsyncResourceRef,
+            rhs: &DeviceAsyncResourceRef,
+        ) -> bool;
+
+        /// Opaque wrapper around `rmm::host_device_async_resource_ref`.
         type HostDeviceAsyncResourceRef;
 
-        /// 1:1 with `host_device_async_resource_ref::allocate_sync`.
+        /// Allocate pinned host memory through the referenced resource.
         /// The returned pointer is encoded as `usize` because cxx does not
         /// currently expose `*mut u8` return values across the bridge.
         fn allocate_sync(self: &HostDeviceAsyncResourceRef, bytes: usize) -> Result<usize>;
 
-        /// 1:1 with `host_device_async_resource_ref::deallocate_sync`.
+        /// Deallocate pinned host memory through the referenced resource.
         fn deallocate_sync(self: &HostDeviceAsyncResourceRef, ptr: usize, bytes: usize);
 
-        /// 1:1 with `cudf::get_pinned_memory_resource()`.
+        /// Return cuDF's process-global pinned memory resource handle.
         fn get_pinned_memory_resource() -> UniquePtr<HostDeviceAsyncResourceRef>;
 
-        /// Block until all work on the CUDA default stream has completed.
+        /// Block until all work on cuDF's default stream has completed.
         fn cuda_default_stream_synchronize() -> Result<()>;
 
-        /// 1:1 owning wrapper around `rmm::mr::cuda_memory_resource`.
+        /// Opaque owning wrapper around `rmm::mr::cuda_memory_resource`.
         type CudaMemoryResource;
 
-        /// 1:1 with the `rmm::mr::cuda_memory_resource()` constructor.
+        /// Construct an RMM CUDA memory resource.
         fn make_cuda_memory_resource() -> UniquePtr<CudaMemoryResource>;
 
-        /// 1:1 owning wrapper around
-        /// `rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>`.
+        /// Opaque owning wrapper around an RMM pool memory resource.
         type PoolMemoryResource;
 
-        /// 1:1 with the `rmm::mr::pool_memory_resource(upstream, initial, max)`
-        /// constructor.
+        /// Construct an RMM pool memory resource.
         fn make_pool_memory_resource(
             upstream: &CudaMemoryResource,
             initial_size: usize,
             max_size: usize,
         ) -> UniquePtr<PoolMemoryResource>;
 
-        /// 1:1 with `rmm::mr::set_current_device_resource`.
+        /// Install the pool as RMM's current device resource.
         fn set_current_device_resource(resource: &PoolMemoryResource);
 
-        /// 1:1 with `rmm::available_device_memory().second`. Returns total
-        /// VRAM bytes on the current CUDA device.
+        /// Return total VRAM bytes on the current CUDA device.
         fn total_device_memory() -> usize;
     }
 }
@@ -1410,7 +1452,7 @@ mod tests {
     use std::fmt::Display;
     use std::sync::Arc;
 
-    const CUDA_STREAM_FLAG_BLOCKING: u32 = 1;
+    const CUDA_STREAM_FLAG_SYNC_DEFAULT: u32 = 0;
     const CUDA_STREAM_FLAG_NON_BLOCKING: u32 = 1;
 
     // Sorting tests
@@ -1947,21 +1989,73 @@ mod tests {
 
     // Test the various methods of creating streams. Assert that each method yields a valid stream.
     #[test]
-    fn test_cuda_stream_create() {
-        let stream = ffi::cuda_stream_create();
+    fn test_cuda_stream_create() -> Result<(), Box<dyn std::error::Error>> {
+        let stream = ffi::cuda_stream_create()?;
         assert!(stream.is_valid());
+        stream.synchronize()?;
 
-        let stream = ffi::cuda_stream_create_with_flags(CUDA_STREAM_FLAG_BLOCKING);
+        let stream = ffi::cuda_stream_create_with_flags(CUDA_STREAM_FLAG_SYNC_DEFAULT)?;
         assert!(stream.is_valid());
+        stream.synchronize()?;
 
-        let stream = ffi::cuda_stream_create_with_flags(CUDA_STREAM_FLAG_NON_BLOCKING);
+        let stream = ffi::cuda_stream_create_with_flags(CUDA_STREAM_FLAG_NON_BLOCKING)?;
         assert!(stream.is_valid());
+        stream.synchronize()?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_cuda_stream_view_bindings() -> Result<(), Box<dyn std::error::Error>> {
+        let stream = ffi::cuda_stream_create()?;
+        let view = ffi::cuda_stream_view(stream.as_ref().expect("CudaStream should not be null"));
+        view.synchronize()?;
+
+        let default_view = ffi::get_default_stream();
+        if ffi::is_ptds_enabled() {
+            assert!(default_view.is_per_thread_default());
+        } else {
+            assert!(default_view.is_default());
+        }
+        default_view.synchronize()?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_device_async_resource_ref_bindings() -> Result<(), Box<dyn std::error::Error>> {
+        let current = ffi::get_current_device_resource_ref();
+        let previous = ffi::set_current_device_resource_ref(
+            current
+                .as_ref()
+                .expect("DeviceAsyncResourceRef should not be null"),
+        );
+        let after = ffi::get_current_device_resource_ref();
+
+        assert!(ffi::device_async_resource_ref_equal(
+            current
+                .as_ref()
+                .expect("DeviceAsyncResourceRef should not be null"),
+            previous
+                .as_ref()
+                .expect("DeviceAsyncResourceRef should not be null"),
+        ));
+        assert!(ffi::device_async_resource_ref_equal(
+            current
+                .as_ref()
+                .expect("DeviceAsyncResourceRef should not be null"),
+            after
+                .as_ref()
+                .expect("DeviceAsyncResourceRef should not be null"),
+        ));
+
+        Ok(())
     }
 
     // Test that streams are Send and Sync.
     #[test]
-    fn test_cuda_stream_send_sync() {
-        let stream = Arc::new(ffi::cuda_stream_create());
+    fn test_cuda_stream_send_sync() -> Result<(), Box<dyn std::error::Error>> {
+        let stream = Arc::new(ffi::cuda_stream_create()?);
 
         let handle = std::thread::spawn({
             let stream = Arc::clone(&stream);
@@ -1970,6 +2064,8 @@ mod tests {
 
         assert!(handle.join().expect("moved stream should be valid"));
         assert!(stream.is_valid());
+
+        Ok(())
     }
 
     fn table_from_i32_columns(

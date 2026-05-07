@@ -7,18 +7,33 @@ namespace libcudf_bridge {
         constexpr uint32_t kCudaStreamFlagSyncDefault = 0;
         constexpr uint32_t kCudaStreamFlagNonBlocking = 1;
 
-        // Map our flags to [`rmm::cuda_stream::flags`].
-        [[nodiscard]] rmm::cuda_stream::flags to_rmm_flags(const uint32_t flags) {
-            switch (flags) {
-                case kCudaStreamFlagSyncDefault:
-                    return rmm::cuda_stream::flags::sync_default;
-                case kCudaStreamFlagNonBlocking:
-                    return rmm::cuda_stream::flags::non_blocking;
-            }
+        static_assert(
+            static_cast<uint32_t>(rmm::cuda_stream::flags::sync_default) ==
+            kCudaStreamFlagSyncDefault);
+        static_assert(
+            static_cast<uint32_t>(rmm::cuda_stream::flags::non_blocking) ==
+            kCudaStreamFlagNonBlocking);
 
-            throw std::invalid_argument("Unsupported CUDA stream flags");
+        [[nodiscard]] rmm::cuda_stream::flags to_rmm_flags(const uint32_t flags) {
+            return static_cast<rmm::cuda_stream::flags>(flags);
         }
     } // namespace
+
+    CudaStreamView::CudaStreamView(rmm::cuda_stream_view stream) : inner(stream) {}
+
+    CudaStreamView::~CudaStreamView() = default;
+
+    bool CudaStreamView::is_default() const {
+        return inner.is_default();
+    }
+
+    bool CudaStreamView::is_per_thread_default() const {
+        return inner.is_per_thread_default();
+    }
+
+    void CudaStreamView::synchronize() const {
+        inner.synchronize();
+    }
 
     /// By default, create a stream that synchronizes with the default stream
     /// (ie. this uses [`rmm::cuda_stream::flags::sync_default`]).
@@ -42,11 +57,30 @@ namespace libcudf_bridge {
         return inner->view();
     }
 
+    void CudaStream::synchronize() const {
+        if (!inner) {
+            throw std::runtime_error("Cannot synchronize null CUDA stream");
+        }
+        inner->synchronize();
+    }
+
     std::unique_ptr<CudaStream> cuda_stream_create() {
         return std::make_unique<CudaStream>();
     }
 
     std::unique_ptr<CudaStream> cuda_stream_create_with_flags(const uint32_t flags) {
         return std::make_unique<CudaStream>(flags);
+    }
+
+    std::unique_ptr<CudaStreamView> cuda_stream_view(const CudaStream& stream) {
+        return std::make_unique<CudaStreamView>(stream.view());
+    }
+
+    std::unique_ptr<CudaStreamView> get_default_stream() {
+        return std::make_unique<CudaStreamView>(cudf::get_default_stream());
+    }
+
+    bool is_ptds_enabled() {
+        return cudf::is_ptds_enabled();
     }
 } // namespace libcudf_bridge

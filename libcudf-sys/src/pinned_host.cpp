@@ -1,6 +1,7 @@
 #include "pinned_host.h"
 
-#include <cuda_runtime.h>
+#include <cudf/utilities/default_stream.hpp>
+
 #include <utility>
 
 namespace libcudf_bridge {
@@ -20,6 +21,6 @@ namespace libcudf_bridge {
     }
 
     void cuda_default_stream_synchronize() {
-        cudaStreamSynchronize(nullptr);
+        cudf::get_default_stream().synchronize();
     }
 } // namespace libcudf_bridge

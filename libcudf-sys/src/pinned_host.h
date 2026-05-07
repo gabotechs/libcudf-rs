@@ -26,18 +26,17 @@ namespace libcudf_bridge {
 
         explicit HostDeviceAsyncResourceRef(rmm::host_device_async_resource_ref ref);
 
-        /// 1:1 with `host_device_async_resource_ref::allocate_sync`. Returned
-        /// as `size_t` because cxx does not currently expose `*mut u8` across
-        /// the bridge.
+        /// Allocate pinned host memory through the referenced resource. Returned
+        /// as `size_t` because cxx does not expose `*mut u8` across the bridge.
         [[nodiscard]] size_t allocate_sync(size_t bytes) const;
 
-        /// 1:1 with `host_device_async_resource_ref::deallocate_sync`.
+        /// Deallocate pinned host memory through the referenced resource.
         void deallocate_sync(size_t ptr, size_t bytes) const;
     };
 
-    /// 1:1 with `cudf::get_pinned_memory_resource()`.
+    /// Return cuDF's process-global pinned memory resource handle.
     std::unique_ptr<HostDeviceAsyncResourceRef> get_pinned_memory_resource();
 
-    /// 1:1 with `cudaStreamSynchronize(0)` (the default stream).
+    /// Block until all work on cuDF's default stream has completed.
     void cuda_default_stream_synchronize();
 } // namespace libcudf_bridge

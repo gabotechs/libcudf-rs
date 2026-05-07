@@ -43,6 +43,33 @@ Rules for `libcudf-sys`:
     - If cuDF has a free function (e.g., `cudf::reduce()`), expose as free function (e.g., `reduce()`)
     - Constructors become factory functions (e.g., `groupby::groupby()` → `groupby_create()`)
 
+Mandatory parity gate for every `libcudf-sys` change:
+
+1. Start from the exact local cuDF/RMM headers used by this build. Locate them with
+   `find target/ -type d -name "cudf-*" | grep -E "cudf-[0-9]+\.[0-9]+\.[0-9]+$" | head -1`.
+   Do not rely on memory, Python docs, Java docs, or older RAPIDS versions.
+2. Identify the upstream C++ declaration before writing Rust or bridge code. The sys API must preserve the upstream
+   shape: function vs method, overloads, parameter order, required parameters, defaulted parameters, enum values,
+   return type, ownership, metadata, null handling, stream arguments, memory-resource arguments, and error behavior.
+3. Do not drop upstream parameters in sys. If cuDF accepts an option, policy, stream, memory resource, output type,
+   initial value, metadata output, or predicate handle, sys must expose it. Default-only convenience belongs in
+   `libcudf-rs`, not in `libcudf-sys`.
+4. Do not collapse upstream return shapes. If cuDF returns a pair, vector, table-with-metadata, device vector, scalar,
+   or aggregation result, sys must preserve that shape as directly as `cxx` allows.
+5. If `cxx` cannot expose an upstream C++ type directly, add the smallest opaque wrapper or bridge container needed.
+   The wrapper must map directly to the upstream type's fields, ownership, and lifetime. It must not add filtering,
+   conversion, defaulting, aggregation, indexing policy, or other convenience behavior.
+6. RMM/CUDA support types in sys must also be upstream-shaped wrappers: streams, stream views, resource refs, and memory
+   resources. Do not invent lifecycle, pooling, synchronization, or allocation behavior unless it directly wraps an
+   upstream type or method.
+7. Every enum exposed by sys must be numerically aligned with the upstream enum. Add parity checks for enum surfaces
+   that are easy to drift.
+8. Tests should lock binding parity where drift is likely: enum discriminants, overload presence, omitted-parameter
+   risks, output shape/metadata preservation, and ownership/handle plumbing. Do not add tests that only restate a local
+   helper implementation.
+9. If a perfect upstream-shaped binding is impossible, document the `cxx` limitation in code and keep the deviation
+   minimal and mechanical. Any ergonomic API must be added in `libcudf-rs`.
+
 Example of what NOT to do:
 
 ```cpp
@@ -119,4 +146,3 @@ This is where you can:
 - Be careful of having multiple versions of the CUDA toolkit installed in the system
 - There's no need for prefixing commands with LD_LIBRARY_PATH=/path/to/something. If the LD_LIBRARY_PATH is needed it
   means there's something wrong with libcudf-sys/build.rs
-

@@ -98,7 +98,7 @@ namespace libcudf_bridge {
         return result;
     }
 
-    // Direct cuDF operations - 1:1 mappings
+    // Direct cuDF operations exposed through bridge-owned return types.
     std::unique_ptr<Table> apply_boolean_mask(const TableView &table, const ColumnView &boolean_mask) {
         auto result = std::make_unique<Table>();
         result->inner = cudf::apply_boolean_mask(*table.inner, *boolean_mask.inner);

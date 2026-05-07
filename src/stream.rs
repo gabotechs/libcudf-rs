@@ -1,23 +1,20 @@
 use cxx::UniquePtr;
 
+use crate::Result;
+
 /// Stream creation flags for CUDA stream-backed cuDF execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
 pub enum CuDFStreamFlags {
     /// Create a stream that synchronizes with the default stream.
-    SyncDefault,
+    SyncDefault = 0,
     /// Create a non-blocking stream that does not synchronize with the default stream.
-    NonBlocking,
+    NonBlocking = 1,
 }
-
-const CUDA_STREAM_FLAG_SYNC_DEFAULT: u32 = 0;
-const CUDA_STREAM_FLAG_NON_BLOCKING: u32 = 1;
 
 impl From<CuDFStreamFlags> for u32 {
     fn from(value: CuDFStreamFlags) -> Self {
-        match value {
-            CuDFStreamFlags::SyncDefault => CUDA_STREAM_FLAG_SYNC_DEFAULT,
-            CuDFStreamFlags::NonBlocking => CUDA_STREAM_FLAG_NON_BLOCKING,
-        }
+        value as u32
     }
 }
 
@@ -37,18 +34,34 @@ pub struct CuDFStream {
 }
 
 impl CuDFStream {
+    /// Try to create a stream using the sync-default creation flag.
+    pub fn try_new() -> Result<Self> {
+        Ok(Self {
+            inner: libcudf_sys::ffi::cuda_stream_create()?,
+        })
+    }
+
     /// Create a stream using the sync-default creation flag.
     pub fn new() -> Self {
-        Self {
-            inner: libcudf_sys::ffi::cuda_stream_create(),
-        }
+        Self::try_new().expect("failed to create CUDA stream")
+    }
+
+    /// Try to create a stream with explicit creation flags.
+    pub fn try_with_flags(flags: CuDFStreamFlags) -> Result<Self> {
+        Ok(Self {
+            inner: libcudf_sys::ffi::cuda_stream_create_with_flags(flags.into())?,
+        })
     }
 
     /// Create a stream with explicit creation flags.
     pub fn with_flags(flags: CuDFStreamFlags) -> Self {
-        Self {
-            inner: libcudf_sys::ffi::cuda_stream_create_with_flags(flags.into()),
-        }
+        Self::try_with_flags(flags).expect("failed to create CUDA stream")
+    }
+
+    /// Block until all work submitted to this stream has completed.
+    pub fn synchronize(&self) -> Result<()> {
+        self.inner().synchronize()?;
+        Ok(())
     }
 
     /// Get a reference to the underlying FFI stream handle.

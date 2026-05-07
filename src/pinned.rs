@@ -67,7 +67,7 @@ impl Drop for PinnedHostBuffer {
     }
 }
 
-/// Block until all GPU work submitted to the CUDA default stream has
+/// Block until all GPU work submitted to cuDF's default stream has
 /// completed.
 ///
 /// Required after issuing an asynchronous upload from a pinned source if the
