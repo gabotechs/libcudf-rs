@@ -9,16 +9,38 @@ use delegate::delegate;
 use libcudf_rs::CuDFScalar;
 use std::any::Any;
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub struct CuDFLiteral {
     inner: Literal,
+    scalar: Arc<CuDFScalar>,
+}
+
+impl PartialEq for CuDFLiteral {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.eq(&other.inner)
+    }
+}
+
+impl Eq for CuDFLiteral {}
+
+impl Hash for CuDFLiteral {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.inner.hash(state);
+    }
 }
 
 impl CuDFLiteral {
-    pub fn from_host(inner: Literal) -> Self {
-        Self { inner }
+    pub fn from_host(inner: Literal) -> datafusion::common::Result<Self> {
+        let value = normalize_scalar_for_cudf(inner.value().clone());
+        let host_scalar = value.to_scalar()?;
+        let scalar = CuDFScalar::from_arrow_host(host_scalar).map_err(cudf_to_df)?;
+        Ok(Self {
+            inner,
+            scalar: Arc::new(scalar),
+        })
     }
 }
 
@@ -35,11 +57,8 @@ impl PhysicalExpr for CuDFLiteral {
     }
 
     fn evaluate(&self, _: &RecordBatch) -> datafusion::common::Result<ColumnarValue> {
-        let value = normalize_scalar_for_cudf(self.inner.value().clone());
-        let host_scalar = value.to_scalar()?;
-        Ok(ColumnarValue::Array(Arc::new(
-            CuDFScalar::from_arrow_host(host_scalar).map_err(cudf_to_df)?,
-        )))
+        let scalar: Arc<dyn arrow::array::Array> = self.scalar.clone();
+        Ok(ColumnarValue::Array(scalar))
     }
 
     fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>> {
