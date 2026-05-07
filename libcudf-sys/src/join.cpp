@@ -1,8 +1,10 @@
 #include "join.h"
+#include <cudf/column/column.hpp>
 #include <cudf/join/join.hpp>
 #include <cudf/join/filtered_join.hpp>
-#include <cudf/column/column.hpp>
 #include <cudf/utilities/default_stream.hpp>
+#include <cudf/utilities/span.hpp>
+#include <stdexcept>
 
 namespace libcudf_bridge {
 
@@ -86,6 +88,38 @@ std::unique_ptr<JoinIndices> full_join_indices(
 {
     auto [left_idx, right_idx] = cudf::full_join(*left_keys.inner, *right_keys.inner);
     return make_join_indices(std::move(left_idx), std::move(right_idx));
+}
+
+static cudf::device_span<cudf::size_type const> indices_span(const ColumnView& indices)
+{
+    if (!indices.inner) {
+        throw std::runtime_error("Cannot use null column view as join indices");
+    }
+    if (indices.inner->type().id() != cudf::type_id::INT32) {
+        throw std::runtime_error("Join indices must have cudf::size_type type");
+    }
+
+    return cudf::device_span<cudf::size_type const>(
+        indices.inner->begin<cudf::size_type>(),
+        indices.inner->size());
+}
+
+std::unique_ptr<JoinIndices> filter_join_indices(
+    const TableView& left,
+    const TableView& right,
+    const ColumnView& left_indices,
+    const ColumnView& right_indices,
+    const AstExpressionTree& predicate,
+    int32_t join_kind)
+{
+    auto [filtered_left, filtered_right] = cudf::filter_join_indices(
+        *left.inner,
+        *right.inner,
+        indices_span(left_indices),
+        indices_span(right_indices),
+        predicate.inner.back(),
+        static_cast<cudf::join_kind>(join_kind));
+    return make_join_indices(std::move(filtered_left), std::move(filtered_right));
 }
 
 HashJoin::HashJoin() = default;

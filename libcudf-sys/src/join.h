@@ -3,6 +3,7 @@
 #include <memory>
 #include <cstdint>
 #include "rust/cxx.h"
+#include "ast.h"
 #include "table.h"
 #include "column.h"
 #include <cudf/join/hash_join.hpp>
@@ -66,6 +67,14 @@ namespace libcudf_bridge {
     std::unique_ptr<JoinIndices> full_join_indices(
         const TableView& left_keys,
         const TableView& right_keys);
+
+    std::unique_ptr<JoinIndices> filter_join_indices(
+        const TableView& left,
+        const TableView& right,
+        const ColumnView& left_indices,
+        const ColumnView& right_indices,
+        const AstExpressionTree& predicate,
+        int32_t join_kind);
 
     std::unique_ptr<Column> left_semi_join_indices(
         const TableView& left_keys,
