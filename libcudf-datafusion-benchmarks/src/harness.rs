@@ -45,6 +45,10 @@ pub struct HarnessOpt {
     #[structopt(long = "cudf-aggregate-chunk-target-bytes")]
     aggregate_chunk_target_bytes: Option<usize>,
 
+    /// Target row count for batches uploaded to the GPU.
+    #[structopt(long)]
+    cuda_batch_size: Option<usize>,
+
     /// Run each query once before timed iterations.
     #[structopt(long)]
     warmup: bool,
@@ -82,6 +86,7 @@ struct HarnessMetadata {
     cpu_execution_batch_size: Option<usize>,
     gpu_execution_batch_size: Option<usize>,
     aggregate_chunk_target_bytes: Option<usize>,
+    load_coalesce_target_rows: Option<usize>,
     warmup: bool,
     plan_queries: Vec<String>,
     profile_queries: Vec<String>,
@@ -175,6 +180,7 @@ impl HarnessOpt {
             cpu_execution_batch_size,
             gpu_execution_batch_size,
             aggregate_chunk_target_bytes: self.aggregate_chunk_target_bytes,
+            load_coalesce_target_rows: self.cuda_batch_size,
             warmup: self.warmup,
             plan_queries: self.plan_query.clone(),
             profile_queries: self.profile_query.clone(),
@@ -241,6 +247,10 @@ impl HarnessOpt {
             if let Some(bytes) = self.aggregate_chunk_target_bytes {
                 args.push("--cudf-aggregate-chunk-target-bytes".to_string());
                 args.push(bytes.to_string());
+            }
+            if let Some(rows) = self.cuda_batch_size {
+                args.push("--cudf-load-coalesce-target-rows".to_string());
+                args.push(rows.to_string());
             }
         }
         if debug {
@@ -426,6 +436,10 @@ fn write_report(run_dir: &Path, metadata: &HarnessMetadata) -> Result<()> {
     report.push_str(&format!(
         "- cuDF aggregate chunk target bytes: `{:?}`\n",
         metadata.aggregate_chunk_target_bytes
+    ));
+    report.push_str(&format!(
+        "- cuDF load coalesce target rows: `{:?}`\n",
+        metadata.load_coalesce_target_rows
     ));
     report.push_str(&format!("- warmup: `{}`\n\n", metadata.warmup));
 
@@ -851,6 +865,7 @@ mod tests {
             batch_size,
             gpu_execution_batch_size,
             aggregate_chunk_target_bytes: None,
+            cuda_batch_size: None,
             warmup: false,
             output: PathBuf::from("/tmp/bench-results"),
             run_id: None,

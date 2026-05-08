@@ -1,5 +1,6 @@
 use crate::errors::cudf_to_df;
 use crate::metrics::CuDFBaselineMetrics;
+use crate::planner::CuDFConfig;
 use arrow::array::{Array, RecordBatch, RecordBatchOptions};
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Schema, SchemaRef};
 use datafusion::common::{assert_eq_or_internal_err, exec_err, plan_err, ScalarValue};
@@ -90,6 +91,8 @@ impl ExecutionPlan for CuDFLoadExec {
         assert_eq_or_internal_err!(partition, 0, "CuDFLoadExec invalid partition {partition}");
 
         let input_partitions = self.input.output_partitioning().partition_count();
+        let cudf_cfg = CuDFConfig::from_config_options(context.session_config().options())?;
+        let coalesce_target_rows = cudf_cfg.batch_size;
 
         // use a stream that allows each sender to put in at
         // least one result in an attempt to maximize
@@ -99,6 +102,7 @@ impl ExecutionPlan for CuDFLoadExec {
             ctx: CuDFRecordBatchReceiverStreamBuilderCtx {
                 schema: self.schema(),
                 metrics: CuDFLoadMetrics::new(&self.metrics, partition),
+                coalesce_target_rows,
             },
         };
 
@@ -127,6 +131,7 @@ struct CuDFRecordBatchReceiverStreamBuilder {
 struct CuDFRecordBatchReceiverStreamBuilderCtx {
     schema: SchemaRef,
     metrics: CuDFLoadMetrics,
+    coalesce_target_rows: usize,
 }
 
 impl CuDFRecordBatchReceiverStreamBuilder {
@@ -134,62 +139,102 @@ impl CuDFRecordBatchReceiverStreamBuilder {
         let ctx = self.ctx.clone();
         let output = self.inner.tx();
         self.inner.spawn(async move {
+            // Coalesce small upstream batches per partition before uploading.
+            // Downstream cuDF operators have a ~300µs per-batch kernel-launch
+            // overhead, so without consolidation small upstream batches end up
+            // dominated by launch cost. Target row count is configurable via
+            // `CuDFConfig::load_coalesce_target_rows`.
+            let mut coalescer = arrow::compute::BatchCoalescer::new(
+                Arc::clone(&ctx.schema),
+                ctx.coalesce_target_rows,
+            );
             loop {
-                let ctx = ctx.clone();
                 let input_wait_timer = ctx.metrics.input_wait_time.timer();
                 let batch_or_err = host_stream.next().await;
                 input_wait_timer.done();
 
-                let Some(batch_or_err) = batch_or_err else {
-                    break;
-                };
-
+                let upstream_done = batch_or_err.is_none();
                 let compute_timer = ctx.metrics.baseline.elapsed_compute().timer();
-                let batch = match batch_or_err {
-                    Ok(batch) => {
+
+                match batch_or_err {
+                    Some(Ok(batch)) => {
                         let cast_timer = ctx.metrics.cast_time.timer();
                         let batch = cast_to_target_schema(batch, Arc::clone(&ctx.schema))?;
                         cast_timer.done();
-                        batch
+
+                        if batch.columns().iter().any(|c| is_cudf_array(c)) {
+                            return exec_err!(
+                                "Cannot move RecordBatch from host to CuDF: a column is already a CuDF array"
+                            );
+                        }
+                        ctx.metrics.record_input(&batch);
+                        let coalesce_timer = ctx.metrics.coalesce_time.timer();
+                        coalescer.push_batch(batch).map_err(|e| {
+                            DataFusionError::ArrowError(Box::new(e), None)
+                        })?;
+                        coalesce_timer.done();
                     }
-                    Err(err) => return Err(err),
-                };
-
-                if batch.columns().iter().any(|c| is_cudf_array(c)) {
-                    return exec_err!("Cannot move RecordBatch from host to CuDF: a column is already a CuDF array");
+                    Some(Err(err)) => return Err(err),
+                    None => {
+                        let coalesce_timer = ctx.metrics.coalesce_time.timer();
+                        coalescer.finish_buffered_batch().map_err(|e| {
+                            DataFusionError::ArrowError(Box::new(e), None)
+                        })?;
+                        coalesce_timer.done();
+                    }
                 }
-                ctx.metrics.record_input(&batch);
-                let schema = batch.schema();
 
-                let pin_timer = ctx.metrics.pin_time.timer();
-                let pinned_batch = pin_record_batch(batch).map_err(cudf_to_df)?;
-                pin_timer.done();
+                let mut ready: Vec<RecordBatch> = Vec::new();
+                loop {
+                    let coalesce_timer = ctx.metrics.coalesce_time.timer();
+                    let coalesced = coalescer.next_completed_batch();
+                    coalesce_timer.done();
+                    let Some(coalesced) = coalesced else {
+                        break;
+                    };
+                    let schema = coalesced.schema();
 
-                let import_timer = ctx.metrics.import_time.timer();
-                let table = CuDFTable::from_arrow_host(pinned_batch).map_err(cudf_to_df)?;
-                import_timer.done();
+                    let pin_timer = ctx.metrics.pin_time.timer();
+                    let pinned_batch = pin_record_batch(coalesced).map_err(cudf_to_df)?;
+                    pin_timer.done();
 
-                let sync_timer = ctx.metrics.sync_time.timer();
-                synchronize_default_stream().map_err(cudf_to_df)?;
-                sync_timer.done();
+                    let import_timer = ctx.metrics.import_time.timer();
+                    let table = CuDFTable::from_arrow_host(pinned_batch).map_err(cudf_to_df)?;
+                    import_timer.done();
 
-                let output_batch_timer = ctx.metrics.output_batch_time.timer();
-                let num_rows = table.num_rows();
-                let cudf_cols: Vec<Arc<dyn Array>> = table
-                    .into_columns()
-                    .into_iter()
-                    .map(|c| Arc::new(c.into_view()) as Arc<dyn Array>)
-                    .collect();
-                let batch = libcudf_rs::record_batch_with_schema(cudf_cols, &schema, num_rows)?;
-                output_batch_timer.done();
+                    let sync_timer = ctx.metrics.sync_time.timer();
+                    synchronize_default_stream().map_err(cudf_to_df)?;
+                    sync_timer.done();
 
-                ctx.metrics.baseline.record_output(&batch);
+                    let output_batch_timer = ctx.metrics.output_batch_time.timer();
+                    let num_rows = table.num_rows();
+                    let cudf_cols: Vec<Arc<dyn Array>> = table
+                        .into_columns()
+                        .into_iter()
+                        .map(|c| Arc::new(c.into_view()) as Arc<dyn Array>)
+                        .collect();
+                    let batch =
+                        libcudf_rs::record_batch_with_schema(cudf_cols, &schema, num_rows)?;
+                    output_batch_timer.done();
+
+                    ctx.metrics.baseline.record_output(&batch);
+                    ready.push(batch);
+                }
+
+                // Stop the compute timer before the bounded-channel awaits;
+                // sending out a backpressured batch is wait time, not compute.
                 compute_timer.done();
 
-                let send_timer = ctx.metrics.output_send_time.timer();
-                let send_result = output.send(Ok(batch)).await;
-                send_timer.done();
-                if send_result.is_err() {
+                for batch in ready {
+                    let send_timer = ctx.metrics.output_send_time.timer();
+                    let send_result = output.send(Ok(batch)).await;
+                    send_timer.done();
+                    if send_result.is_err() {
+                        return Ok(());
+                    }
+                }
+
+                if upstream_done {
                     break;
                 }
             }
@@ -208,6 +253,7 @@ struct CuDFLoadMetrics {
     baseline: CuDFBaselineMetrics,
     input_wait_time: Time,
     cast_time: Time,
+    coalesce_time: Time,
     pin_time: Time,
     import_time: Time,
     sync_time: Time,
@@ -231,6 +277,7 @@ impl CuDFLoadMetrics {
             baseline: CuDFBaselineMetrics::new(metrics, partition),
             input_wait_time: MetricBuilder::new(metrics).subset_time("input_wait_time", partition),
             cast_time: MetricBuilder::new(metrics).subset_time("cast_time", partition),
+            coalesce_time: MetricBuilder::new(metrics).subset_time("coalesce_time", partition),
             pin_time: MetricBuilder::new(metrics).subset_time("pin_time", partition),
             import_time: MetricBuilder::new(metrics).subset_time("import_time", partition),
             sync_time: MetricBuilder::new(metrics).subset_time("sync_time", partition),

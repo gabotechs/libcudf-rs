@@ -65,6 +65,11 @@ pub struct RunOpt {
     #[structopt(long = "cudf-aggregate-chunk-target-bytes")]
     aggregate_chunk_target_bytes: Option<usize>,
 
+    /// Target row count for batches uploaded to the GPU. Small upstream batches are
+    /// coalesced per partition up to this size before pinning + upload.
+    #[structopt(long)]
+    cuda_batch_size: Option<usize>,
+
     /// Activate debug mode to see more details
     #[structopt(short, long)]
     debug: bool,
@@ -125,6 +130,9 @@ impl RunOpt {
             cudf_config.enable = true;
             if let Some(bytes) = self.aggregate_chunk_target_bytes {
                 cudf_config.aggregate_chunk_target_bytes = bytes;
+            }
+            if let Some(rows) = self.cuda_batch_size {
+                cudf_config.batch_size = rows;
             }
             config = config.with_option_extension(cudf_config);
         }

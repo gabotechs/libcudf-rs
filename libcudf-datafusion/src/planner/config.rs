@@ -7,6 +7,10 @@ extensions_options! {
         pub enable: bool, default = true
         /// Target input bytes accumulated by each cuDF aggregate chunk before flushing.
         pub aggregate_chunk_target_bytes: usize, default = 256 * 1024 * 1024
+        /// Target row count for batches uploaded to the GPU. Small upstream batches are
+        /// coalesced per partition up to this size to amortize cuDF's per-batch
+        /// kernel-launch overhead.
+        pub batch_size: usize, default = 512_000
     }
 }
 
