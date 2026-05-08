@@ -1,4 +1,5 @@
 use crate::data_type::arrow_type_to_cudf_data_type;
+use crate::stream::{resource_ref, stream_ref};
 use crate::{CuDFColumn, CuDFColumnView, CuDFError, CuDFRef, CuDFTable, CuDFTableView};
 use arrow_schema::{ArrowError, DataType};
 use libcudf_sys::ffi;
@@ -43,8 +44,8 @@ pub fn gather(table: &CuDFTableView, gather_map: &CuDFColumnView) -> Result<CuDF
     let inner = ffi::gather(
         table.inner(),
         gather_map.inner(),
-        crate::stream::stream_ref(&stream)?,
-        crate::stream::resource_ref(&mr)?,
+        stream_ref(&stream)?,
+        resource_ref(&mr)?,
     )?;
     Ok(CuDFTable::from_inner(inner))
 }
@@ -101,8 +102,8 @@ pub fn apply_boolean_mask(
     let inner = ffi::apply_boolean_mask(
         table.inner(),
         boolean_mask.inner(),
-        crate::stream::stream_ref(&stream)?,
-        crate::stream::resource_ref(&mr)?,
+        stream_ref(&stream)?,
+        resource_ref(&mr)?,
     )?;
     Ok(CuDFTable::from_inner(inner))
 }
@@ -145,12 +146,7 @@ pub fn slice_column(
     length: usize,
 ) -> Result<CuDFColumnView, CuDFError> {
     let stream = ffi::get_default_stream();
-    let inner = ffi::slice_column(
-        column.inner(),
-        offset,
-        length,
-        crate::stream::stream_ref(&stream)?,
-    )?;
+    let inner = ffi::slice_column(column.inner(), offset, length, stream_ref(&stream)?)?;
     Ok(CuDFColumnView::new_with_ref(
         inner,
         Some(Arc::new(column.clone()) as Arc<dyn CuDFRef>),
@@ -185,8 +181,8 @@ pub fn cast(column: &CuDFColumnView, target_type: &DataType) -> Result<CuDFColum
     let result = ffi::cast_column(
         column.inner(),
         &cudf_dt,
-        crate::stream::stream_ref(&stream)?,
-        crate::stream::resource_ref(&mr)?,
+        stream_ref(&stream)?,
+        resource_ref(&mr)?,
     )?;
     Ok(CuDFColumn::new(result))
 }

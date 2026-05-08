@@ -11,6 +11,7 @@
 //! is fully asynchronous.
 use crate::config::ensure_pools_configured;
 use crate::errors::Result;
+use crate::stream::stream_ref;
 use arrow::alloc::Allocation;
 use arrow::array::{make_array, ArrayData, ArrayDataBuilder, RecordBatch};
 use arrow::buffer::{BooleanBuffer, Buffer, NullBuffer};
@@ -73,7 +74,7 @@ impl Drop for PinnedHostBuffer {
 /// DMA has finished and the pinned buffer must outlive the transfer.
 pub fn synchronize_default_stream() -> Result<()> {
     let stream = ffi::get_default_stream();
-    crate::stream::stream_ref(&stream)?.synchronize()?;
+    stream_ref(&stream)?.synchronize()?;
     Ok(())
 }
 

@@ -1,5 +1,6 @@
 use crate::column::CuDFColumn;
 use crate::data_type::arrow_type_to_cudf_data_type;
+use crate::stream::{resource_ref, stream_ref};
 use crate::{CuDFColumnViewOrScalar, CuDFError};
 use arrow_schema::{ArrowError, DataType};
 use libcudf_sys::ffi;
@@ -99,8 +100,8 @@ pub fn cudf_binary_op(
     };
     let stream = ffi::get_default_stream();
     let mr = ffi::get_current_device_resource_ref();
-    let stream_ref = crate::stream::stream_ref(&stream)?;
-    let mr_ref = crate::stream::resource_ref(&mr)?;
+    let stream_view = stream_ref(&stream)?;
+    let mr_ref = resource_ref(&mr)?;
 
     let result = match (left, right) {
         (CuDFColumnViewOrScalar::ColumnView(lhs), CuDFColumnViewOrScalar::ColumnView(rhs)) => {
@@ -109,7 +110,7 @@ pub fn cudf_binary_op(
                 rhs.inner(),
                 op as i32,
                 &dt,
-                stream_ref,
+                stream_view,
                 mr_ref,
             )
         }
@@ -119,7 +120,7 @@ pub fn cudf_binary_op(
                 rhs.inner(),
                 op as i32,
                 &dt,
-                stream_ref,
+                stream_view,
                 mr_ref,
             )
         }
@@ -129,7 +130,7 @@ pub fn cudf_binary_op(
                 rhs.inner(),
                 op as i32,
                 &dt,
-                stream_ref,
+                stream_view,
                 mr_ref,
             )
         }

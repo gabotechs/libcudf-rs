@@ -1,3 +1,4 @@
+use crate::stream::{resource_ref, stream_ref};
 use crate::{CuDFColumn, CuDFError, CuDFTable, CuDFTableView};
 use libcudf_sys::{ffi, NullOrder, Order};
 
@@ -113,8 +114,8 @@ pub fn sort(
         keys_view.inner(),
         &column_order_i32,
         &null_precedence_i32,
-        crate::stream::stream_ref(&stream)?,
-        crate::stream::resource_ref(&mr)?,
+        stream_ref(&stream)?,
+        resource_ref(&mr)?,
     )?;
     Ok(CuDFTable::from_inner(inner))
 }
@@ -162,8 +163,8 @@ pub fn sort_by_all(
         table.inner(),
         &column_order_i32,
         &null_precedence_i32,
-        crate::stream::stream_ref(&stream)?,
-        crate::stream::resource_ref(&mr)?,
+        stream_ref(&stream)?,
+        resource_ref(&mr)?,
     )?;
     Ok(CuDFTable::from_inner(inner))
 }
@@ -208,8 +209,8 @@ pub fn stable_sorted_order(
         table.inner(),
         &column_order_i32,
         &null_precedence_i32,
-        crate::stream::stream_ref(&stream)?,
-        crate::stream::resource_ref(&mr)?,
+        stream_ref(&stream)?,
+        resource_ref(&mr)?,
     )?;
     Ok(CuDFColumn::new(inner))
 }

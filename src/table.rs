@@ -1,4 +1,5 @@
 use crate::cudf_array::is_cudf_array;
+use crate::stream::{resource_ref, stream_ref};
 use crate::table_view::CuDFTableView;
 use crate::{CuDFColumn, CuDFError};
 use arrow::array::{Array, ArrayData, StructArray};
@@ -82,11 +83,7 @@ impl CuDFTable {
 
         let stream = ffi::get_default_stream();
         let mr = ffi::get_current_device_resource_ref();
-        let inner = ffi::read_parquet(
-            path_str,
-            crate::stream::stream_ref(&stream)?,
-            crate::stream::resource_ref(&mr)?,
-        )?;
+        let inner = ffi::read_parquet(path_str, stream_ref(&stream)?, resource_ref(&mr)?)?;
         Ok(Self { inner })
     }
 
@@ -118,7 +115,7 @@ impl CuDFTable {
 
         let view = self.inner.view();
         let stream = ffi::get_default_stream();
-        ffi::write_parquet(&view, path_str, crate::stream::stream_ref(&stream)?)?;
+        ffi::write_parquet(&view, path_str, stream_ref(&stream)?)?;
         Ok(())
     }
 
@@ -173,8 +170,8 @@ impl CuDFTable {
             ffi::table_from_arrow_host(
                 schema_ptr,
                 device_array_ptr,
-                crate::stream::stream_ref(&stream)?,
-                crate::stream::resource_ref(&mr)?,
+                stream_ref(&stream)?,
+                resource_ref(&mr)?,
             )
         }?;
 
@@ -287,11 +284,8 @@ impl CuDFTable {
             .collect();
         let stream = ffi::get_default_stream();
         let mr = ffi::get_current_device_resource_ref();
-        let inner = ffi::concat_table_views(
-            &inner_views,
-            crate::stream::stream_ref(&stream)?,
-            crate::stream::resource_ref(&mr)?,
-        )?;
+        let inner =
+            ffi::concat_table_views(&inner_views, stream_ref(&stream)?, resource_ref(&mr)?)?;
         Ok(Self { inner })
     }
 }

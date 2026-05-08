@@ -1,4 +1,5 @@
 use crate::cudf_reference::CuDFRef;
+use crate::stream::{resource_ref, stream_ref};
 use crate::{CuDFColumnView, CuDFError};
 use arrow::array::{Array, ArrayRef, RecordBatch, RecordBatchOptions, StructArray};
 use arrow::ffi::{from_ffi, FFI_ArrowArray};
@@ -168,8 +169,8 @@ impl CuDFTableView {
             let mr = ffi::get_current_device_resource_ref();
             self.inner.to_arrow_array(
                 &mut ffi_array as *mut FFI_ArrowArray as *mut u8,
-                crate::stream::stream_ref(&stream)?,
-                crate::stream::resource_ref(&mr)?,
+                stream_ref(&stream)?,
+                resource_ref(&mr)?,
             );
         }
 

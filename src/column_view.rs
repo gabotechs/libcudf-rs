@@ -1,5 +1,6 @@
 use crate::cudf_reference::CuDFRef;
 use crate::data_type::cudf_type_to_arrow;
+use crate::stream::{resource_ref, stream_ref};
 use crate::{slice_column, CuDFError};
 use arrow::array::{Array, ArrayData, ArrayRef};
 use arrow::buffer::{BooleanBuffer, Buffer, NullBuffer};
@@ -102,11 +103,8 @@ impl CuDFColumnView {
                 &mut device_array as *mut libcudf_sys::ArrowDeviceArray as *mut u8;
             let stream = ffi::get_default_stream();
             let mr = ffi::get_current_device_resource_ref();
-            self.inner.to_arrow_array(
-                device_array_ptr,
-                crate::stream::stream_ref(&stream)?,
-                crate::stream::resource_ref(&mr)?,
-            );
+            self.inner
+                .to_arrow_array(device_array_ptr, stream_ref(&stream)?, resource_ref(&mr)?);
         }
 
         // Convert from FFI structures to Arrow ArrayData
@@ -115,6 +113,18 @@ impl CuDFColumnView {
 
         // Create an ArrayRef from the ArrayData
         Ok(arrow::array::make_array(array_data))
+    }
+
+    /// Return the device buffer memory used by this column view.
+    pub fn get_buffer_memory_size(&self) -> Result<usize, CuDFError> {
+        let stream = ffi::get_default_stream();
+        Ok(self.inner().get_buffer_memory_size(stream_ref(&stream)?))
+    }
+
+    /// Return the total device memory used by this column view, including child buffers.
+    pub fn get_array_memory_size(&self) -> Result<usize, CuDFError> {
+        let stream = ffi::get_default_stream();
+        Ok(self.inner().get_array_memory_size(stream_ref(&stream)?))
     }
 }
 
@@ -205,17 +215,13 @@ unsafe impl Array for CuDFColumnView {
     }
 
     fn get_buffer_memory_size(&self) -> usize {
-        let stream = ffi::get_default_stream();
-        let stream_ref = crate::stream::stream_ref(&stream)
-            .expect("default CUDA stream view should not be null");
-        self.inner().get_buffer_memory_size(stream_ref)
+        CuDFColumnView::get_buffer_memory_size(self)
+            .expect("failed to get cuDF column buffer memory size")
     }
 
     fn get_array_memory_size(&self) -> usize {
-        let stream = ffi::get_default_stream();
-        let stream_ref = crate::stream::stream_ref(&stream)
-            .expect("default CUDA stream view should not be null");
-        self.inner().get_array_memory_size(stream_ref)
+        CuDFColumnView::get_array_memory_size(self)
+            .expect("failed to get cuDF column array memory size")
     }
 
     fn logical_nulls(&self) -> Option<NullBuffer> {
@@ -284,7 +290,7 @@ mod tests {
         let array = StringArray::from(vec!["hello", "world", ""]);
         let column = CuDFColumn::from_arrow_host(&array)?.into_view();
 
-        let size = column.get_array_memory_size();
+        let size = column.get_array_memory_size()?;
         let min_offsets_and_chars =
             (array.len() + 1) * std::mem::size_of::<i32>() + array.value_data().len();
         assert!(size >= min_offsets_and_chars);
@@ -369,7 +375,7 @@ mod tests {
             .expect("Failed to convert Arrow array to column")
             .into_view();
 
-        let size = column.get_buffer_memory_size();
+        let size = column.get_buffer_memory_size()?;
         assert_eq!(size, 20, "Int32 column should be 20 bytes");
 
         Ok(())
@@ -383,7 +389,7 @@ mod tests {
             .expect("Failed to convert Arrow array to column")
             .into_view();
 
-        let size = column.get_buffer_memory_size();
+        let size = column.get_buffer_memory_size()?;
         assert_eq!(size, 4_000_000, "1M Int32 elements should be 4MB");
 
         Ok(())
@@ -396,8 +402,8 @@ mod tests {
             .expect("Failed to convert Arrow array to column")
             .into_view();
 
-        let buffer_size = column.get_buffer_memory_size();
-        let array_size = column.get_array_memory_size();
+        let buffer_size = column.get_buffer_memory_size()?;
+        let array_size = column.get_array_memory_size()?;
 
         // With no nulls, array_size should equal buffer_size
         assert_eq!(
@@ -415,8 +421,8 @@ mod tests {
             .expect("Failed to convert Arrow array to column")
             .into_view();
 
-        let buffer_size = column.get_buffer_memory_size();
-        let array_size = column.get_array_memory_size();
+        let buffer_size = column.get_buffer_memory_size()?;
+        let array_size = column.get_array_memory_size()?;
 
         // With nulls -> array_size = buffer_size + null_mask_size
         assert!(

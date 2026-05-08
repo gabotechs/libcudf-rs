@@ -1,4 +1,5 @@
 use crate::data_type::arrow_type_to_cudf;
+use crate::stream::{resource_ref, stream_ref};
 use crate::{CuDFColumnView, CuDFError};
 use arrow::array::Array;
 use arrow::ffi::FFI_ArrowArray;
@@ -65,8 +66,8 @@ impl CuDFColumn {
             ffi::column_from_arrow(
                 schema_ptr,
                 array_ptr,
-                crate::stream::stream_ref(&stream)?,
-                crate::stream::resource_ref(&mr)?,
+                stream_ref(&stream)?,
+                resource_ref(&mr)?,
             )
         }?;
         Ok(Self { inner })
@@ -99,8 +100,8 @@ impl CuDFColumn {
         let mr = ffi::get_current_device_resource_ref();
         Ok(Self::new(libcudf_sys::ffi::concat_column_views(
             &views,
-            crate::stream::stream_ref(&stream)?,
-            crate::stream::resource_ref(&mr)?,
+            stream_ref(&stream)?,
+            resource_ref(&mr)?,
         )?))
     }
 }

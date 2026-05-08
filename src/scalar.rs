@@ -1,4 +1,5 @@
 use crate::data_type::cudf_type_to_arrow;
+use crate::stream::{resource_ref, stream_ref};
 use crate::{CuDFColumn, CuDFError};
 use arrow::array::{Array, ArrayData, ArrayRef, Scalar};
 use arrow::buffer::NullBuffer;
@@ -87,11 +88,8 @@ impl CuDFScalar {
                 &mut device_array as *mut libcudf_sys::ArrowDeviceArray as *mut u8;
             let stream = ffi::get_default_stream();
             let mr = ffi::get_current_device_resource_ref();
-            self.inner.to_arrow_array(
-                device_array_ptr,
-                crate::stream::stream_ref(&stream)?,
-                crate::stream::resource_ref(&mr)?,
-            );
+            self.inner
+                .to_arrow_array(device_array_ptr, stream_ref(&stream)?, resource_ref(&mr)?);
         }
 
         // Convert from FFI structures to Arrow ArrayData
@@ -135,12 +133,8 @@ impl CuDFScalar {
         // Extract the scalar from the column at index 0
         let stream = ffi::get_default_stream();
         let mr = ffi::get_current_device_resource_ref();
-        let cudf_scalar = ffi::get_element(
-            column.inner(),
-            0,
-            crate::stream::stream_ref(&stream)?,
-            crate::stream::resource_ref(&mr)?,
-        );
+        let cudf_scalar =
+            ffi::get_element(column.inner(), 0, stream_ref(&stream)?, resource_ref(&mr)?);
 
         Ok(Self::new(cudf_scalar))
     }
