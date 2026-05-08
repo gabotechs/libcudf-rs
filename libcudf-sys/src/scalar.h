@@ -4,6 +4,8 @@
 #include <cstdint>
 
 #include "rust/cxx.h"
+#include "stream.h"
+#include "memory_resource.h"
 
 // Forward declarations
 namespace cudf {
@@ -22,7 +24,10 @@ namespace libcudf_bridge {
         ~Scalar();
 
         // Get the scalar's data as an FFI Arrow Array
-        void to_arrow_array(uint8_t *out_array_ptr) const;
+        void to_arrow_array(
+            uint8_t *out_array_ptr,
+            const CudaStreamView &stream,
+            const DeviceAsyncResourceRef &mr) const;
 
         // Check if the scalar is valid (not null)
         [[nodiscard]] bool is_valid() const;

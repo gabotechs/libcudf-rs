@@ -8,6 +8,10 @@ pub enum CuDFError {
     /// Arrow error during conversion or other operations
     #[error(transparent)]
     ArrowError(#[from] arrow::error::ArrowError),
+
+    /// cuDF returned a null handle where a valid handle was required
+    #[error("cuDF returned a null {0} handle")]
+    NullHandle(&'static str),
 }
 
 /// Result type alias for libcudf-rs operations

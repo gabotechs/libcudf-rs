@@ -6,6 +6,8 @@
 #include "column.h"
 #include "data_type.h"
 #include "scalar.h"
+#include "stream.h"
+#include "memory_resource.h"
 #include <cudf/aggregation.hpp>
 
 namespace libcudf_bridge {
@@ -52,11 +54,15 @@ namespace libcudf_bridge {
     std::unique_ptr<Scalar> reduce(
         const ColumnView &col,
         const ReduceAggregation &agg,
-        const DataType &output_type);
+        const DataType &output_type,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr);
 
     std::unique_ptr<Scalar> reduce_with_init(
         const ColumnView &col,
         const ReduceAggregation &agg,
         const DataType &output_type,
-        const Scalar &init);
+        const Scalar &init,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr);
 } // namespace libcudf_bridge

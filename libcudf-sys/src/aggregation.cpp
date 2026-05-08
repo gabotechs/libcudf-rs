@@ -140,9 +140,11 @@ namespace libcudf_bridge {
     std::unique_ptr<Scalar> reduce(
         const ColumnView &col,
         const ReduceAggregation &agg,
-        const DataType &output_type) {
+        const DataType &output_type,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) {
         auto result = std::make_unique<Scalar>();
-        result->inner = cudf::reduce(*col.inner, *agg.inner, output_type.inner);
+        result->inner = cudf::reduce(*col.inner, *agg.inner, output_type.inner, stream.inner, mr.inner);
         return result;
     }
 
@@ -150,13 +152,17 @@ namespace libcudf_bridge {
         const ColumnView &col,
         const ReduceAggregation &agg,
         const DataType &output_type,
-        const Scalar &init) {
+        const Scalar &init,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) {
         auto result = std::make_unique<Scalar>();
         result->inner = cudf::reduce(
             *col.inner,
             *agg.inner,
             output_type.inner,
-            std::cref(*init.inner));
+            std::cref(*init.inner),
+            stream.inner,
+            mr.inner);
         return result;
     }
 } // namespace libcudf_bridge

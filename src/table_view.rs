@@ -164,8 +164,13 @@ impl CuDFTableView {
         unsafe {
             self.inner
                 .to_arrow_schema(&mut ffi_schema as *mut FFI_ArrowSchema as *mut u8);
-            self.inner
-                .to_arrow_array(&mut ffi_array as *mut FFI_ArrowArray as *mut u8);
+            let stream = ffi::get_default_stream();
+            let mr = ffi::get_current_device_resource_ref();
+            self.inner.to_arrow_array(
+                &mut ffi_array as *mut FFI_ArrowArray as *mut u8,
+                crate::stream::stream_ref(&stream)?,
+                crate::stream::resource_ref(&mr)?,
+            );
         }
 
         let schema = Arc::new(Schema::try_from(&ffi_schema)?);

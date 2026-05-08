@@ -59,7 +59,13 @@ impl CuDFGroupBy {
             requests_inner.pin_mut().add(request.inner);
         }
 
-        let mut gby_result = self.inner.aggregate(&requests_inner)?;
+        let stream = ffi::get_default_stream();
+        let mr = ffi::get_current_device_resource_ref();
+        let mut gby_result = self.inner.aggregate(
+            &requests_inner,
+            crate::stream::stream_ref(&stream)?,
+            crate::stream::resource_ref(&mr)?,
+        )?;
         let keys = gby_result.pin_mut().release_keys();
         let keys = CuDFTable::from_ptr(keys);
 

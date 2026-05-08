@@ -6,6 +6,7 @@ use arrow::buffer::{BooleanBuffer, Buffer, NullBuffer};
 use arrow::ffi::FFI_ArrowSchema;
 use arrow_schema::DataType;
 use cxx::UniquePtr;
+use libcudf_sys::ffi;
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, OnceLock};
@@ -21,7 +22,7 @@ use std::sync::{Arc, OnceLock};
 pub struct CuDFColumnView {
     // Keep a ref to CuDF structs so that they live as long as this view exists
     pub(crate) _ref: Option<Arc<dyn CuDFRef>>,
-    inner: UniquePtr<libcudf_sys::ffi::ColumnView>,
+    inner: UniquePtr<ffi::ColumnView>,
     dt: DataType,
     null_buf: OnceLock<Option<NullBuffer>>,
 }
@@ -31,7 +32,7 @@ impl CuDFColumnView {
     ///
     /// This is used internally to create column views that keep the source table or column alive
     pub(crate) fn new_with_ref(
-        inner: UniquePtr<libcudf_sys::ffi::ColumnView>,
+        inner: UniquePtr<ffi::ColumnView>,
         _ref: Option<Arc<dyn CuDFRef>>,
     ) -> Self {
         let cudf_dtype = inner.data_type();
@@ -45,12 +46,12 @@ impl CuDFColumnView {
         }
     }
 
-    pub(crate) fn inner(&self) -> &UniquePtr<libcudf_sys::ffi::ColumnView> {
+    pub(crate) fn inner(&self) -> &UniquePtr<ffi::ColumnView> {
         &self.inner
     }
 
     /// Consume this wrapper and return the underlying cuDF column view
-    pub(crate) fn into_inner(self) -> UniquePtr<libcudf_sys::ffi::ColumnView> {
+    pub(crate) fn into_inner(self) -> UniquePtr<ffi::ColumnView> {
         self.inner
     }
 
@@ -99,7 +100,13 @@ impl CuDFColumnView {
         unsafe {
             let device_array_ptr =
                 &mut device_array as *mut libcudf_sys::ArrowDeviceArray as *mut u8;
-            self.inner.to_arrow_array(device_array_ptr);
+            let stream = ffi::get_default_stream();
+            let mr = ffi::get_current_device_resource_ref();
+            self.inner.to_arrow_array(
+                device_array_ptr,
+                crate::stream::stream_ref(&stream)?,
+                crate::stream::resource_ref(&mr)?,
+            );
         }
 
         // Convert from FFI structures to Arrow ArrayData
@@ -198,11 +205,17 @@ unsafe impl Array for CuDFColumnView {
     }
 
     fn get_buffer_memory_size(&self) -> usize {
-        self.inner().get_buffer_memory_size()
+        let stream = ffi::get_default_stream();
+        let stream_ref = crate::stream::stream_ref(&stream)
+            .expect("default CUDA stream view should not be null");
+        self.inner().get_buffer_memory_size(stream_ref)
     }
 
     fn get_array_memory_size(&self) -> usize {
-        self.inner().get_array_memory_size()
+        let stream = ffi::get_default_stream();
+        let stream_ref = crate::stream::stream_ref(&stream)
+            .expect("default CUDA stream view should not be null");
+        self.inner().get_array_memory_size(stream_ref)
     }
 
     fn logical_nulls(&self) -> Option<NullBuffer> {

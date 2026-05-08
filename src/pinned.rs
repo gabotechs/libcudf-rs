@@ -15,9 +15,7 @@ use arrow::alloc::Allocation;
 use arrow::array::{make_array, ArrayData, ArrayDataBuilder, RecordBatch};
 use arrow::buffer::{BooleanBuffer, Buffer, NullBuffer};
 use cxx::UniquePtr;
-use libcudf_sys::ffi::{
-    cuda_default_stream_synchronize, get_pinned_memory_resource, HostDeviceAsyncResourceRef,
-};
+use libcudf_sys::ffi::{self, get_pinned_memory_resource, HostDeviceAsyncResourceRef};
 use std::ptr::NonNull;
 use std::sync::{Arc, OnceLock};
 
@@ -74,7 +72,8 @@ impl Drop for PinnedHostBuffer {
 /// source is about to be dropped, since `cudaMemcpyAsync` returns before the
 /// DMA has finished and the pinned buffer must outlive the transfer.
 pub fn synchronize_default_stream() -> Result<()> {
-    cuda_default_stream_synchronize()?;
+    let stream = ffi::get_default_stream();
+    crate::stream::stream_ref(&stream)?.synchronize()?;
     Ok(())
 }
 

@@ -65,8 +65,8 @@ impl CuDFColumn {
             ffi::column_from_arrow(
                 schema_ptr,
                 array_ptr,
-                stream.as_ref().expect("default stream should not be null"),
-                mr.as_ref().expect("device resource should not be null"),
+                crate::stream::stream_ref(&stream)?,
+                crate::stream::resource_ref(&mr)?,
             )
         }?;
         Ok(Self { inner })
@@ -95,7 +95,13 @@ impl CuDFColumn {
                 x.into_inner()
             })
             .collect::<Vec<_>>();
-        Ok(Self::new(libcudf_sys::ffi::concat_column_views(&views)?))
+        let stream = ffi::get_default_stream();
+        let mr = ffi::get_current_device_resource_ref();
+        Ok(Self::new(libcudf_sys::ffi::concat_column_views(
+            &views,
+            crate::stream::stream_ref(&stream)?,
+            crate::stream::resource_ref(&mr)?,
+        )?))
     }
 }
 

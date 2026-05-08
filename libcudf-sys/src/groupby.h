@@ -7,6 +7,8 @@
 #include "table.h"
 #include "column.h"
 #include "aggregation.h"
+#include "stream.h"
+#include "memory_resource.h"
 #include <cudf/groupby.hpp>
 
 namespace libcudf_bridge {
@@ -73,7 +75,9 @@ namespace libcudf_bridge {
 
         // Direct cuDF method
         [[nodiscard]] std::unique_ptr<GroupByResult> aggregate(
-            const AggregationRequests &requests) const;
+            const AggregationRequests &requests,
+            const CudaStreamView &stream,
+            const DeviceAsyncResourceRef &mr) const;
     };
 
     // GroupBy operations - direct cuDF mappings

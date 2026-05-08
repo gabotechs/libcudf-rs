@@ -38,7 +38,14 @@ use std::sync::Arc;
 /// # Ok::<(), libcudf_rs::CuDFError>(())
 /// ```
 pub fn gather(table: &CuDFTableView, gather_map: &CuDFColumnView) -> Result<CuDFTable, CuDFError> {
-    let inner = ffi::gather(table.inner(), gather_map.inner())?;
+    let stream = ffi::get_default_stream();
+    let mr = ffi::get_current_device_resource_ref();
+    let inner = ffi::gather(
+        table.inner(),
+        gather_map.inner(),
+        crate::stream::stream_ref(&stream)?,
+        crate::stream::resource_ref(&mr)?,
+    )?;
     Ok(CuDFTable::from_inner(inner))
 }
 
@@ -89,7 +96,14 @@ pub fn apply_boolean_mask(
     table: &CuDFTableView,
     boolean_mask: &CuDFColumnView,
 ) -> Result<CuDFTable, CuDFError> {
-    let inner = ffi::apply_boolean_mask(table.inner(), boolean_mask.inner())?;
+    let stream = ffi::get_default_stream();
+    let mr = ffi::get_current_device_resource_ref();
+    let inner = ffi::apply_boolean_mask(
+        table.inner(),
+        boolean_mask.inner(),
+        crate::stream::stream_ref(&stream)?,
+        crate::stream::resource_ref(&mr)?,
+    )?;
     Ok(CuDFTable::from_inner(inner))
 }
 
@@ -130,7 +144,13 @@ pub fn slice_column(
     offset: usize,
     length: usize,
 ) -> Result<CuDFColumnView, CuDFError> {
-    let inner = ffi::slice_column(column.inner(), offset, length)?;
+    let stream = ffi::get_default_stream();
+    let inner = ffi::slice_column(
+        column.inner(),
+        offset,
+        length,
+        crate::stream::stream_ref(&stream)?,
+    )?;
     Ok(CuDFColumnView::new_with_ref(
         inner,
         Some(Arc::new(column.clone()) as Arc<dyn CuDFRef>),
@@ -160,7 +180,14 @@ pub fn cast(column: &CuDFColumnView, target_type: &DataType) -> Result<CuDFColum
             target_type
         )))
     })?;
-    let result = ffi::cast_column(column.inner(), &cudf_dt)?;
+    let stream = ffi::get_default_stream();
+    let mr = ffi::get_current_device_resource_ref();
+    let result = ffi::cast_column(
+        column.inner(),
+        &cudf_dt,
+        crate::stream::stream_ref(&stream)?,
+        crate::stream::resource_ref(&mr)?,
+    )?;
     Ok(CuDFColumn::new(result))
 }
 

@@ -4,6 +4,8 @@
 
 #include "cudf/types.hpp"
 #include "rust/cxx.h"
+#include "stream.h"
+#include "memory_resource.h"
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/scalar/scalar.hpp>
@@ -12,9 +14,9 @@ namespace libcudf_bridge {
     struct DataType;
 
     // Helper functions for memory size calculations
-    size_t calculate_buffer_memory_size(const cudf::column_view& view);
+    size_t calculate_buffer_memory_size(const cudf::column_view& view, const CudaStreamView& stream);
     size_t calculate_null_mask_size(const cudf::column_view& view);
-    size_t calculate_array_memory_size(const cudf::column_view& view);
+    size_t calculate_array_memory_size(const cudf::column_view& view, const CudaStreamView& stream);
 
     // Opaque wrapper for cuDF column_view
     struct ColumnView {
@@ -28,7 +30,10 @@ namespace libcudf_bridge {
         [[nodiscard]] size_t size() const;
 
         // Get the column's data as an FFI Arrow Array
-        void to_arrow_array(uint8_t *out_array_ptr) const;
+        void to_arrow_array(
+            uint8_t *out_array_ptr,
+            const CudaStreamView &stream,
+            const DeviceAsyncResourceRef &mr) const;
 
         // Get the raw device pointer to the column view's data
         [[nodiscard]] uint64_t data_ptr() const;
@@ -46,10 +51,10 @@ namespace libcudf_bridge {
         [[nodiscard]] int32_t null_count() const;
 
         // Get buffer memory size (data + offsets, no null mask)
-        [[nodiscard]] size_t get_buffer_memory_size() const;
+        [[nodiscard]] size_t get_buffer_memory_size(const CudaStreamView &stream) const;
 
         // Get total array memory size (data + offsets + null mask + children)
-        [[nodiscard]] size_t get_array_memory_size() const;
+        [[nodiscard]] size_t get_array_memory_size(const CudaStreamView &stream) const;
 
         // Transfer the null buffer
         [[nodiscard]] rust::Vec<uint8_t> get_null_buffer() const;
@@ -89,9 +94,17 @@ namespace libcudf_bridge {
     Column column_from_unique_ptr(std::unique_ptr<cudf::column> col);
 
     // Extract a scalar from a column at the specified index
-    std::unique_ptr<Scalar> get_element(const ColumnView &column, size_t index);
+    std::unique_ptr<Scalar> get_element(
+        const ColumnView &column,
+        size_t index,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr);
 
     // Cast a column to a different data type
-    std::unique_ptr<Column> cast_column(const ColumnView &input, const DataType &target_type);
+    std::unique_ptr<Column> cast_column(
+        const ColumnView &input,
+        const DataType &target_type,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr);
 
 } // namespace libcudf_bridge

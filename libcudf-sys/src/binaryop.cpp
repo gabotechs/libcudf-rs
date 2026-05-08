@@ -47,14 +47,18 @@ namespace libcudf_bridge {
         const ColumnView &lhs,
         const ColumnView &rhs,
         int32_t op,
-        const DataType &output_type) {
+        const DataType &output_type,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) {
         const auto binary_op = static_cast<cudf::binary_operator>(op);
 
         auto result_col = cudf::binary_operation(
             *lhs.inner,
             *rhs.inner,
             binary_op,
-            output_type.inner
+            output_type.inner,
+            stream.inner,
+            mr.inner
         );
 
         return std::make_unique<Column>(column_from_unique_ptr(std::move(result_col)));
@@ -65,14 +69,18 @@ namespace libcudf_bridge {
         const ColumnView &lhs,
         const Scalar &rhs,
         int32_t op,
-        const DataType &output_type) {
+        const DataType &output_type,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) {
         const auto binary_op = static_cast<cudf::binary_operator>(op);
 
         auto result_col = cudf::binary_operation(
             *lhs.inner,
             *rhs.inner,
             binary_op,
-            output_type.inner
+            output_type.inner,
+            stream.inner,
+            mr.inner
         );
 
         return std::make_unique<Column>(column_from_unique_ptr(std::move(result_col)));
@@ -83,14 +91,18 @@ namespace libcudf_bridge {
         const Scalar &lhs,
         const ColumnView &rhs,
         int32_t op,
-        const DataType &output_type) {
+        const DataType &output_type,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) {
         const auto binary_op = static_cast<cudf::binary_operator>(op);
 
         auto result_col = cudf::binary_operation(
             *lhs.inner,
             *rhs.inner,
             binary_op,
-            output_type.inner
+            output_type.inner,
+            stream.inner,
+            mr.inner
         );
 
         return std::make_unique<Column>(column_from_unique_ptr(std::move(result_col)));

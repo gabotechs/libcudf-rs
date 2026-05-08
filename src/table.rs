@@ -80,7 +80,13 @@ impl CuDFTable {
             ArrowError::InvalidArgumentError("Path contains invalid UTF-8".to_string())
         })?;
 
-        let inner = ffi::read_parquet(path_str)?;
+        let stream = ffi::get_default_stream();
+        let mr = ffi::get_current_device_resource_ref();
+        let inner = ffi::read_parquet(
+            path_str,
+            crate::stream::stream_ref(&stream)?,
+            crate::stream::resource_ref(&mr)?,
+        )?;
         Ok(Self { inner })
     }
 
@@ -111,7 +117,8 @@ impl CuDFTable {
         })?;
 
         let view = self.inner.view();
-        ffi::write_parquet(&view, path_str)?;
+        let stream = ffi::get_default_stream();
+        ffi::write_parquet(&view, path_str, crate::stream::stream_ref(&stream)?)?;
         Ok(())
     }
 
@@ -166,8 +173,8 @@ impl CuDFTable {
             ffi::table_from_arrow_host(
                 schema_ptr,
                 device_array_ptr,
-                stream.as_ref().expect("default stream should not be null"),
-                mr.as_ref().expect("device resource should not be null"),
+                crate::stream::stream_ref(&stream)?,
+                crate::stream::resource_ref(&mr)?,
             )
         }?;
 
@@ -278,7 +285,13 @@ impl CuDFTable {
                 v.into_inner()
             })
             .collect();
-        let inner = ffi::concat_table_views(&inner_views)?;
+        let stream = ffi::get_default_stream();
+        let mr = ffi::get_current_device_resource_ref();
+        let inner = ffi::concat_table_views(
+            &inner_views,
+            crate::stream::stream_ref(&stream)?,
+            crate::stream::resource_ref(&mr)?,
+        )?;
         Ok(Self { inner })
     }
 }

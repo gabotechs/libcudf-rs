@@ -33,8 +33,11 @@ namespace libcudf_bridge {
 
     GroupBy::~GroupBy() = default;
 
-    std::unique_ptr<GroupByResult> GroupBy::aggregate(const AggregationRequests &requests) const {
-        auto aggregate_result = inner->aggregate(requests.inner);
+    std::unique_ptr<GroupByResult> GroupBy::aggregate(
+        const AggregationRequests &requests,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) const {
+        auto aggregate_result = inner->aggregate(requests.inner, stream.inner, mr.inner);
 
         auto group_by_result = std::make_unique<GroupByResult>();
         group_by_result->keys.inner = std::move(aggregate_result.first);

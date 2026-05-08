@@ -116,11 +116,14 @@ namespace libcudf_bridge {
         schema_unique.release();
     }
 
-    void TableView::to_arrow_array(uint8_t *out_array_ptr) const {
+    void TableView::to_arrow_array(
+        uint8_t *out_array_ptr,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) const {
         if (!inner) {
             throw std::runtime_error("Cannot convert null table view to arrow array");
         }
-        auto device_array_unique = cudf::to_arrow_host(*this->inner);
+        auto device_array_unique = cudf::to_arrow_host(*this->inner, stream.inner, mr.inner);
         auto *out_array = reinterpret_cast<ArrowArray *>(out_array_ptr);
         // Extract just the ArrowArray from the ArrowDeviceArray
         *out_array = device_array_unique->array;

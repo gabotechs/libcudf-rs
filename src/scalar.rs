@@ -4,6 +4,7 @@ use arrow::array::{Array, ArrayData, ArrayRef, Scalar};
 use arrow::buffer::NullBuffer;
 use arrow_schema::DataType;
 use cxx::UniquePtr;
+use libcudf_sys::ffi;
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, RwLock};
@@ -14,14 +15,14 @@ use std::sync::{Arc, RwLock};
 /// This allows scalar values to be used in contexts that expect arrays, enabling
 /// seamless integration with operations that work on both scalars and columns.
 pub struct CuDFScalar {
-    inner: UniquePtr<libcudf_sys::ffi::Scalar>,
+    inner: UniquePtr<ffi::Scalar>,
     dt: DataType,
     cached_scalar: RwLock<Option<Arc<ArrayData>>>,
 }
 
 impl CuDFScalar {
     /// Create a CuDFScalar from an existing cuDF scalar
-    pub(crate) fn new(inner: UniquePtr<libcudf_sys::ffi::Scalar>) -> Self {
+    pub(crate) fn new(inner: UniquePtr<ffi::Scalar>) -> Self {
         let cudf_dtype = inner.data_type();
         let dt = cudf_type_to_arrow(&cudf_dtype);
         let dt = dt.unwrap_or(DataType::Null);
@@ -34,7 +35,7 @@ impl CuDFScalar {
     }
 
     /// Get a reference to the underlying cuDF scalar
-    pub(crate) fn inner(&self) -> &UniquePtr<libcudf_sys::ffi::Scalar> {
+    pub(crate) fn inner(&self) -> &UniquePtr<ffi::Scalar> {
         &self.inner
     }
 
@@ -84,7 +85,13 @@ impl CuDFScalar {
         unsafe {
             let device_array_ptr =
                 &mut device_array as *mut libcudf_sys::ArrowDeviceArray as *mut u8;
-            self.inner.to_arrow_array(device_array_ptr);
+            let stream = ffi::get_default_stream();
+            let mr = ffi::get_current_device_resource_ref();
+            self.inner.to_arrow_array(
+                device_array_ptr,
+                crate::stream::stream_ref(&stream)?,
+                crate::stream::resource_ref(&mr)?,
+            );
         }
 
         // Convert from FFI structures to Arrow ArrayData
@@ -126,7 +133,14 @@ impl CuDFScalar {
         let column = CuDFColumn::from_arrow_host(&array)?.into_view();
 
         // Extract the scalar from the column at index 0
-        let cudf_scalar = libcudf_sys::ffi::get_element(column.inner(), 0);
+        let stream = ffi::get_default_stream();
+        let mr = ffi::get_current_device_resource_ref();
+        let cudf_scalar = ffi::get_element(
+            column.inner(),
+            0,
+            crate::stream::stream_ref(&stream)?,
+            crate::stream::resource_ref(&mr)?,
+        );
 
         Ok(Self::new(cudf_scalar))
     }
