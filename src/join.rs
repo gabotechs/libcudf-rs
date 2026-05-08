@@ -1,4 +1,6 @@
 use crate::data_type::arrow_type_to_cudf_data_type;
+use crate::device_resource::resource_ref;
+use crate::stream::stream_ref;
 use crate::{
     CuDFAstExpression, CuDFColumn, CuDFColumnView, CuDFError, CuDFRef, CuDFScalar, CuDFTable,
     CuDFTableView,
@@ -65,20 +67,6 @@ impl JoinIndexVector {
 }
 
 impl CuDFRef for JoinIndexVector {}
-
-fn stream_ref(stream: &UniquePtr<ffi::CudaStreamView>) -> Result<&ffi::CudaStreamView, CuDFError> {
-    stream
-        .as_ref()
-        .ok_or(CuDFError::NullHandle("CUDA stream view"))
-}
-
-fn resource_ref(
-    resource: &UniquePtr<ffi::DeviceAsyncResourceRef>,
-) -> Result<&ffi::DeviceAsyncResourceRef, CuDFError> {
-    resource
-        .as_ref()
-        .ok_or(CuDFError::NullHandle("current device resource ref"))
-}
 
 fn null_gather_index() -> i32 {
     ffi::join_no_match()

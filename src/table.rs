@@ -1,5 +1,6 @@
 use crate::cudf_array::is_cudf_array;
-use crate::stream::{resource_ref, stream_ref};
+use crate::device_resource::resource_ref;
+use crate::stream::stream_ref;
 use crate::table_view::CuDFTableView;
 use crate::{CuDFColumn, CuDFError};
 use arrow::array::{Array, ArrayData, StructArray};

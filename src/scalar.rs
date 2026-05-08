@@ -1,5 +1,6 @@
 use crate::data_type::cudf_type_to_arrow;
-use crate::stream::{resource_ref, stream_ref};
+use crate::device_resource::resource_ref;
+use crate::stream::stream_ref;
 use crate::{CuDFColumn, CuDFError};
 use arrow::array::{Array, ArrayData, ArrayRef, Scalar};
 use arrow::buffer::NullBuffer;

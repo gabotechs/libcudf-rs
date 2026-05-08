@@ -1620,13 +1620,11 @@ mod tests {
     const CUDA_STREAM_FLAG_SYNC_DEFAULT: u32 = 0;
     const CUDA_STREAM_FLAG_NON_BLOCKING: u32 = 1;
 
-    type CxxResult<T> = std::result::Result<T, cxx::Exception>;
-
-    fn stream_ref(stream: &cxx::UniquePtr<ffi::CudaStreamView>) -> &ffi::CudaStreamView {
+    fn expect_stream(stream: &cxx::UniquePtr<ffi::CudaStreamView>) -> &ffi::CudaStreamView {
         stream.as_ref().expect("default stream should not be null")
     }
 
-    fn resource_ref(
+    fn expect_resource(
         resource: &cxx::UniquePtr<ffi::DeviceAsyncResourceRef>,
     ) -> &ffi::DeviceAsyncResourceRef {
         resource
@@ -1634,215 +1632,31 @@ mod tests {
             .expect("current device resource should not be null")
     }
 
-    fn read_parquet(filename: &str) -> CxxResult<cxx::UniquePtr<ffi::Table>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        ffi::read_parquet(filename, stream_ref(&stream), resource_ref(&resource))
-    }
-
-    fn sort_table(
-        input: &ffi::TableView,
-        column_order: &[i32],
-        null_precedence: &[i32],
-    ) -> CxxResult<cxx::UniquePtr<ffi::Table>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        ffi::sort_table(
-            input,
-            column_order,
-            null_precedence,
-            stream_ref(&stream),
-            resource_ref(&resource),
-        )
-    }
-
-    fn stable_sort_table(
-        input: &ffi::TableView,
-        column_order: &[i32],
-        null_precedence: &[i32],
-    ) -> CxxResult<cxx::UniquePtr<ffi::Table>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        ffi::stable_sort_table(
-            input,
-            column_order,
-            null_precedence,
-            stream_ref(&stream),
-            resource_ref(&resource),
-        )
-    }
-
-    fn sorted_order(
-        input: &ffi::TableView,
-        column_order: &[i32],
-        null_precedence: &[i32],
-    ) -> CxxResult<cxx::UniquePtr<ffi::Column>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        ffi::sorted_order(
-            input,
-            column_order,
-            null_precedence,
-            stream_ref(&stream),
-            resource_ref(&resource),
-        )
-    }
-
-    fn is_sorted(
-        input: &ffi::TableView,
-        column_order: &[i32],
-        null_precedence: &[i32],
-    ) -> CxxResult<bool> {
-        let stream = ffi::get_default_stream();
-        ffi::is_sorted(input, column_order, null_precedence, stream_ref(&stream))
-    }
-
-    fn sort_by_key(
-        values: &ffi::TableView,
-        keys: &ffi::TableView,
-        column_order: &[i32],
-        null_precedence: &[i32],
-    ) -> CxxResult<cxx::UniquePtr<ffi::Table>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        ffi::sort_by_key(
-            values,
-            keys,
-            column_order,
-            null_precedence,
-            stream_ref(&stream),
-            resource_ref(&resource),
-        )
-    }
-
-    fn stable_sort_by_key(
-        values: &ffi::TableView,
-        keys: &ffi::TableView,
-        column_order: &[i32],
-        null_precedence: &[i32],
-    ) -> CxxResult<cxx::UniquePtr<ffi::Table>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        ffi::stable_sort_by_key(
-            values,
-            keys,
-            column_order,
-            null_precedence,
-            stream_ref(&stream),
-            resource_ref(&resource),
-        )
-    }
-
-    fn binary_operation_col_col(
-        lhs: &ffi::ColumnView,
-        rhs: &ffi::ColumnView,
-        op: i32,
-        output_type: &ffi::DataType,
-    ) -> CxxResult<cxx::UniquePtr<ffi::Column>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        ffi::binary_operation_col_col(
-            lhs,
-            rhs,
-            op,
-            output_type,
-            stream_ref(&stream),
-            resource_ref(&resource),
-        )
-    }
-
-    fn reduce(
-        col: &ffi::ColumnView,
-        agg: &ffi::ReduceAggregation,
-        output_type: &ffi::DataType,
-    ) -> CxxResult<cxx::UniquePtr<ffi::Scalar>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        ffi::reduce(
-            col,
-            agg,
-            output_type,
-            stream_ref(&stream),
-            resource_ref(&resource),
-        )
-    }
-
-    fn reduce_with_init(
-        col: &ffi::ColumnView,
-        agg: &ffi::ReduceAggregation,
-        output_type: &ffi::DataType,
-        init: &ffi::Scalar,
-    ) -> CxxResult<cxx::UniquePtr<ffi::Scalar>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        ffi::reduce_with_init(
-            col,
-            agg,
-            output_type,
-            init,
-            stream_ref(&stream),
-            resource_ref(&resource),
-        )
-    }
-
-    fn get_element(column: &ffi::ColumnView, index: usize) -> cxx::UniquePtr<ffi::Scalar> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        ffi::get_element(column, index, stream_ref(&stream), resource_ref(&resource))
-    }
-
-    fn make_column_from_scalar(
-        scalar: &ffi::Scalar,
-        size: usize,
-    ) -> CxxResult<cxx::UniquePtr<ffi::Column>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        ffi::make_column_from_scalar(scalar, size, stream_ref(&stream), resource_ref(&resource))
-    }
-
-    fn apply_boolean_mask(
-        table: &ffi::TableView,
-        boolean_mask: &ffi::ColumnView,
-    ) -> CxxResult<cxx::UniquePtr<ffi::Table>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        ffi::apply_boolean_mask(
-            table,
-            boolean_mask,
-            stream_ref(&stream),
-            resource_ref(&resource),
-        )
-    }
-
-    fn aggregate(
-        groupby: &ffi::GroupBy,
-        requests: &ffi::AggregationRequests,
-    ) -> CxxResult<cxx::UniquePtr<ffi::GroupByResult>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        groupby.aggregate(requests, stream_ref(&stream), resource_ref(&resource))
-    }
-
-    fn slice_column(
-        column: &ffi::ColumnView,
-        offset: usize,
-        length: usize,
-    ) -> CxxResult<cxx::UniquePtr<ffi::ColumnView>> {
-        let stream = ffi::get_default_stream();
-        ffi::slice_column(column, offset, length, stream_ref(&stream))
-    }
-
     // Sorting tests
     #[test]
     fn test_sort_table_ascending() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000000.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
         let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
 
-        let sorted_table = sort_table(&table_view, &column_order, &null_precedence)?;
+        let sorted_table = ffi::sort_table(
+            &table_view,
+            &column_order,
+            &null_precedence,
+            stream_view,
+            resource_ref,
+        )?;
 
         assert_eq!(sorted_table.num_rows(), table.num_rows());
         assert_eq!(sorted_table.num_columns(), table.num_columns());
@@ -1853,14 +1667,28 @@ mod tests {
 
     #[test]
     fn test_sort_table_descending() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000000.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
         let column_order: Vec<i32> = vec![Order::Descending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::After as i32; num_cols];
 
-        let sorted_table = sort_table(&table_view, &column_order, &null_precedence)?;
+        let sorted_table = ffi::sort_table(
+            &table_view,
+            &column_order,
+            &null_precedence,
+            stream_view,
+            resource_ref,
+        )?;
 
         assert_eq!(sorted_table.num_rows(), table.num_rows());
         assert_eq!(sorted_table.num_columns(), table.num_columns());
@@ -1871,14 +1699,28 @@ mod tests {
 
     #[test]
     fn test_stable_sort_table() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000000.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
         let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
 
-        let sorted_table = stable_sort_table(&table_view, &column_order, &null_precedence)?;
+        let sorted_table = ffi::stable_sort_table(
+            &table_view,
+            &column_order,
+            &null_precedence,
+            stream_view,
+            resource_ref,
+        )?;
 
         assert_eq!(sorted_table.num_rows(), table.num_rows());
         assert_eq!(sorted_table.num_columns(), table.num_columns());
@@ -1889,14 +1731,28 @@ mod tests {
 
     #[test]
     fn test_sorted_order() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000000.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
         let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
 
-        let indices = sorted_order(&table_view, &column_order, &null_precedence)?;
+        let indices = ffi::sorted_order(
+            &table_view,
+            &column_order,
+            &null_precedence,
+            stream_view,
+            resource_ref,
+        )?;
 
         assert_eq!(indices.size(), table.num_rows());
         assert_snapshot!(pretty_column(&indices.view(), DataType::Int32)?);
@@ -1906,17 +1762,31 @@ mod tests {
 
     #[test]
     fn test_is_sorted() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000000.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
         let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
 
-        let sorted_table = sort_table(&table_view, &column_order, &null_precedence)?;
+        let sorted_table = ffi::sort_table(
+            &table_view,
+            &column_order,
+            &null_precedence,
+            stream_view,
+            resource_ref,
+        )?;
         let sorted_view = sorted_table.view();
 
-        let is_sorted = is_sorted(&sorted_view, &column_order, &null_precedence)?;
+        let is_sorted = ffi::is_sorted(&sorted_view, &column_order, &null_precedence, stream_view)?;
         assert!(is_sorted, "Table should be sorted after calling sort_table");
 
         Ok(())
@@ -1924,7 +1794,15 @@ mod tests {
 
     #[test]
     fn test_sort_by_key() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000000.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
 
         let keys_view = table_view.select(&[0]);
@@ -1932,7 +1810,14 @@ mod tests {
         let column_order = vec![Order::Ascending as i32];
         let null_precedence = vec![NullOrder::Before as i32];
 
-        let sorted_table = sort_by_key(&table_view, &keys_view, &column_order, &null_precedence)?;
+        let sorted_table = ffi::sort_by_key(
+            &table_view,
+            &keys_view,
+            &column_order,
+            &null_precedence,
+            stream_view,
+            resource_ref,
+        )?;
 
         assert_eq!(sorted_table.num_rows(), table.num_rows());
         assert_eq!(sorted_table.num_columns(), table.num_columns());
@@ -1943,7 +1828,15 @@ mod tests {
 
     #[test]
     fn test_stable_sort_by_key() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000000.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
 
         let keys_view = table_view.select(&[0, 1]);
@@ -1951,8 +1844,14 @@ mod tests {
         let column_order = vec![Order::Ascending as i32, Order::Descending as i32];
         let null_precedence = vec![NullOrder::Before as i32, NullOrder::After as i32];
 
-        let sorted_table =
-            stable_sort_by_key(&table_view, &keys_view, &column_order, &null_precedence)?;
+        let sorted_table = ffi::stable_sort_by_key(
+            &table_view,
+            &keys_view,
+            &column_order,
+            &null_precedence,
+            stream_view,
+            resource_ref,
+        )?;
 
         assert_eq!(sorted_table.num_rows(), table.num_rows());
         assert_eq!(sorted_table.num_columns(), table.num_columns());
@@ -1964,15 +1863,29 @@ mod tests {
     // Binary operation tests
     #[test]
     fn test_binary_op_col_col_add() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000000.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
 
         let col1 = table_view.column(1);
         let col2 = table_view.column(2);
 
         let output_type = ffi::new_data_type(TypeId::Float64 as i32);
-        let result =
-            binary_operation_col_col(&col1, &col2, BinaryOperator::Add as i32, &output_type)?;
+        let result = ffi::binary_operation_col_col(
+            &col1,
+            &col2,
+            BinaryOperator::Add as i32,
+            &output_type,
+            stream_view,
+            resource_ref,
+        )?;
 
         assert_eq!(result.size(), col1.size());
         assert_eq!(result.size(), col2.size());
@@ -1983,15 +1896,29 @@ mod tests {
 
     #[test]
     fn test_binary_op_col_col_multiply() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000000.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
 
         let col1 = table_view.column(1);
         let col2 = table_view.column(2);
 
         let output_type = ffi::new_data_type(TypeId::Float64 as i32);
-        let result =
-            binary_operation_col_col(&col1, &col2, BinaryOperator::Mul as i32, &output_type)?;
+        let result = ffi::binary_operation_col_col(
+            &col1,
+            &col2,
+            BinaryOperator::Mul as i32,
+            &output_type,
+            stream_view,
+            resource_ref,
+        )?;
 
         assert_eq!(result.size(), col1.size());
         assert_snapshot!(pretty_column(&result.view(), DataType::Float64)?);
@@ -2061,8 +1988,16 @@ mod tests {
         let table = table_from_decimal128_column("amount", vec![12345, 67890], 2)?;
         let column = table.view().column(0);
         let output_type = ffi::new_data_type_with_scale(TypeId::Decimal128 as i32, -2);
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
 
-        let result = reduce(&column, &ffi::make_sum_aggregation(), &output_type)?;
+        let result = ffi::reduce(
+            &column,
+            &ffi::make_sum_aggregation(),
+            &output_type,
+            expect_stream(&stream),
+            expect_resource(&resource),
+        )?;
         let result_type = result.data_type();
 
         assert!(result.is_valid());
@@ -2077,11 +2012,22 @@ mod tests {
         let table = table_from_i32_columns(&[("values", vec![1, 2, 3])])?;
         let values = table.view().column(0);
         let init_table = table_from_i32_columns(&[("init", vec![10])])?;
-        let init = get_element(&init_table.view().column(0), 0);
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let init = ffi::get_element(&init_table.view().column(0), 0, stream_view, resource_ref);
         let output_type = ffi::new_data_type(TypeId::Int32 as i32);
 
-        let result = reduce_with_init(&values, &ffi::make_sum_aggregation(), &output_type, &init)?;
-        let result_column = make_column_from_scalar(&result, 1)?;
+        let result = ffi::reduce_with_init(
+            &values,
+            &ffi::make_sum_aggregation(),
+            &output_type,
+            &init,
+            stream_view,
+            resource_ref,
+        )?;
+        let result_column = ffi::make_column_from_scalar(&result, 1, stream_view, resource_ref)?;
 
         assert_snapshot!(pretty_column(&result_column.view(), DataType::Int32)?, @r"
         +------+
@@ -2099,20 +2045,28 @@ mod tests {
         let table = table_from_nullable_i32_column("values", vec![Some(1), None, Some(3), None])?;
         let values = table.view().column(0);
         let output_type = ffi::new_data_type(TypeId::Int32 as i32);
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
 
-        let exclude = reduce(
+        let exclude = ffi::reduce(
             &values,
             &ffi::make_count_aggregation(NullPolicy::Exclude as i32),
             &output_type,
+            stream_view,
+            resource_ref,
         )?;
-        let include = reduce(
+        let include = ffi::reduce(
             &values,
             &ffi::make_count_aggregation(NullPolicy::Include as i32),
             &output_type,
+            stream_view,
+            resource_ref,
         )?;
 
-        let exclude_column = make_column_from_scalar(&exclude, 1)?;
-        let include_column = make_column_from_scalar(&include, 1)?;
+        let exclude_column = ffi::make_column_from_scalar(&exclude, 1, stream_view, resource_ref)?;
+        let include_column = ffi::make_column_from_scalar(&include, 1, stream_view, resource_ref)?;
 
         assert_snapshot!(pretty_column(&exclude_column.view(), DataType::Int32)?, @r"
         +------+
@@ -2162,10 +2116,8 @@ mod tests {
             &left_keys,
             &right_keys,
             NullEquality::Equal as i32,
-            stream.as_ref().expect("default stream should not be null"),
-            resource
-                .as_ref()
-                .expect("current resource should not be null"),
+            expect_stream(&stream),
+            expect_resource(&resource),
         )?;
         let left_indices = indices.pin_mut().release_left();
         let right_indices = indices.pin_mut().release_right();
@@ -2202,10 +2154,8 @@ mod tests {
                 .expect("right index vector should not be null"),
             &predicate,
             JoinKind::Inner as i32,
-            stream.as_ref().expect("default stream should not be null"),
-            resource
-                .as_ref()
-                .expect("current resource should not be null"),
+            expect_stream(&stream),
+            expect_resource(&resource),
         )?;
         let filtered_left = filtered.pin_mut().release_left();
         let filtered_right = filtered.pin_mut().release_right();
@@ -2221,21 +2171,32 @@ mod tests {
     // Filter tests
     #[test]
     fn test_apply_boolean_mask() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000000.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
 
         let min_temp = table_view.column(1);
         let max_temp = table_view.column(2);
 
         let output_type = ffi::new_data_type(TypeId::Bool8 as i32);
-        let boolean_mask = binary_operation_col_col(
+        let boolean_mask = ffi::binary_operation_col_col(
             &min_temp,
             &max_temp,
             BinaryOperator::Less as i32,
             &output_type,
+            stream_view,
+            resource_ref,
         )?;
 
-        let filtered_table = apply_boolean_mask(&table_view, &boolean_mask.view())?;
+        let filtered_table =
+            ffi::apply_boolean_mask(&table_view, &boolean_mask.view(), stream_view, resource_ref)?;
 
         assert!(filtered_table.num_rows() < table.num_rows());
         assert_eq!(filtered_table.num_columns(), table.num_columns());
@@ -2250,7 +2211,15 @@ mod tests {
     // GroupBy tests
     #[test]
     fn test_groupby_sum() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000000.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
 
         let column_order: &[i32] = &[];
@@ -2269,7 +2238,7 @@ mod tests {
 
         let mut agg_requests = ffi::aggregation_requests_create();
         agg_requests.pin_mut().add(request);
-        let mut groupby_result = aggregate(&groupby, &agg_requests)?;
+        let mut groupby_result = groupby.aggregate(&agg_requests, stream_view, resource_ref)?;
 
         let mut aggregation_result = groupby_result.pin_mut().release_result(0);
         let keys = groupby_result.pin_mut().release_keys();
@@ -2285,7 +2254,15 @@ mod tests {
 
     #[test]
     fn test_groupby_multiple_aggregations() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000001.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000001.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
 
         let keys_view = table_view.select(&[0]);
@@ -2313,7 +2290,7 @@ mod tests {
 
         let mut requests = ffi::aggregation_requests_create();
         requests.pin_mut().add(agg_request);
-        let mut groupby_result = aggregate(&groupby, &requests)?;
+        let mut groupby_result = groupby.aggregate(&requests, stream_view, resource_ref)?;
 
         assert_eq!(groupby_result.len(), 1);
         let mut agg_result = groupby_result.pin_mut().release_result(0);
@@ -2336,14 +2313,22 @@ mod tests {
     // Slice tests
     #[test]
     fn test_slice_column_basic() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000000.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
         let original_col = table_view.column(1);
 
         let original_size = original_col.size();
         assert!(original_size > 10, "Need at least 10 rows for testing");
 
-        let sliced_col = slice_column(&original_col, 5, 5)?;
+        let sliced_col = ffi::slice_column(&original_col, 5, 5, stream_view)?;
 
         assert_eq!(sliced_col.size(), 5);
 
@@ -2368,11 +2353,19 @@ mod tests {
 
     #[test]
     fn test_slice_column_from_start() -> Result<(), Box<dyn std::error::Error>> {
-        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
+        let stream = ffi::get_default_stream();
+        let resource = ffi::get_current_device_resource_ref();
+        let stream_view = expect_stream(&stream);
+        let resource_ref = expect_resource(&resource);
+        let table = ffi::read_parquet(
+            "../testdata/weather/result-000000.parquet",
+            stream_view,
+            resource_ref,
+        )?;
         let table_view = table.view();
         let original_col = table_view.column(2);
 
-        let sliced_col = slice_column(&original_col, 0, 10)?;
+        let sliced_col = ffi::slice_column(&original_col, 0, 10, stream_view)?;
 
         assert_eq!(sliced_col.size(), 10);
         assert_snapshot!(pretty_column(&sliced_col, DataType::Float64)?, @r"
@@ -2438,8 +2431,8 @@ mod tests {
         let resource = get_current_device_resource_ref();
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
-            stream_ref(&stream),
-            resource_ref(&resource),
+            expect_stream(&stream),
+            expect_resource(&resource),
         )?;
 
         assert!(table.num_rows() > 0);
@@ -2491,8 +2484,8 @@ mod tests {
             ffi::table_from_arrow_host(
                 schema_ptr,
                 device_array_ptr,
-                stream.as_ref().expect("default stream should not be null"),
-                mr.as_ref().expect("device resource should not be null"),
+                expect_stream(&stream),
+                expect_resource(&mr),
             )
         }?)
     }
@@ -2518,8 +2511,8 @@ mod tests {
             ffi::table_from_arrow_host(
                 schema_ptr,
                 device_array_ptr,
-                stream.as_ref().expect("default stream should not be null"),
-                mr.as_ref().expect("device resource should not be null"),
+                expect_stream(&stream),
+                expect_resource(&mr),
             )
         }?)
     }
@@ -2547,8 +2540,8 @@ mod tests {
             ffi::table_from_arrow_host(
                 schema_ptr,
                 device_array_ptr,
-                stream.as_ref().expect("default stream should not be null"),
-                mr.as_ref().expect("device resource should not be null"),
+                expect_stream(&stream),
+                expect_resource(&mr),
             )
         }?)
     }
@@ -2562,8 +2555,8 @@ mod tests {
         let data = unsafe {
             table_view.to_arrow_array(
                 &mut array as *mut FFI_ArrowArray as *mut u8,
-                stream_ref(&stream),
-                resource_ref(&resource),
+                expect_stream(&stream),
+                expect_resource(&resource),
             );
             table_view.to_arrow_schema(&mut schema as *mut FFI_ArrowSchema as *mut u8);
 
@@ -2586,8 +2579,8 @@ mod tests {
         let data = unsafe {
             column_view.to_arrow_array(
                 &mut array as *mut FFI_ArrowArray as *mut u8,
-                stream_ref(&stream),
-                resource_ref(&resource),
+                expect_stream(&stream),
+                expect_resource(&resource),
             );
 
             from_ffi_and_data_type(array, data_type).expect("ffi data should be valid")

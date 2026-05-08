@@ -25,6 +25,7 @@ mod config;
 mod cudf_array;
 mod cudf_reference;
 mod data_type;
+mod device_resource;
 mod errors;
 mod group_by;
 mod join;

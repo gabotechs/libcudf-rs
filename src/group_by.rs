@@ -1,6 +1,7 @@
 use crate::cudf_reference::CuDFRef;
+use crate::device_resource::resource_ref;
 use crate::errors::Result;
-use crate::stream::{resource_ref, stream_ref};
+use crate::stream::stream_ref;
 use crate::table_view::CuDFTableView;
 use crate::{CuDFColumn, CuDFColumnView, CuDFTable};
 use cxx::UniquePtr;

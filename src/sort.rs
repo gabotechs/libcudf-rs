@@ -1,4 +1,5 @@
-use crate::stream::{resource_ref, stream_ref};
+use crate::device_resource::resource_ref;
+use crate::stream::stream_ref;
 use crate::{CuDFColumn, CuDFError, CuDFTable, CuDFTableView};
 use libcudf_sys::{ffi, NullOrder, Order};
 

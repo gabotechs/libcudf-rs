@@ -1,5 +1,6 @@
 use crate::data_type::arrow_type_to_cudf;
-use crate::stream::{resource_ref, stream_ref};
+use crate::device_resource::resource_ref;
+use crate::stream::stream_ref;
 use crate::{CuDFColumnView, CuDFError};
 use arrow::array::Array;
 use arrow::ffi::FFI_ArrowArray;
