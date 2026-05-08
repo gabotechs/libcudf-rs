@@ -187,13 +187,6 @@ pub mod ffi {
         /// Opaque non-owning wrapper for an RMM device async resource reference.
         type DeviceAsyncResourceRef;
 
-        /// Performs grouped aggregations using an explicit CUDA stream.
-        fn aggregate_on(
-            self: &GroupBy,
-            requests: &AggregationRequests,
-            stream: &CudaStream,
-        ) -> Result<UniquePtr<GroupByResult>>;
-
         /// Request for groupby aggregation(s) to perform on a column
         ///
         /// The group membership of each value is determined by the corresponding row
@@ -213,6 +206,8 @@ pub mod ffi {
         fn aggregate(
             self: &GroupBy,
             requests: &AggregationRequests,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<GroupByResult>>;
 
         // AggregationRequest methods
@@ -298,14 +293,12 @@ pub mod ffi {
         /// # Safety
         ///
         /// `out_array_ptr` must point to a valid `ArrowArray`. Caller must release it.
-        unsafe fn to_arrow_array(self: &TableView, out_array_ptr: *mut u8);
-
-        /// Get the table view data as an FFI ArrowArray using an explicit CUDA stream.
-        ///
-        /// # Safety
-        ///
-        /// `out_array_ptr` must point to a valid `ArrowArray`. Caller must release it.
-        unsafe fn to_arrow_array_on(self: &TableView, out_array_ptr: *mut u8, stream: &CudaStream);
+        unsafe fn to_arrow_array(
+            self: &TableView,
+            out_array_ptr: *mut u8,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        );
 
         /// Clone this table view
         ///
@@ -333,14 +326,12 @@ pub mod ffi {
         /// # Safety
         ///
         /// `out_array_ptr` must point to a valid `ArrowArray`. Caller must release it.
-        unsafe fn to_arrow_array(self: &ColumnView, out_array_ptr: *mut u8);
-
-        /// Get the column view data as an FFI ArrowArray using an explicit CUDA stream.
-        ///
-        /// # Safety
-        ///
-        /// `out_array_ptr` must point to a valid `ArrowArray`. Caller must release it.
-        unsafe fn to_arrow_array_on(self: &ColumnView, out_array_ptr: *mut u8, stream: &CudaStream);
+        unsafe fn to_arrow_array(
+            self: &ColumnView,
+            out_array_ptr: *mut u8,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        );
 
         /// Get the raw device pointer to the column view's data
         fn data_ptr(self: &ColumnView) -> u64;
@@ -362,10 +353,10 @@ pub mod ffi {
         fn null_count(self: &ColumnView) -> i32;
 
         /// Get buffer memory size (data + offsets, no null mask)
-        fn get_buffer_memory_size(self: &ColumnView) -> usize;
+        fn get_buffer_memory_size(self: &ColumnView, stream: &CudaStreamView) -> usize;
 
         /// Get total array memory size (data + offsets + null mask + children)
-        fn get_array_memory_size(self: &ColumnView) -> usize;
+        fn get_array_memory_size(self: &ColumnView, stream: &CudaStreamView) -> usize;
 
         /// Transfer the null buffer
         fn get_null_buffer(self: &ColumnView) -> Vec<u8>;
@@ -383,7 +374,12 @@ pub mod ffi {
         /// # Safety
         ///
         /// `out_array_ptr` must point to a valid `ArrowArray`. Caller must release it.
-        unsafe fn to_arrow_array(self: &Scalar, out_array_ptr: *mut u8);
+        unsafe fn to_arrow_array(
+            self: &Scalar,
+            out_array_ptr: *mut u8,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        );
 
         /// Check if the scalar is valid (not null)
         fn is_valid(self: &Scalar) -> bool;
@@ -414,28 +410,35 @@ pub mod ffi {
         fn create_table_from_columns_move(columns: &[*mut Column]) -> UniquePtr<Table>;
 
         /// Create a table from vertically concatenating TableView together
-        fn concat_table_views(views: &[UniquePtr<TableView>]) -> Result<UniquePtr<Table>>;
-
-        /// Concatenate TableViews using an explicit CUDA stream.
-        fn concat_table_views_on(
+        fn concat_table_views(
             views: &[UniquePtr<TableView>],
-            stream: &CudaStream,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
         /// Create a table from vertically concatenating ColumnView together
-        fn concat_column_views(views: &[UniquePtr<ColumnView>]) -> Result<UniquePtr<Column>>;
-
-        /// Concatenate ColumnViews using an explicit CUDA stream.
-        fn concat_column_views_on(
+        fn concat_column_views(
             views: &[UniquePtr<ColumnView>],
-            stream: &CudaStream,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Column>>;
 
         /// Create a column by repeating a scalar value.
-        fn make_column_from_scalar(scalar: &Scalar, size: usize) -> Result<UniquePtr<Column>>;
+        fn make_column_from_scalar(
+            scalar: &Scalar,
+            size: usize,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        ) -> Result<UniquePtr<Column>>;
 
         /// Fill a column with a sequence starting at `init` and stepping by `step`.
-        fn sequence(size: usize, init: &Scalar, step: &Scalar) -> Result<UniquePtr<Column>>;
+        fn sequence(
+            size: usize,
+            init: &Scalar,
+            step: &Scalar,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        ) -> Result<UniquePtr<Column>>;
 
         /// Create a TableView from a set of ColumnView pointers (non-owning)
         fn create_table_view_from_column_views(
@@ -445,10 +448,14 @@ pub mod ffi {
         // Parquet I/O
 
         /// Read a Parquet file into a table
-        fn read_parquet(filename: &str) -> Result<UniquePtr<Table>>;
+        fn read_parquet(
+            filename: &str,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        ) -> Result<UniquePtr<Table>>;
 
         /// Write a table to a Parquet file
-        fn write_parquet(table: &TableView, filename: &str) -> Result<()>;
+        fn write_parquet(table: &TableView, filename: &str, stream: &CudaStreamView) -> Result<()>;
 
         // Direct cuDF operations
 
@@ -460,26 +467,19 @@ pub mod ffi {
         fn apply_boolean_mask(
             table: &TableView,
             boolean_mask: &ColumnView,
-        ) -> Result<UniquePtr<Table>>;
-
-        /// Filters a table using a boolean mask on an explicit CUDA stream.
-        fn apply_boolean_mask_on(
-            table: &TableView,
-            boolean_mask: &ColumnView,
-            stream: &CudaStream,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
         /// Gather rows from a table based on a gather map (column of indices)
         ///
         /// Reorders the rows of `source_table` according to the indices in `gather_map`.
         /// The resulting table will have the same number of rows as `gather_map` has elements.
-        fn gather(source_table: &TableView, gather_map: &ColumnView) -> Result<UniquePtr<Table>>;
-
-        /// Gather rows from a table on an explicit CUDA stream.
-        fn gather_on(
+        fn gather(
             source_table: &TableView,
             gather_map: &ColumnView,
-            stream: &CudaStream,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
         /// Gather rows from a table using an explicit out-of-bounds policy.
@@ -487,14 +487,8 @@ pub mod ffi {
             source_table: &TableView,
             gather_map: &ColumnView,
             out_of_bounds_policy: i32,
-        ) -> Result<UniquePtr<Table>>;
-
-        /// Gather rows using an explicit out-of-bounds policy and CUDA stream.
-        fn gather_with_policy_on(
-            source_table: &TableView,
-            gather_map: &ColumnView,
-            out_of_bounds_policy: i32,
-            stream: &CudaStream,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
         /// Scatter scalar rows into a copy of a target table.
@@ -502,6 +496,8 @@ pub mod ffi {
             source: &[*const Scalar],
             indices: &ColumnView,
             target: &TableView,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
         /// Create a table without duplicate rows.
@@ -511,6 +507,8 @@ pub mod ffi {
             keep: i32,
             nulls_equal: i32,
             nans_equal: i32,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
         /// Create a sliced view of a column
@@ -520,6 +518,7 @@ pub mod ffi {
             column: &ColumnView,
             offset: usize,
             length: usize,
+            stream: &CudaStreamView,
         ) -> Result<UniquePtr<ColumnView>>;
 
         // Binary operations - direct cuDF mappings
@@ -533,15 +532,8 @@ pub mod ffi {
             rhs: &ColumnView,
             op: i32,
             output_type: &DataType,
-        ) -> Result<UniquePtr<Column>>;
-
-        /// Perform a binary operation between two columns on an explicit CUDA stream.
-        fn binary_operation_col_col_on(
-            lhs: &ColumnView,
-            rhs: &ColumnView,
-            op: i32,
-            output_type: &DataType,
-            stream: &CudaStream,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Column>>;
 
         /// Perform a binary operation between a column and a scalar
@@ -553,15 +545,8 @@ pub mod ffi {
             rhs: &Scalar,
             op: i32,
             output_type: &DataType,
-        ) -> Result<UniquePtr<Column>>;
-
-        /// Perform a binary operation between a column and scalar on an explicit CUDA stream.
-        fn binary_operation_col_scalar_on(
-            lhs: &ColumnView,
-            rhs: &Scalar,
-            op: i32,
-            output_type: &DataType,
-            stream: &CudaStream,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Column>>;
 
         /// Perform a binary operation between a scalar and a column
@@ -573,15 +558,8 @@ pub mod ffi {
             rhs: &ColumnView,
             op: i32,
             output_type: &DataType,
-        ) -> Result<UniquePtr<Column>>;
-
-        /// Perform a binary operation between a scalar and column on an explicit CUDA stream.
-        fn binary_operation_scalar_col_on(
-            lhs: &Scalar,
-            rhs: &ColumnView,
-            op: i32,
-            output_type: &DataType,
-            stream: &CudaStream,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Column>>;
 
         // Sorting operations - direct cuDF mappings
@@ -593,6 +571,8 @@ pub mod ffi {
             input: &TableView,
             column_order: &[i32],
             null_precedence: &[i32],
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
         /// Stable sort a table in lexicographic order
@@ -602,14 +582,8 @@ pub mod ffi {
             input: &TableView,
             column_order: &[i32],
             null_precedence: &[i32],
-        ) -> Result<UniquePtr<Table>>;
-
-        /// Stable sort a table on an explicit CUDA stream.
-        fn stable_sort_table_on(
-            input: &TableView,
-            column_order: &[i32],
-            null_precedence: &[i32],
-            stream: &CudaStream,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
         /// Get the indices that would sort a table
@@ -619,6 +593,8 @@ pub mod ffi {
             input: &TableView,
             column_order: &[i32],
             null_precedence: &[i32],
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Column>>;
 
         /// Get the indices that would stably sort a table
@@ -628,14 +604,8 @@ pub mod ffi {
             input: &TableView,
             column_order: &[i32],
             null_precedence: &[i32],
-        ) -> Result<UniquePtr<Column>>;
-
-        /// Get stable sorted row indices on an explicit CUDA stream.
-        fn stable_sorted_order_on(
-            input: &TableView,
-            column_order: &[i32],
-            null_precedence: &[i32],
-            stream: &CudaStream,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Column>>;
 
         /// Check if a table is sorted
@@ -645,6 +615,7 @@ pub mod ffi {
             input: &TableView,
             column_order: &[i32],
             null_precedence: &[i32],
+            stream: &CudaStreamView,
         ) -> Result<bool>;
 
         /// Sort values table based on keys table
@@ -656,6 +627,8 @@ pub mod ffi {
             keys: &TableView,
             column_order: &[i32],
             null_precedence: &[i32],
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
         /// Stable sort values table based on keys table
@@ -666,15 +639,8 @@ pub mod ffi {
             keys: &TableView,
             column_order: &[i32],
             null_precedence: &[i32],
-        ) -> Result<UniquePtr<Table>>;
-
-        /// Stable sort values by keys on an explicit CUDA stream.
-        fn stable_sort_by_key_on(
-            values: &TableView,
-            keys: &TableView,
-            column_order: &[i32],
-            null_precedence: &[i32],
-            stream: &CudaStream,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
         // Join operations.
@@ -844,6 +810,8 @@ pub mod ffi {
             col: &ColumnView,
             agg: &ReduceAggregation,
             output_type: &DataType,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Scalar>>;
 
         /// Computes a reduction with an initial scalar value.
@@ -852,6 +820,8 @@ pub mod ffi {
             agg: &ReduceAggregation,
             output_type: &DataType,
             init: &Scalar,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Scalar>>;
 
         // GroupBy operations - direct cuDF mappings
@@ -903,17 +873,20 @@ pub mod ffi {
         ) -> Result<UniquePtr<Column>>;
 
         /// Cast a column to a different data type using GPU-native cudf::cast
-        fn cast_column(input: &ColumnView, target_type: &DataType) -> Result<UniquePtr<Column>>;
-
-        /// Cast a column on an explicit CUDA stream.
-        fn cast_column_on(
+        fn cast_column(
             input: &ColumnView,
             target_type: &DataType,
-            stream: &CudaStream,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Column>>;
 
         /// Extract a scalar from a column at the specified index
-        fn get_element(column: &ColumnView, index: usize) -> UniquePtr<Scalar>;
+        fn get_element(
+            column: &ColumnView,
+            index: usize,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        ) -> UniquePtr<Scalar>;
 
         /// Get the version of the cuDF library
         fn get_cudf_version() -> String;
@@ -970,9 +943,6 @@ pub mod ffi {
         /// Return cuDF's process-global pinned memory resource handle.
         fn get_pinned_memory_resource() -> UniquePtr<HostDeviceAsyncResourceRef>;
 
-        /// Block until all work on cuDF's default stream has completed.
-        fn cuda_default_stream_synchronize() -> Result<()>;
-
         /// Opaque owning wrapper around `rmm::mr::cuda_memory_resource`.
         type CudaMemoryResource;
 
@@ -995,6 +965,11 @@ pub mod ffi {
         /// Return total VRAM bytes on the current CUDA device.
         fn total_device_memory() -> usize;
     }
+}
+
+/// Return cuDF's current default stream as an explicit stream-view handle.
+pub fn get_default_stream() -> cxx::UniquePtr<ffi::CudaStreamView> {
+    ffi::get_default_stream()
 }
 
 /// Sort order for columns
@@ -1639,17 +1614,227 @@ mod tests {
 
     const CUDA_STREAM_FLAG_SYNC_DEFAULT: u32 = 0;
     const CUDA_STREAM_FLAG_NON_BLOCKING: u32 = 1;
+
+    type CxxResult<T> = std::result::Result<T, cxx::Exception>;
+
+    fn default_context() -> (
+        cxx::UniquePtr<ffi::CudaStreamView>,
+        cxx::UniquePtr<ffi::DeviceAsyncResourceRef>,
+    ) {
+        (
+            ffi::get_default_stream(),
+            ffi::get_current_device_resource_ref(),
+        )
+    }
+
+    fn stream_ref(stream: &cxx::UniquePtr<ffi::CudaStreamView>) -> &ffi::CudaStreamView {
+        stream.as_ref().expect("default stream should not be null")
+    }
+
+    fn resource_ref(
+        resource: &cxx::UniquePtr<ffi::DeviceAsyncResourceRef>,
+    ) -> &ffi::DeviceAsyncResourceRef {
+        resource
+            .as_ref()
+            .expect("current device resource should not be null")
+    }
+
+    fn read_parquet(filename: &str) -> CxxResult<cxx::UniquePtr<ffi::Table>> {
+        let (stream, resource) = default_context();
+        ffi::read_parquet(filename, stream_ref(&stream), resource_ref(&resource))
+    }
+
+    fn sort_table(
+        input: &ffi::TableView,
+        column_order: &[i32],
+        null_precedence: &[i32],
+    ) -> CxxResult<cxx::UniquePtr<ffi::Table>> {
+        let (stream, resource) = default_context();
+        ffi::sort_table(
+            input,
+            column_order,
+            null_precedence,
+            stream_ref(&stream),
+            resource_ref(&resource),
+        )
+    }
+
+    fn stable_sort_table(
+        input: &ffi::TableView,
+        column_order: &[i32],
+        null_precedence: &[i32],
+    ) -> CxxResult<cxx::UniquePtr<ffi::Table>> {
+        let (stream, resource) = default_context();
+        ffi::stable_sort_table(
+            input,
+            column_order,
+            null_precedence,
+            stream_ref(&stream),
+            resource_ref(&resource),
+        )
+    }
+
+    fn sorted_order(
+        input: &ffi::TableView,
+        column_order: &[i32],
+        null_precedence: &[i32],
+    ) -> CxxResult<cxx::UniquePtr<ffi::Column>> {
+        let (stream, resource) = default_context();
+        ffi::sorted_order(
+            input,
+            column_order,
+            null_precedence,
+            stream_ref(&stream),
+            resource_ref(&resource),
+        )
+    }
+
+    fn is_sorted(
+        input: &ffi::TableView,
+        column_order: &[i32],
+        null_precedence: &[i32],
+    ) -> CxxResult<bool> {
+        let (stream, _) = default_context();
+        ffi::is_sorted(input, column_order, null_precedence, stream_ref(&stream))
+    }
+
+    fn sort_by_key(
+        values: &ffi::TableView,
+        keys: &ffi::TableView,
+        column_order: &[i32],
+        null_precedence: &[i32],
+    ) -> CxxResult<cxx::UniquePtr<ffi::Table>> {
+        let (stream, resource) = default_context();
+        ffi::sort_by_key(
+            values,
+            keys,
+            column_order,
+            null_precedence,
+            stream_ref(&stream),
+            resource_ref(&resource),
+        )
+    }
+
+    fn stable_sort_by_key(
+        values: &ffi::TableView,
+        keys: &ffi::TableView,
+        column_order: &[i32],
+        null_precedence: &[i32],
+    ) -> CxxResult<cxx::UniquePtr<ffi::Table>> {
+        let (stream, resource) = default_context();
+        ffi::stable_sort_by_key(
+            values,
+            keys,
+            column_order,
+            null_precedence,
+            stream_ref(&stream),
+            resource_ref(&resource),
+        )
+    }
+
+    fn binary_operation_col_col(
+        lhs: &ffi::ColumnView,
+        rhs: &ffi::ColumnView,
+        op: i32,
+        output_type: &ffi::DataType,
+    ) -> CxxResult<cxx::UniquePtr<ffi::Column>> {
+        let (stream, resource) = default_context();
+        ffi::binary_operation_col_col(
+            lhs,
+            rhs,
+            op,
+            output_type,
+            stream_ref(&stream),
+            resource_ref(&resource),
+        )
+    }
+
+    fn reduce(
+        col: &ffi::ColumnView,
+        agg: &ffi::ReduceAggregation,
+        output_type: &ffi::DataType,
+    ) -> CxxResult<cxx::UniquePtr<ffi::Scalar>> {
+        let (stream, resource) = default_context();
+        ffi::reduce(
+            col,
+            agg,
+            output_type,
+            stream_ref(&stream),
+            resource_ref(&resource),
+        )
+    }
+
+    fn reduce_with_init(
+        col: &ffi::ColumnView,
+        agg: &ffi::ReduceAggregation,
+        output_type: &ffi::DataType,
+        init: &ffi::Scalar,
+    ) -> CxxResult<cxx::UniquePtr<ffi::Scalar>> {
+        let (stream, resource) = default_context();
+        ffi::reduce_with_init(
+            col,
+            agg,
+            output_type,
+            init,
+            stream_ref(&stream),
+            resource_ref(&resource),
+        )
+    }
+
+    fn get_element(column: &ffi::ColumnView, index: usize) -> cxx::UniquePtr<ffi::Scalar> {
+        let (stream, resource) = default_context();
+        ffi::get_element(column, index, stream_ref(&stream), resource_ref(&resource))
+    }
+
+    fn make_column_from_scalar(
+        scalar: &ffi::Scalar,
+        size: usize,
+    ) -> CxxResult<cxx::UniquePtr<ffi::Column>> {
+        let (stream, resource) = default_context();
+        ffi::make_column_from_scalar(scalar, size, stream_ref(&stream), resource_ref(&resource))
+    }
+
+    fn apply_boolean_mask(
+        table: &ffi::TableView,
+        boolean_mask: &ffi::ColumnView,
+    ) -> CxxResult<cxx::UniquePtr<ffi::Table>> {
+        let (stream, resource) = default_context();
+        ffi::apply_boolean_mask(
+            table,
+            boolean_mask,
+            stream_ref(&stream),
+            resource_ref(&resource),
+        )
+    }
+
+    fn aggregate(
+        groupby: &ffi::GroupBy,
+        requests: &ffi::AggregationRequests,
+    ) -> CxxResult<cxx::UniquePtr<ffi::GroupByResult>> {
+        let (stream, resource) = default_context();
+        groupby.aggregate(requests, stream_ref(&stream), resource_ref(&resource))
+    }
+
+    fn slice_column(
+        column: &ffi::ColumnView,
+        offset: usize,
+        length: usize,
+    ) -> CxxResult<cxx::UniquePtr<ffi::ColumnView>> {
+        let (stream, _) = default_context();
+        ffi::slice_column(column, offset, length, stream_ref(&stream))
+    }
+
     // Sorting tests
     #[test]
     fn test_sort_table_ascending() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
         let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
 
-        let sorted_table = ffi::sort_table(&table_view, &column_order, &null_precedence)?;
+        let sorted_table = sort_table(&table_view, &column_order, &null_precedence)?;
 
         assert_eq!(sorted_table.num_rows(), table.num_rows());
         assert_eq!(sorted_table.num_columns(), table.num_columns());
@@ -1660,14 +1845,14 @@ mod tests {
 
     #[test]
     fn test_sort_table_descending() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
         let column_order: Vec<i32> = vec![Order::Descending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::After as i32; num_cols];
 
-        let sorted_table = ffi::sort_table(&table_view, &column_order, &null_precedence)?;
+        let sorted_table = sort_table(&table_view, &column_order, &null_precedence)?;
 
         assert_eq!(sorted_table.num_rows(), table.num_rows());
         assert_eq!(sorted_table.num_columns(), table.num_columns());
@@ -1678,14 +1863,14 @@ mod tests {
 
     #[test]
     fn test_stable_sort_table() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
         let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
 
-        let sorted_table = ffi::stable_sort_table(&table_view, &column_order, &null_precedence)?;
+        let sorted_table = stable_sort_table(&table_view, &column_order, &null_precedence)?;
 
         assert_eq!(sorted_table.num_rows(), table.num_rows());
         assert_eq!(sorted_table.num_columns(), table.num_columns());
@@ -1696,14 +1881,14 @@ mod tests {
 
     #[test]
     fn test_sorted_order() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
         let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
 
-        let indices = ffi::sorted_order(&table_view, &column_order, &null_precedence)?;
+        let indices = sorted_order(&table_view, &column_order, &null_precedence)?;
 
         assert_eq!(indices.size(), table.num_rows());
         assert_snapshot!(pretty_column(&indices.view(), DataType::Int32)?);
@@ -1713,17 +1898,17 @@ mod tests {
 
     #[test]
     fn test_is_sorted() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let num_cols = table.num_columns();
         let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
 
-        let sorted_table = ffi::sort_table(&table_view, &column_order, &null_precedence)?;
+        let sorted_table = sort_table(&table_view, &column_order, &null_precedence)?;
         let sorted_view = sorted_table.view();
 
-        let is_sorted = ffi::is_sorted(&sorted_view, &column_order, &null_precedence)?;
+        let is_sorted = is_sorted(&sorted_view, &column_order, &null_precedence)?;
         assert!(is_sorted, "Table should be sorted after calling sort_table");
 
         Ok(())
@@ -1731,7 +1916,7 @@ mod tests {
 
     #[test]
     fn test_sort_by_key() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let keys_view = table_view.select(&[0]);
@@ -1739,8 +1924,7 @@ mod tests {
         let column_order = vec![Order::Ascending as i32];
         let null_precedence = vec![NullOrder::Before as i32];
 
-        let sorted_table =
-            ffi::sort_by_key(&table_view, &keys_view, &column_order, &null_precedence)?;
+        let sorted_table = sort_by_key(&table_view, &keys_view, &column_order, &null_precedence)?;
 
         assert_eq!(sorted_table.num_rows(), table.num_rows());
         assert_eq!(sorted_table.num_columns(), table.num_columns());
@@ -1751,7 +1935,7 @@ mod tests {
 
     #[test]
     fn test_stable_sort_by_key() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let keys_view = table_view.select(&[0, 1]);
@@ -1760,7 +1944,7 @@ mod tests {
         let null_precedence = vec![NullOrder::Before as i32, NullOrder::After as i32];
 
         let sorted_table =
-            ffi::stable_sort_by_key(&table_view, &keys_view, &column_order, &null_precedence)?;
+            stable_sort_by_key(&table_view, &keys_view, &column_order, &null_precedence)?;
 
         assert_eq!(sorted_table.num_rows(), table.num_rows());
         assert_eq!(sorted_table.num_columns(), table.num_columns());
@@ -1772,7 +1956,7 @@ mod tests {
     // Binary operation tests
     #[test]
     fn test_binary_op_col_col_add() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let col1 = table_view.column(1);
@@ -1780,7 +1964,7 @@ mod tests {
 
         let output_type = ffi::new_data_type(TypeId::Float64 as i32);
         let result =
-            ffi::binary_operation_col_col(&col1, &col2, BinaryOperator::Add as i32, &output_type)?;
+            binary_operation_col_col(&col1, &col2, BinaryOperator::Add as i32, &output_type)?;
 
         assert_eq!(result.size(), col1.size());
         assert_eq!(result.size(), col2.size());
@@ -1791,7 +1975,7 @@ mod tests {
 
     #[test]
     fn test_binary_op_col_col_multiply() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let col1 = table_view.column(1);
@@ -1799,7 +1983,7 @@ mod tests {
 
         let output_type = ffi::new_data_type(TypeId::Float64 as i32);
         let result =
-            ffi::binary_operation_col_col(&col1, &col2, BinaryOperator::Mul as i32, &output_type)?;
+            binary_operation_col_col(&col1, &col2, BinaryOperator::Mul as i32, &output_type)?;
 
         assert_eq!(result.size(), col1.size());
         assert_snapshot!(pretty_column(&result.view(), DataType::Float64)?);
@@ -1870,7 +2054,7 @@ mod tests {
         let column = table.view().column(0);
         let output_type = ffi::new_data_type_with_scale(TypeId::Decimal128 as i32, -2);
 
-        let result = ffi::reduce(&column, &ffi::make_sum_aggregation(), &output_type)?;
+        let result = reduce(&column, &ffi::make_sum_aggregation(), &output_type)?;
         let result_type = result.data_type();
 
         assert!(result.is_valid());
@@ -1885,12 +2069,11 @@ mod tests {
         let table = table_from_i32_columns(&[("values", vec![1, 2, 3])])?;
         let values = table.view().column(0);
         let init_table = table_from_i32_columns(&[("init", vec![10])])?;
-        let init = ffi::get_element(&init_table.view().column(0), 0);
+        let init = get_element(&init_table.view().column(0), 0);
         let output_type = ffi::new_data_type(TypeId::Int32 as i32);
 
-        let result =
-            ffi::reduce_with_init(&values, &ffi::make_sum_aggregation(), &output_type, &init)?;
-        let result_column = ffi::make_column_from_scalar(&result, 1)?;
+        let result = reduce_with_init(&values, &ffi::make_sum_aggregation(), &output_type, &init)?;
+        let result_column = make_column_from_scalar(&result, 1)?;
 
         assert_snapshot!(pretty_column(&result_column.view(), DataType::Int32)?, @r"
         +------+
@@ -1909,19 +2092,19 @@ mod tests {
         let values = table.view().column(0);
         let output_type = ffi::new_data_type(TypeId::Int32 as i32);
 
-        let exclude = ffi::reduce(
+        let exclude = reduce(
             &values,
             &ffi::make_count_aggregation(NullPolicy::Exclude as i32),
             &output_type,
         )?;
-        let include = ffi::reduce(
+        let include = reduce(
             &values,
             &ffi::make_count_aggregation(NullPolicy::Include as i32),
             &output_type,
         )?;
 
-        let exclude_column = ffi::make_column_from_scalar(&exclude, 1)?;
-        let include_column = ffi::make_column_from_scalar(&include, 1)?;
+        let exclude_column = make_column_from_scalar(&exclude, 1)?;
+        let include_column = make_column_from_scalar(&include, 1)?;
 
         assert_snapshot!(pretty_column(&exclude_column.view(), DataType::Int32)?, @r"
         +------+
@@ -2030,21 +2213,21 @@ mod tests {
     // Filter tests
     #[test]
     fn test_apply_boolean_mask() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let min_temp = table_view.column(1);
         let max_temp = table_view.column(2);
 
         let output_type = ffi::new_data_type(TypeId::Bool8 as i32);
-        let boolean_mask = ffi::binary_operation_col_col(
+        let boolean_mask = binary_operation_col_col(
             &min_temp,
             &max_temp,
             BinaryOperator::Less as i32,
             &output_type,
         )?;
 
-        let filtered_table = ffi::apply_boolean_mask(&table_view, &boolean_mask.view())?;
+        let filtered_table = apply_boolean_mask(&table_view, &boolean_mask.view())?;
 
         assert!(filtered_table.num_rows() < table.num_rows());
         assert_eq!(filtered_table.num_columns(), table.num_columns());
@@ -2059,7 +2242,7 @@ mod tests {
     // GroupBy tests
     #[test]
     fn test_groupby_sum() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
 
         let column_order: &[i32] = &[];
@@ -2078,7 +2261,7 @@ mod tests {
 
         let mut agg_requests = ffi::aggregation_requests_create();
         agg_requests.pin_mut().add(request);
-        let mut groupby_result = groupby.aggregate(&agg_requests)?;
+        let mut groupby_result = aggregate(&groupby, &agg_requests)?;
 
         let mut aggregation_result = groupby_result.pin_mut().release_result(0);
         let keys = groupby_result.pin_mut().release_keys();
@@ -2094,7 +2277,7 @@ mod tests {
 
     #[test]
     fn test_groupby_multiple_aggregations() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000001.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000001.parquet")?;
         let table_view = table.view();
 
         let keys_view = table_view.select(&[0]);
@@ -2122,7 +2305,7 @@ mod tests {
 
         let mut requests = ffi::aggregation_requests_create();
         requests.pin_mut().add(agg_request);
-        let mut groupby_result = groupby.aggregate(&requests)?;
+        let mut groupby_result = aggregate(&groupby, &requests)?;
 
         assert_eq!(groupby_result.len(), 1);
         let mut agg_result = groupby_result.pin_mut().release_result(0);
@@ -2145,14 +2328,14 @@ mod tests {
     // Slice tests
     #[test]
     fn test_slice_column_basic() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
         let original_col = table_view.column(1);
 
         let original_size = original_col.size();
         assert!(original_size > 10, "Need at least 10 rows for testing");
 
-        let sliced_col = ffi::slice_column(&original_col, 5, 5)?;
+        let sliced_col = slice_column(&original_col, 5, 5)?;
 
         assert_eq!(sliced_col.size(), 5);
 
@@ -2177,11 +2360,11 @@ mod tests {
 
     #[test]
     fn test_slice_column_from_start() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ffi::read_parquet("../testdata/weather/result-000000.parquet")?;
+        let table = read_parquet("../testdata/weather/result-000000.parquet")?;
         let table_view = table.view();
         let original_col = table_view.column(2);
 
-        let sliced_col = ffi::slice_column(&original_col, 0, 10)?;
+        let sliced_col = slice_column(&original_col, 0, 10)?;
 
         assert_eq!(sliced_col.size(), 10);
         assert_snapshot!(pretty_column(&sliced_col, DataType::Float64)?, @r"
@@ -2380,9 +2563,14 @@ mod tests {
     fn pretty_table(table_view: &ffi::TableView) -> Result<impl Display + use<>, ArrowError> {
         let mut array = FFI_ArrowArray::empty();
         let mut schema = FFI_ArrowSchema::empty();
+        let (stream, resource) = default_context();
 
         let data = unsafe {
-            table_view.to_arrow_array(&mut array as *mut FFI_ArrowArray as *mut u8);
+            table_view.to_arrow_array(
+                &mut array as *mut FFI_ArrowArray as *mut u8,
+                stream_ref(&stream),
+                resource_ref(&resource),
+            );
             table_view.to_arrow_schema(&mut schema as *mut FFI_ArrowSchema as *mut u8);
 
             from_ffi(array, &schema).expect("ffi data should be valid")
@@ -2398,9 +2586,14 @@ mod tests {
         data_type: DataType,
     ) -> Result<impl Display + use<>, ArrowError> {
         let mut array = FFI_ArrowArray::empty();
+        let (stream, resource) = default_context();
 
         let data = unsafe {
-            column_view.to_arrow_array(&mut array as *mut FFI_ArrowArray as *mut u8);
+            column_view.to_arrow_array(
+                &mut array as *mut FFI_ArrowArray as *mut u8,
+                stream_ref(&stream),
+                resource_ref(&resource),
+            );
 
             from_ffi_and_data_type(array, data_type).expect("ffi data should be valid")
         };

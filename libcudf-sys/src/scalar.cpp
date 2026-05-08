@@ -18,12 +18,16 @@ namespace libcudf_bridge {
     Scalar::~Scalar() = default;
 
     // Get the scalar's data as an FFI Arrow Array
-    void Scalar::to_arrow_array(uint8_t *out_array_ptr) const {
+    void Scalar::to_arrow_array(
+        uint8_t *out_array_ptr,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) const {
         if (!inner) {
             throw std::runtime_error("Cannot convert null column view to arrow array");
         }
-        std::unique_ptr<cudf::column> single_element_col = cudf::make_column_from_scalar(*inner, 1);
-        auto device_array_unique = cudf::to_arrow_host(single_element_col->view());
+        std::unique_ptr<cudf::column> single_element_col =
+            cudf::make_column_from_scalar(*inner, 1, stream.inner, mr.inner);
+        auto device_array_unique = cudf::to_arrow_host(single_element_col->view(), stream.inner, mr.inner);
         auto *out_array = reinterpret_cast<ArrowDeviceArray*>(out_array_ptr);
         *out_array = *device_array_unique.get();
         device_array_unique.release();

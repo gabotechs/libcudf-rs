@@ -125,21 +125,16 @@ fn sort_with_stream(
     let null_precedence_i32: Vec<i32> =
         sort_orders.iter().map(|&o| o.null_order() as i32).collect();
 
-    let inner = match stream {
-        Some(stream) => ffi::stable_sort_by_key_on(
-            table.inner(),
-            keys_view.inner(),
-            &column_order_i32,
-            &null_precedence_i32,
-            stream.inner(),
-        ),
-        None => ffi::stable_sort_by_key(
-            table.inner(),
-            keys_view.inner(),
-            &column_order_i32,
-            &null_precedence_i32,
-        ),
-    }?;
+    let stream_view = crate::stream::stream_view(stream);
+    let mr = crate::stream::current_device_resource();
+    let inner = ffi::stable_sort_by_key(
+        table.inner(),
+        keys_view.inner(),
+        &column_order_i32,
+        &null_precedence_i32,
+        crate::stream::stream_ref(&stream_view),
+        crate::stream::resource_ref(&mr),
+    )?;
     Ok(CuDFTable::from_inner(inner))
 }
 
@@ -197,15 +192,15 @@ fn sort_by_all_with_stream(
     let null_precedence_i32: Vec<i32> =
         sort_orders.iter().map(|&o| o.null_order() as i32).collect();
 
-    let inner = match stream {
-        Some(stream) => ffi::stable_sort_table_on(
-            table.inner(),
-            &column_order_i32,
-            &null_precedence_i32,
-            stream.inner(),
-        ),
-        None => ffi::stable_sort_table(table.inner(), &column_order_i32, &null_precedence_i32),
-    }?;
+    let stream_view = crate::stream::stream_view(stream);
+    let mr = crate::stream::current_device_resource();
+    let inner = ffi::stable_sort_table(
+        table.inner(),
+        &column_order_i32,
+        &null_precedence_i32,
+        crate::stream::stream_ref(&stream_view),
+        crate::stream::resource_ref(&mr),
+    )?;
     Ok(CuDFTable::from_inner(inner))
 }
 
@@ -260,15 +255,15 @@ fn stable_sorted_order_with_stream(
     let null_precedence_i32: Vec<i32> =
         sort_orders.iter().map(|&o| o.null_order() as i32).collect();
 
-    let inner = match stream {
-        Some(stream) => ffi::stable_sorted_order_on(
-            table.inner(),
-            &column_order_i32,
-            &null_precedence_i32,
-            stream.inner(),
-        ),
-        None => ffi::stable_sorted_order(table.inner(), &column_order_i32, &null_precedence_i32),
-    }?;
+    let stream_view = crate::stream::stream_view(stream);
+    let mr = crate::stream::current_device_resource();
+    let inner = ffi::stable_sorted_order(
+        table.inner(),
+        &column_order_i32,
+        &null_precedence_i32,
+        crate::stream::stream_ref(&stream_view),
+        crate::stream::resource_ref(&mr),
+    )?;
     Ok(CuDFColumn::new(inner))
 }
 

@@ -1,6 +1,7 @@
 use cxx::UniquePtr;
 
 use crate::Result;
+use libcudf_sys::ffi;
 
 /// Stream creation flags for CUDA stream-backed cuDF execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +70,35 @@ impl CuDFStream {
     pub(crate) fn inner(&self) -> &libcudf_sys::ffi::CudaStream {
         self.inner.as_ref().expect("CudaStream should not be null")
     }
+}
+
+pub(crate) fn default_stream() -> UniquePtr<ffi::CudaStreamView> {
+    libcudf_sys::get_default_stream()
+}
+
+pub(crate) fn stream_view(stream: Option<&CuDFStream>) -> UniquePtr<ffi::CudaStreamView> {
+    match stream {
+        Some(stream) => ffi::cuda_stream_view(stream.inner()),
+        None => default_stream(),
+    }
+}
+
+pub(crate) fn stream_ref(stream: &UniquePtr<ffi::CudaStreamView>) -> &ffi::CudaStreamView {
+    stream
+        .as_ref()
+        .expect("CUDA stream view should not be null")
+}
+
+pub(crate) fn current_device_resource() -> UniquePtr<ffi::DeviceAsyncResourceRef> {
+    ffi::get_current_device_resource_ref()
+}
+
+pub(crate) fn resource_ref(
+    resource: &UniquePtr<ffi::DeviceAsyncResourceRef>,
+) -> &ffi::DeviceAsyncResourceRef {
+    resource
+        .as_ref()
+        .expect("current device resource ref should not be null")
 }
 
 impl Default for CuDFStream {

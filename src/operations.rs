@@ -38,7 +38,14 @@ use std::sync::Arc;
 /// # Ok::<(), libcudf_rs::CuDFError>(())
 /// ```
 pub fn gather(table: &CuDFTableView, gather_map: &CuDFColumnView) -> Result<CuDFTable, CuDFError> {
-    let inner = ffi::gather(table.inner(), gather_map.inner())?;
+    let stream = crate::stream::default_stream();
+    let mr = crate::stream::current_device_resource();
+    let inner = ffi::gather(
+        table.inner(),
+        gather_map.inner(),
+        crate::stream::stream_ref(&stream),
+        crate::stream::resource_ref(&mr),
+    )?;
     Ok(CuDFTable::from_inner(inner))
 }
 
@@ -48,7 +55,14 @@ pub fn gather_on(
     gather_map: &CuDFColumnView,
     stream: &crate::CuDFStream,
 ) -> Result<CuDFTable, CuDFError> {
-    let inner = ffi::gather_on(table.inner(), gather_map.inner(), stream.inner())?;
+    let stream_view = crate::stream::stream_view(Some(stream));
+    let mr = crate::stream::current_device_resource();
+    let inner = ffi::gather(
+        table.inner(),
+        gather_map.inner(),
+        crate::stream::stream_ref(&stream_view),
+        crate::stream::resource_ref(&mr),
+    )?;
     Ok(CuDFTable::from_inner(inner))
 }
 
@@ -99,7 +113,14 @@ pub fn apply_boolean_mask(
     table: &CuDFTableView,
     boolean_mask: &CuDFColumnView,
 ) -> Result<CuDFTable, CuDFError> {
-    let inner = ffi::apply_boolean_mask(table.inner(), boolean_mask.inner())?;
+    let stream = crate::stream::default_stream();
+    let mr = crate::stream::current_device_resource();
+    let inner = ffi::apply_boolean_mask(
+        table.inner(),
+        boolean_mask.inner(),
+        crate::stream::stream_ref(&stream),
+        crate::stream::resource_ref(&mr),
+    )?;
     Ok(CuDFTable::from_inner(inner))
 }
 
@@ -109,7 +130,14 @@ pub fn apply_boolean_mask_on(
     boolean_mask: &CuDFColumnView,
     stream: &crate::CuDFStream,
 ) -> Result<CuDFTable, CuDFError> {
-    let inner = ffi::apply_boolean_mask_on(table.inner(), boolean_mask.inner(), stream.inner())?;
+    let stream_view = crate::stream::stream_view(Some(stream));
+    let mr = crate::stream::current_device_resource();
+    let inner = ffi::apply_boolean_mask(
+        table.inner(),
+        boolean_mask.inner(),
+        crate::stream::stream_ref(&stream_view),
+        crate::stream::resource_ref(&mr),
+    )?;
     Ok(CuDFTable::from_inner(inner))
 }
 
@@ -150,7 +178,13 @@ pub fn slice_column(
     offset: usize,
     length: usize,
 ) -> Result<CuDFColumnView, CuDFError> {
-    let inner = ffi::slice_column(column.inner(), offset, length)?;
+    let stream = crate::stream::default_stream();
+    let inner = ffi::slice_column(
+        column.inner(),
+        offset,
+        length,
+        crate::stream::stream_ref(&stream),
+    )?;
     Ok(CuDFColumnView::new_with_ref(
         inner,
         Some(Arc::new(column.clone()) as Arc<dyn CuDFRef>),
@@ -180,7 +214,14 @@ pub fn cast(column: &CuDFColumnView, target_type: &DataType) -> Result<CuDFColum
             target_type
         )))
     })?;
-    let result = ffi::cast_column(column.inner(), &cudf_dt)?;
+    let stream = crate::stream::default_stream();
+    let mr = crate::stream::current_device_resource();
+    let result = ffi::cast_column(
+        column.inner(),
+        &cudf_dt,
+        crate::stream::stream_ref(&stream),
+        crate::stream::resource_ref(&mr),
+    )?;
     Ok(CuDFColumn::new(result))
 }
 
@@ -196,7 +237,14 @@ pub fn cast_on(
             target_type
         )))
     })?;
-    let result = ffi::cast_column_on(column.inner(), &cudf_dt, stream.inner())?;
+    let stream_view = crate::stream::stream_view(Some(stream));
+    let mr = crate::stream::current_device_resource();
+    let result = ffi::cast_column(
+        column.inner(),
+        &cudf_dt,
+        crate::stream::stream_ref(&stream_view),
+        crate::stream::resource_ref(&mr),
+    )?;
     Ok(CuDFColumn::new(result))
 }
 

@@ -76,10 +76,7 @@ impl CuDFColumn {
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let array_ptr = &ffi_array as *const FFI_ArrowArray as *const u8;
 
-        let stream_view = match stream {
-            Some(stream) => ffi::cuda_stream_view(stream.inner()),
-            None => ffi::get_default_stream(),
-        };
+        let stream_view = crate::stream::stream_view(stream);
         let mr = ffi::get_current_device_resource_ref();
         let inner = unsafe {
             ffi::column_from_arrow(
@@ -117,7 +114,13 @@ impl CuDFColumn {
                 x.into_inner()
             })
             .collect::<Vec<_>>();
-        Ok(Self::new(libcudf_sys::ffi::concat_column_views(&views)?))
+        let stream = crate::stream::default_stream();
+        let mr = crate::stream::current_device_resource();
+        Ok(Self::new(libcudf_sys::ffi::concat_column_views(
+            &views,
+            crate::stream::stream_ref(&stream),
+            crate::stream::resource_ref(&mr),
+        )?))
     }
 
     /// Same as [`Self::concat`] but uses an explicit CUDA stream.
@@ -133,9 +136,12 @@ impl CuDFColumn {
                 x.into_inner()
             })
             .collect::<Vec<_>>();
-        Ok(Self::new(libcudf_sys::ffi::concat_column_views_on(
+        let stream_view = crate::stream::stream_view(Some(stream));
+        let mr = crate::stream::current_device_resource();
+        Ok(Self::new(libcudf_sys::ffi::concat_column_views(
             &views,
-            stream.inner(),
+            crate::stream::stream_ref(&stream_view),
+            crate::stream::resource_ref(&mr),
         )?))
     }
 }

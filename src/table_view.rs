@@ -175,17 +175,16 @@ impl CuDFTableView {
         let mut ffi_schema = FFI_ArrowSchema::empty();
         let mut ffi_array = FFI_ArrowArray::empty();
 
+        let stream_view = crate::stream::stream_view(stream);
+        let mr = crate::stream::current_device_resource();
         unsafe {
             self.inner
                 .to_arrow_schema(&mut ffi_schema as *mut FFI_ArrowSchema as *mut u8);
-            match stream {
-                Some(s) => self
-                    .inner
-                    .to_arrow_array_on(&mut ffi_array as *mut FFI_ArrowArray as *mut u8, s.inner()),
-                None => self
-                    .inner
-                    .to_arrow_array(&mut ffi_array as *mut FFI_ArrowArray as *mut u8),
-            }
+            self.inner.to_arrow_array(
+                &mut ffi_array as *mut FFI_ArrowArray as *mut u8,
+                crate::stream::stream_ref(&stream_view),
+                crate::stream::resource_ref(&mr),
+            );
         }
 
         let schema = Arc::new(Schema::try_from(&ffi_schema)?);

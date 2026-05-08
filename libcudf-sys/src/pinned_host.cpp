@@ -1,7 +1,5 @@
 #include "pinned_host.h"
 
-#include <cudf/utilities/default_stream.hpp>
-
 #include <utility>
 
 namespace libcudf_bridge {
@@ -20,7 +18,4 @@ namespace libcudf_bridge {
         return std::make_unique<HostDeviceAsyncResourceRef>(cudf::get_pinned_memory_resource());
     }
 
-    void cuda_default_stream_synchronize() {
-        cudf::get_default_stream().synchronize();
-    }
 } // namespace libcudf_bridge

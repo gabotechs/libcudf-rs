@@ -96,10 +96,16 @@ impl CuDFColumnView {
 
         // Convert the column view to Arrow format (copying from GPU to host)
         // cuDF's to_arrow_array expects an ArrowDeviceArray pointer
+        let stream = crate::stream::default_stream();
+        let mr = crate::stream::current_device_resource();
         unsafe {
             let device_array_ptr =
                 &mut device_array as *mut libcudf_sys::ArrowDeviceArray as *mut u8;
-            self.inner.to_arrow_array(device_array_ptr);
+            self.inner.to_arrow_array(
+                device_array_ptr,
+                crate::stream::stream_ref(&stream),
+                crate::stream::resource_ref(&mr),
+            );
         }
 
         // Convert from FFI structures to Arrow ArrayData
@@ -198,11 +204,15 @@ unsafe impl Array for CuDFColumnView {
     }
 
     fn get_buffer_memory_size(&self) -> usize {
-        self.inner().get_buffer_memory_size()
+        let stream = crate::stream::default_stream();
+        self.inner()
+            .get_buffer_memory_size(crate::stream::stream_ref(&stream))
     }
 
     fn get_array_memory_size(&self) -> usize {
-        self.inner().get_array_memory_size()
+        let stream = crate::stream::default_stream();
+        self.inner()
+            .get_array_memory_size(crate::stream::stream_ref(&stream))
     }
 
     fn logical_nulls(&self) -> Option<NullBuffer> {

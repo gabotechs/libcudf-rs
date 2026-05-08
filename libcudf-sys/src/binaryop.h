@@ -7,6 +7,7 @@
 #include "scalar.h"
 #include "data_type.h"
 #include "stream.h"
+#include "memory_resource.h"
 
 namespace libcudf_bridge {
 
@@ -15,38 +16,23 @@ namespace libcudf_bridge {
         const ColumnView &lhs,
         const ColumnView &rhs,
         int32_t op,
-        const DataType &output_type);
-
-    std::unique_ptr<Column> binary_operation_col_col_on(
-        const ColumnView &lhs,
-        const ColumnView &rhs,
-        int32_t op,
         const DataType &output_type,
-        const CudaStream &stream);
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr);
 
     std::unique_ptr<Column> binary_operation_col_scalar(
         const ColumnView &lhs,
         const Scalar &rhs,
         int32_t op,
-        const DataType &output_type);
-
-    std::unique_ptr<Column> binary_operation_col_scalar_on(
-        const ColumnView &lhs,
-        const Scalar &rhs,
-        int32_t op,
         const DataType &output_type,
-        const CudaStream &stream);
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr);
 
     std::unique_ptr<Column> binary_operation_scalar_col(
         const Scalar &lhs,
         const ColumnView &rhs,
         int32_t op,
-        const DataType &output_type);
-
-    std::unique_ptr<Column> binary_operation_scalar_col_on(
-        const Scalar &lhs,
-        const ColumnView &rhs,
-        int32_t op,
         const DataType &output_type,
-        const CudaStream &stream);
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr);
 } // namespace libcudf_bridge

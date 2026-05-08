@@ -80,7 +80,13 @@ impl CuDFTable {
             ArrowError::InvalidArgumentError("Path contains invalid UTF-8".to_string())
         })?;
 
-        let inner = ffi::read_parquet(path_str)?;
+        let stream = crate::stream::default_stream();
+        let mr = crate::stream::current_device_resource();
+        let inner = ffi::read_parquet(
+            path_str,
+            crate::stream::stream_ref(&stream),
+            crate::stream::resource_ref(&mr),
+        )?;
         Ok(Self { inner })
     }
 
@@ -111,7 +117,8 @@ impl CuDFTable {
         })?;
 
         let view = self.inner.view();
-        ffi::write_parquet(&view, path_str)?;
+        let stream = crate::stream::default_stream();
+        ffi::write_parquet(&view, path_str, crate::stream::stream_ref(&stream))?;
         Ok(())
     }
 
@@ -177,10 +184,7 @@ impl CuDFTable {
 
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
-        let stream_view = match stream {
-            Some(stream) => ffi::cuda_stream_view(stream.inner()),
-            None => ffi::get_default_stream(),
-        };
+        let stream_view = crate::stream::stream_view(stream);
         let mr = ffi::get_current_device_resource_ref();
         let inner = unsafe {
             ffi::table_from_arrow_host(
@@ -300,7 +304,13 @@ impl CuDFTable {
                 v.into_inner()
             })
             .collect();
-        let inner = ffi::concat_table_views(&inner_views)?;
+        let stream = crate::stream::default_stream();
+        let mr = crate::stream::current_device_resource();
+        let inner = ffi::concat_table_views(
+            &inner_views,
+            crate::stream::stream_ref(&stream),
+            crate::stream::resource_ref(&mr),
+        )?;
         Ok(Self { inner })
     }
 
@@ -317,7 +327,13 @@ impl CuDFTable {
                 v.into_inner()
             })
             .collect();
-        let inner = ffi::concat_table_views_on(&inner_views, stream.inner())?;
+        let stream_view = crate::stream::stream_view(Some(stream));
+        let mr = crate::stream::current_device_resource();
+        let inner = ffi::concat_table_views(
+            &inner_views,
+            crate::stream::stream_ref(&stream_view),
+            crate::stream::resource_ref(&mr),
+        )?;
         Ok(Self { inner })
     }
 }

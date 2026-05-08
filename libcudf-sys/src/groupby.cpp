@@ -33,28 +33,11 @@ namespace libcudf_bridge {
 
     GroupBy::~GroupBy() = default;
 
-    std::unique_ptr<GroupByResult> GroupBy::aggregate(const AggregationRequests &requests) const {
-        auto aggregate_result = inner->aggregate(requests.inner);
-
-        auto group_by_result = std::make_unique<GroupByResult>();
-        group_by_result->keys.inner = std::move(aggregate_result.first);
-
-        for (auto &cudf_agg_result: aggregate_result.second) {
-            auto result = std::vector<Column>();
-            result.reserve(cudf_agg_result.results.size());
-            for (auto &col: cudf_agg_result.results) {
-                result.emplace_back(column_from_unique_ptr(std::move(col)));
-            }
-            group_by_result->results.emplace_back(std::move(result));
-        }
-
-        return group_by_result;
-    }
-
-    std::unique_ptr<GroupByResult> GroupBy::aggregate_on(
+    std::unique_ptr<GroupByResult> GroupBy::aggregate(
         const AggregationRequests &requests,
-        const CudaStream &stream) const {
-        auto aggregate_result = inner->aggregate(requests.inner, stream.view());
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) const {
+        auto aggregate_result = inner->aggregate(requests.inner, stream.inner, mr.inner);
 
         auto group_by_result = std::make_unique<GroupByResult>();
         group_by_result->keys.inner = std::move(aggregate_result.first);

@@ -131,15 +131,20 @@ fn gather_join_output(
     left_policy: OutOfBoundsPolicy,
     right_policy: OutOfBoundsPolicy,
 ) -> Result<CuDFTable, CuDFError> {
+    let (stream, resource) = default_join_context();
     let left = CuDFTable::from_inner(ffi::gather_with_policy(
         left_payload,
         left_indices,
         left_policy as i32,
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?);
     let right = CuDFTable::from_inner(ffi::gather_with_policy(
         right_payload,
         right_indices,
         right_policy as i32,
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?);
     let mut columns = left.into_columns();
     columns.extend(right.into_columns());
@@ -254,17 +259,22 @@ fn distinct_valid_indices(indices: CuDFColumnView) -> Result<Option<Arc<CuDFColu
         return Ok(None);
     }
 
+    let (stream, resource) = default_join_context();
     let zero = int32_scalar(0)?;
     let valid_mask = Arc::new(CuDFColumn::new(ffi::binary_operation_col_scalar(
         indices.inner(),
         zero.inner(),
         BinaryOperator::GreaterEqual as i32,
         &bool_data_type(),
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?));
     let indices_table = CuDFTableView::from_column_views(vec![indices])?;
     let valid_indices_table = CuDFTable::from_inner(ffi::apply_boolean_mask(
         indices_table.inner(),
         Arc::clone(&valid_mask).view().inner(),
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?);
     if valid_indices_table.num_rows() == 0 {
         return Ok(None);
@@ -277,6 +287,8 @@ fn distinct_valid_indices(indices: CuDFColumnView) -> Result<Option<Arc<CuDFColu
         DuplicateKeepOption::KeepAny as i32,
         NullEquality::Equal as i32,
         NanEquality::AllEqual as i32,
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?);
     if distinct_indices.num_rows() == 0 {
         return Ok(None);
@@ -295,10 +307,13 @@ fn matched_row_mask(
     row_count: usize,
     matched_indices: Arc<JoinIndexVector>,
 ) -> Result<Arc<CuDFColumn>, CuDFError> {
+    let (stream, resource) = default_join_context();
     let false_scalar = bool_scalar(false)?;
     let mask = Arc::new(CuDFColumn::new(ffi::make_column_from_scalar(
         false_scalar.inner(),
         row_count,
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?));
     let Some(distinct_indices) = distinct_valid_indices(Arc::clone(&matched_indices).view())?
     else {
@@ -313,6 +328,8 @@ fn matched_row_mask(
         &source,
         distinct_indices_view.inner(),
         target.inner(),
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?);
     Ok(Arc::new(
         updated
@@ -327,6 +344,7 @@ fn unmatched_indices_from_matches(
     row_count: usize,
     matched_indices: Arc<JoinIndexVector>,
 ) -> Result<Arc<CuDFColumn>, CuDFError> {
+    let (stream, resource) = default_join_context();
     let all_indices = join_index_sequence(row_count, 0, 1)?;
     let matched_mask = matched_row_mask(row_count, matched_indices)?;
     let false_scalar = bool_scalar(false)?;
@@ -335,12 +353,16 @@ fn unmatched_indices_from_matches(
         false_scalar.inner(),
         BinaryOperator::Equal as i32,
         &bool_data_type(),
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?));
     let all_indices_table =
         CuDFTableView::from_column_views(vec![Arc::clone(&all_indices).view()])?;
     let unmatched_table = CuDFTable::from_inner(ffi::apply_boolean_mask(
         all_indices_table.inner(),
         Arc::clone(&unmatched_mask).view().inner(),
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?);
     Ok(Arc::new(
         unmatched_table
@@ -352,6 +374,7 @@ fn unmatched_indices_from_matches(
 }
 
 fn join_index_sequence(size: usize, init: i32, step: i32) -> Result<Arc<CuDFColumn>, CuDFError> {
+    let (stream, resource) = default_join_context();
     let init_array = Int32Array::from(vec![init]);
     let step_array = Int32Array::from(vec![step]);
     let init_scalar = CuDFScalar::from_arrow_host(Scalar::new(&init_array))?;
@@ -360,6 +383,8 @@ fn join_index_sequence(size: usize, init: i32, step: i32) -> Result<Arc<CuDFColu
         size,
         init_scalar.inner(),
         step_scalar.inner(),
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?)))
 }
 
@@ -713,6 +738,7 @@ impl CuDFHashJoin {
             return Ok(());
         };
 
+        let (stream, resource) = default_join_context();
         let matched_build_mask = match &self.matched_build_mask {
             Some(mask) => Arc::clone(mask),
             None => {
@@ -720,6 +746,8 @@ impl CuDFHashJoin {
                 let mask = Arc::new(CuDFColumn::new(ffi::make_column_from_scalar(
                     false_scalar.inner(),
                     self.build_rows,
+                    stream_ref(&stream),
+                    resource_ref(&resource),
                 )?));
                 self.matched_build_mask = Some(Arc::clone(&mask));
                 mask
@@ -734,6 +762,8 @@ impl CuDFHashJoin {
             &source,
             scatter_indices_view.inner(),
             target.inner(),
+            stream_ref(&stream),
+            resource_ref(&resource),
         )?);
         self.matched_build_mask = Some(Arc::new(
             updated
@@ -751,18 +781,23 @@ impl CuDFHashJoin {
             return Ok(all_build_indices);
         };
 
+        let (stream, resource) = default_join_context();
         let false_scalar = bool_scalar(false)?;
         let unmatched_mask = Arc::new(CuDFColumn::new(ffi::binary_operation_col_scalar(
             Arc::clone(matched_build_mask).view().inner(),
             false_scalar.inner(),
             BinaryOperator::Equal as i32,
             &bool_data_type(),
+            stream_ref(&stream),
+            resource_ref(&resource),
         )?));
         let all_build_table =
             CuDFTableView::from_column_views(vec![Arc::clone(&all_build_indices).view()])?;
         let unmatched_table = CuDFTable::from_inner(ffi::apply_boolean_mask(
             all_build_table.inner(),
             Arc::clone(&unmatched_mask).view().inner(),
+            stream_ref(&stream),
+            resource_ref(&resource),
         )?);
         Ok(Arc::new(
             unmatched_table
@@ -904,6 +939,8 @@ pub fn left_semi_join(
     Ok(CuDFTable::from_inner(ffi::gather(
         left.inner(),
         indices_view.inner(),
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?))
 }
 
@@ -935,6 +972,8 @@ pub fn left_anti_join(
     Ok(CuDFTable::from_inner(ffi::gather(
         left.inner(),
         indices_view.inner(),
+        stream_ref(&stream),
+        resource_ref(&resource),
     )?))
 }
 

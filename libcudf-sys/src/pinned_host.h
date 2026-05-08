@@ -37,6 +37,4 @@ namespace libcudf_bridge {
     /// Return cuDF's process-global pinned memory resource handle.
     std::unique_ptr<HostDeviceAsyncResourceRef> get_pinned_memory_resource();
 
-    /// Block until all work on cuDF's default stream has completed.
-    void cuda_default_stream_synchronize();
 } // namespace libcudf_bridge

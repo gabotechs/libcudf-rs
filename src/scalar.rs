@@ -81,10 +81,16 @@ impl CuDFScalar {
 
         // Convert the scalar to Arrow format (copying from GPU to host)
         // cuDF's to_arrow_array expects an ArrowDeviceArray pointer
+        let stream = crate::stream::default_stream();
+        let mr = crate::stream::current_device_resource();
         unsafe {
             let device_array_ptr =
                 &mut device_array as *mut libcudf_sys::ArrowDeviceArray as *mut u8;
-            self.inner.to_arrow_array(device_array_ptr);
+            self.inner.to_arrow_array(
+                device_array_ptr,
+                crate::stream::stream_ref(&stream),
+                crate::stream::resource_ref(&mr),
+            );
         }
 
         // Convert from FFI structures to Arrow ArrayData
@@ -126,7 +132,14 @@ impl CuDFScalar {
         let column = CuDFColumn::from_arrow_host(&array)?.into_view();
 
         // Extract the scalar from the column at index 0
-        let cudf_scalar = libcudf_sys::ffi::get_element(column.inner(), 0);
+        let stream = crate::stream::default_stream();
+        let mr = crate::stream::current_device_resource();
+        let cudf_scalar = libcudf_sys::ffi::get_element(
+            column.inner(),
+            0,
+            crate::stream::stream_ref(&stream),
+            crate::stream::resource_ref(&mr),
+        );
 
         Ok(Self::new(cudf_scalar))
     }

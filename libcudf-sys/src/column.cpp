@@ -13,7 +13,6 @@
 #include <cudf/copying.hpp>
 #include <cudf/unary.hpp>
 #include <cudf/strings/strings_column_view.hpp>
-#include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/traits.hpp>
 
 #include <memory>
@@ -37,21 +36,14 @@ namespace libcudf_bridge {
     }
 
     // Get the column's data as an FFI Arrow Array
-    void ColumnView::to_arrow_array(uint8_t *out_array_ptr) const {
+    void ColumnView::to_arrow_array(
+        uint8_t *out_array_ptr,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) const {
         if (!inner) {
             throw std::runtime_error("Cannot convert null column view to arrow array");
         }
-        auto device_array_unique = cudf::to_arrow_host(*this->inner);
-        auto *out_array = reinterpret_cast<ArrowDeviceArray*>(out_array_ptr);
-        *out_array = *device_array_unique.get();
-        device_array_unique.release();
-    }
-
-    void ColumnView::to_arrow_array_on(uint8_t *out_array_ptr, const CudaStream &stream) const {
-        if (!inner) {
-            throw std::runtime_error("Cannot convert null column view to arrow array");
-        }
-        auto device_array_unique = cudf::to_arrow_host(*this->inner, stream.view());
+        auto device_array_unique = cudf::to_arrow_host(*this->inner, stream.inner, mr.inner);
         auto *out_array = reinterpret_cast<ArrowDeviceArray*>(out_array_ptr);
         *out_array = *device_array_unique.get();
         device_array_unique.release();
@@ -108,18 +100,18 @@ namespace libcudf_bridge {
     }
 
     // Helper functions for memory size calculations
-    size_t calculate_buffer_memory_size(const cudf::column_view& view) {
+    size_t calculate_buffer_memory_size(const cudf::column_view& view, const CudaStreamView& stream) {
         size_t data_size = 0;
         if (cudf::is_fixed_width(view.type())) {
             data_size = cudf::size_of(view.type()) * view.size();
         } else if (view.type().id() == cudf::type_id::STRING) {
             auto const strings = cudf::strings_column_view(view);
             data_size = ((view.size() + 1) * sizeof(cudf::size_type)) +
-                        static_cast<size_t>(strings.chars_size(cudf::get_default_stream()));
+                        static_cast<size_t>(strings.chars_size(stream.inner));
         } else {
             // For nested types recursively add child buffer sizes.
             for (cudf::size_type i = 0; i < view.num_children(); ++i) {
-                data_size += calculate_buffer_memory_size(view.child(i));
+                data_size += calculate_buffer_memory_size(view.child(i), stream);
             }
         }
 
@@ -140,24 +132,24 @@ namespace libcudf_bridge {
         return size;
     }
 
-    size_t calculate_array_memory_size(const cudf::column_view& view) {
-        return calculate_buffer_memory_size(view) + calculate_null_mask_size(view);
+    size_t calculate_array_memory_size(const cudf::column_view& view, const CudaStreamView& stream) {
+        return calculate_buffer_memory_size(view, stream) + calculate_null_mask_size(view);
     }
 
     // Get buffer memory size (data + offsets, no null mask)
-    [[nodiscard]] size_t ColumnView::get_buffer_memory_size() const {
+    [[nodiscard]] size_t ColumnView::get_buffer_memory_size(const CudaStreamView &stream) const {
         if (!inner) {
             return 0;
         }
-        return calculate_buffer_memory_size(*inner);
+        return calculate_buffer_memory_size(*inner, stream);
     }
 
     // Get total array memory size (data + offsets + null mask + children)
-    [[nodiscard]] size_t ColumnView::get_array_memory_size() const {
+    [[nodiscard]] size_t ColumnView::get_array_memory_size(const CudaStreamView &stream) const {
         if (!inner) {
             return 0;
         }
-        return calculate_array_memory_size(*inner);
+        return calculate_array_memory_size(*inner, stream);
     }
 
     // Transfer the null buffer
@@ -242,29 +234,25 @@ namespace libcudf_bridge {
     }
 
     // Cast a column to a different data type
-    std::unique_ptr<Column> cast_column(const ColumnView &input, const DataType &target_type) {
-        if (!input.inner) {
-            throw std::runtime_error("Cannot cast null column view");
-        }
-        auto result = std::make_unique<Column>();
-        result->inner = cudf::cast(*input.inner, target_type.inner);
-        return result;
-    }
-
-    std::unique_ptr<Column> cast_column_on(
+    std::unique_ptr<Column> cast_column(
         const ColumnView &input,
         const DataType &target_type,
-        const CudaStream &stream) {
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) {
         if (!input.inner) {
             throw std::runtime_error("Cannot cast null column view");
         }
         auto result = std::make_unique<Column>();
-        result->inner = cudf::cast(*input.inner, target_type.inner, stream.view());
+        result->inner = cudf::cast(*input.inner, target_type.inner, stream.inner, mr.inner);
         return result;
     }
 
     // Extract a scalar from a column at the specified index
-    std::unique_ptr<Scalar> get_element(const ColumnView &column, size_t index) {
+    std::unique_ptr<Scalar> get_element(
+        const ColumnView &column,
+        size_t index,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) {
         if (!column.inner) {
             throw std::runtime_error("Cannot get element from null column view");
         }
@@ -272,7 +260,11 @@ namespace libcudf_bridge {
             throw std::out_of_range("Index out of bounds for get_element");
         }
         auto result = std::make_unique<Scalar>();
-        result->inner = cudf::get_element(*column.inner, static_cast<cudf::size_type>(index));
+        result->inner = cudf::get_element(
+            *column.inner,
+            static_cast<cudf::size_type>(index),
+            stream.inner,
+            mr.inner);
         return result;
     }
 } // namespace libcudf_bridge
