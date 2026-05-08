@@ -107,8 +107,8 @@ fn can_lower_expr(expr: &dyn PhysicalExpr, column_indices: &[ColumnIndex]) -> bo
             .get(column.index())
             .is_some_and(|column_index| column_index.side != JoinSide::None);
     }
-    if any.downcast_ref::<Literal>().is_some() {
-        return true;
+    if let Some(literal) = any.downcast_ref::<Literal>() {
+        return normalize_scalar_for_cudf(literal.value().clone()).is_ok();
     }
     if let Some(cast) = any.downcast_ref::<CastExpr>() {
         return matches!(
@@ -181,7 +181,7 @@ fn lower_literal_expr(
     literal: &Literal,
     ast: &mut CuDFAstExpression,
 ) -> Result<CuDFAstNode, DataFusionError> {
-    let value = normalize_scalar_for_cudf(literal.value().clone());
+    let value = normalize_scalar_for_cudf(literal.value().clone())?;
     let scalar = CuDFScalar::from_arrow_host(value.to_scalar()?).map_err(cudf_to_df)?;
     ast.literal(scalar).map_err(cudf_to_df)
 }
@@ -227,7 +227,7 @@ mod tests {
     use super::{is_join_filter_supported_by_cudf_ast, join_filter_to_cudf_ast};
     use arrow::array::{Array, Int32Array, RecordBatch};
     use arrow_schema::{DataType, Field, Schema};
-    use datafusion::common::{JoinSide, ScalarValue};
+    use datafusion::common::{DataFusionError, JoinSide, ScalarValue};
     use datafusion::physical_expr::expressions::{
         in_list, BinaryExpr, Column, IsNullExpr, Literal,
     };
@@ -282,6 +282,34 @@ mod tests {
 
         let batch = run_filtered_inner_join(filter)?;
         assert_eq!(batch.num_rows(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_join_filter_ast_checks_string_view_literals() -> Result<(), Box<dyn Error>> {
+        let filter = string_literal_filter(
+            DataType::Utf8View,
+            ScalarValue::Utf8View(Some("needle".to_string())),
+        );
+        assert!(is_join_filter_supported_by_cudf_ast(&filter)?);
+        join_filter_to_cudf_ast(&filter)?;
+
+        let filter = string_literal_filter(
+            DataType::BinaryView,
+            ScalarValue::BinaryView(Some(b"needle".to_vec())),
+        );
+        assert!(is_join_filter_supported_by_cudf_ast(&filter)?);
+        join_filter_to_cudf_ast(&filter)?;
+
+        let filter = string_literal_filter(
+            DataType::BinaryView,
+            ScalarValue::BinaryView(Some(vec![0xff])),
+        );
+        assert!(!is_join_filter_supported_by_cudf_ast(&filter)?);
+        let Err(err) = join_filter_to_cudf_ast(&filter) else {
+            panic!("invalid BinaryView literal should not lower");
+        };
+        assert!(matches!(err, DataFusionError::NotImplemented(_)));
         Ok(())
     }
 
@@ -371,6 +399,21 @@ mod tests {
             Field::new("left_val", DataType::Int32, true),
             Field::new("right_val", DataType::Int32, false),
         ]))
+    }
+
+    fn string_literal_filter(data_type: DataType, literal: ScalarValue) -> JoinFilter {
+        JoinFilter::new(
+            Arc::new(BinaryExpr::new(
+                Arc::new(Column::new("left_text", 0)),
+                Operator::Eq,
+                Arc::new(Literal::new(literal)),
+            )) as Arc<dyn PhysicalExpr>,
+            vec![ColumnIndex {
+                index: 0,
+                side: JoinSide::Left,
+            }],
+            Arc::new(Schema::new(vec![Field::new("left_text", data_type, true)])),
+        )
     }
 
     fn filter_indices() -> Vec<ColumnIndex> {

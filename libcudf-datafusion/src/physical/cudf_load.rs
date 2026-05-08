@@ -348,10 +348,21 @@ impl CuDFLoadMetrics {
 }
 
 /// Converts Arrow scalar types that cuDF does not support into cuDF-compatible equivalents.
-pub(crate) fn normalize_scalar_for_cudf(value: ScalarValue) -> ScalarValue {
+pub(crate) fn normalize_scalar_for_cudf(
+    value: ScalarValue,
+) -> Result<ScalarValue, DataFusionError> {
     match value {
-        ScalarValue::Utf8View(s) => ScalarValue::Utf8(s),
-        other => other,
+        ScalarValue::Utf8View(s) => Ok(ScalarValue::Utf8(s)),
+        ScalarValue::BinaryView(Some(bytes)) => {
+            let value = String::from_utf8(bytes).map_err(|err| {
+                DataFusionError::NotImplemented(format!(
+                    "BinaryView literal is not valid UTF-8 and cannot be lowered to cuDF: {err}"
+                ))
+            })?;
+            Ok(ScalarValue::Utf8(Some(value)))
+        }
+        ScalarValue::BinaryView(None) => Ok(ScalarValue::Utf8(None)),
+        other => Ok(other),
     }
 }
 

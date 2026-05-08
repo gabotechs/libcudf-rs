@@ -6,7 +6,9 @@ mod tests {
     use futures::TryStreamExt;
     use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
     use libcudf_datafusion::SessionStateBuilderExt;
-    use libcudf_datafusion_benchmarks::datasets::{clickbench, register_tables};
+    use libcudf_datafusion_benchmarks::datasets::{
+        apply_query_settings, clickbench, register_tables,
+    };
     use std::error::Error;
     use std::fmt::Display;
     use std::ops::Range;
@@ -285,6 +287,7 @@ mod tests {
     ) -> Result<impl Display, Box<dyn Error>> {
         let data_dir = ensure_clickbench_data(FILE_RANGE).await;
 
+        apply_query_settings(&ctx, &sql).await?;
         register_tables(&ctx, &data_dir).await?;
 
         let df = ctx.sql(&sql).await?;

@@ -27,7 +27,9 @@ use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion::prelude::*;
 use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
 use libcudf_datafusion::{CuDFConfig, SessionStateBuilderExt};
-use libcudf_datafusion_benchmarks::datasets::{clickbench, register_tables, tpcds, tpch};
+use libcudf_datafusion_benchmarks::datasets::{
+    apply_query_settings, clickbench, register_tables, tpcds, tpch,
+};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -184,16 +186,20 @@ impl RunOpt {
             ctx.register_udaf((*sum()).clone());
         }
 
+        let dataset_prefix = self.dataset.split("_").next().unwrap();
+        let queries = queries_for_dataset(dataset_prefix)?
+            .into_iter()
+            .filter(|(id, _)| self.query.is_empty() || self.query.contains(id))
+            .collect::<Vec<_>>();
+        for (_, sql) in &queries {
+            apply_query_settings(&ctx, sql).await?;
+        }
         register_tables(&ctx, &self.get_path()?).await?;
 
         println!("Running benchmarks with the following options: {self:?}");
         let mut benchmark_run = BenchmarkRun::new(self.dataset.clone(), self.gpu);
 
-        let dataset_prefix = self.dataset.split("_").next().unwrap();
-        for (id, sql) in queries_for_dataset(dataset_prefix)? {
-            if !self.query.is_empty() && !self.query.contains(&id.to_string()) {
-                continue;
-            }
+        for (id, sql) in queries {
             let query_id = format!("{} {id}", self.dataset);
             let query_run = self.benchmark_query(&query_id, &sql, &ctx).await;
             if let Err(e) = &query_run {

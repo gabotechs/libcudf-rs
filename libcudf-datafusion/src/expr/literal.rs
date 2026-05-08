@@ -34,7 +34,7 @@ impl Hash for CuDFLiteral {
 
 impl CuDFLiteral {
     pub fn from_host(inner: Literal) -> datafusion::common::Result<Self> {
-        let value = normalize_scalar_for_cudf(inner.value().clone());
+        let value = normalize_scalar_for_cudf(inner.value().clone())?;
         let host_scalar = value.to_scalar()?;
         let scalar = CuDFScalar::from_arrow_host(host_scalar).map_err(cudf_to_df)?;
         Ok(Self {
@@ -86,9 +86,32 @@ impl PhysicalExpr for CuDFLiteral {
 
 #[cfg(test)]
 mod tests {
+    use super::CuDFLiteral;
     use crate::assert_snapshot;
     use crate::test_utils::TestFramework;
+    use arrow::array::Array;
+    use arrow_schema::DataType;
     use datafusion::common::assert_contains;
+    use datafusion::common::{DataFusionError, ScalarValue};
+    use datafusion_physical_plan::expressions::Literal;
+
+    #[test]
+    fn test_string_view_literals_lower_to_cudf_string() -> Result<(), Box<dyn std::error::Error>> {
+        let literal = CuDFLiteral::from_host(Literal::new(ScalarValue::Utf8View(Some(
+            "needle".to_string(),
+        ))))?;
+        assert_eq!(literal.scalar.data_type(), &DataType::Utf8);
+
+        let literal = CuDFLiteral::from_host(Literal::new(ScalarValue::BinaryView(Some(
+            b"needle".to_vec(),
+        ))))?;
+        assert_eq!(literal.scalar.data_type(), &DataType::Utf8);
+
+        let err = CuDFLiteral::from_host(Literal::new(ScalarValue::BinaryView(Some(vec![0xff]))))
+            .expect_err("invalid BinaryView literal should not lower to cuDF");
+        assert!(matches!(err, DataFusionError::NotImplemented(_)));
+        Ok(())
+    }
 
     #[tokio::test]
     async fn test_string_equality_filter() -> Result<(), Box<dyn std::error::Error>> {

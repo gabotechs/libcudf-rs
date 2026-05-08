@@ -70,6 +70,20 @@ pub fn get_query(path: &str, id: &str) -> Result<String, DataFusionError> {
     Ok(query_sql)
 }
 
+/// Applies DataFusion settings declared as SQL comments in benchmark queries.
+///
+/// For example, a query can include
+/// `-- set datafusion.execution.parquet.binary_as_string = true`.
+pub async fn apply_query_settings(
+    ctx: &SessionContext,
+    query_sql: &str,
+) -> Result<(), DataFusionError> {
+    for statement in query_setting_statements(query_sql) {
+        ctx.sql(&statement).await?;
+    }
+    Ok(())
+}
+
 pub async fn register_tables(
     ctx: &SessionContext,
     data_path: &Path,
@@ -87,4 +101,34 @@ pub async fn register_tables(
         }
     }
     Ok(())
+}
+
+fn query_setting_statements(query_sql: &str) -> impl Iterator<Item = String> + '_ {
+    query_sql.lines().filter_map(|line| {
+        let directive = line.trim().strip_prefix("--")?.trim_start();
+        let setting = directive.strip_prefix("set ")?;
+        let setting = setting.trim().trim_end_matches(';').trim();
+        (!setting.is_empty()).then(|| format!("SET {setting}"))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::query_setting_statements;
+
+    #[test]
+    fn test_query_setting_statements() -> Result<(), Box<dyn std::error::Error>> {
+        let statements = query_setting_statements(
+            "-- ignored\n\
+             -- set datafusion.execution.parquet.binary_as_string = true;\n\
+             SELECT * FROM hits",
+        )
+        .collect::<Vec<_>>();
+
+        assert_eq!(
+            statements,
+            vec!["SET datafusion.execution.parquet.binary_as_string = true"]
+        );
+        Ok(())
+    }
 }

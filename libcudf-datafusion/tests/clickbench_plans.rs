@@ -5,7 +5,9 @@ mod tests {
     use datafusion_physical_plan::displayable;
     use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
     use libcudf_datafusion::{assert_snapshot, SessionStateBuilderExt};
-    use libcudf_datafusion_benchmarks::datasets::{clickbench, register_tables};
+    use libcudf_datafusion_benchmarks::datasets::{
+        apply_query_settings, clickbench, register_tables,
+    };
     use std::error::Error;
     use std::ops::Range;
     use std::path::Path;
@@ -313,9 +315,9 @@ mod tests {
           CuDFProjectionExec: expr=[count(Int64(1))@0 as count(*)]
             CuDFLoadExec
               AggregateExec: mode=Single, gby=[], aggr=[count(Int64(1))]
-                FilterExec: CAST(URL@0 AS Utf8View) LIKE %google%, projection=[]
+                FilterExec: URL@0 LIKE %google%, projection=[]
                   CoalescePartitionsExec
-                    DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[URL], file_type=parquet, predicate=CAST(URL@13 AS Utf8View) LIKE %google%
+                    DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[URL], file_type=parquet, predicate=URL@13 LIKE %google%
         ");
         Ok(())
     }
@@ -323,15 +325,15 @@ mod tests {
     #[tokio::test]
     async fn test_clickbench_21() -> Result<(), Box<dyn Error>> {
         let plan = test_clickbench_query("q21").await?;
-        assert_snapshot!(plan, @r"
+        assert_snapshot!(plan, @"
         CuDFUnloadExec
           CuDFSortExec: TopK(fetch=10), expr=[c@2 DESC], preserve_partitioning=[false]
             CuDFProjectionExec: expr=[SearchPhrase@0 as SearchPhrase, min(hits.URL)@1 as min(hits.URL), count(Int64(1))@2 as c]
               CuDFAggregateExec: mode=Single, group_by=[SearchPhrase@SearchPhrase@1], aggr_expr=[min(hits.URL), count(Int64(1))]
                 CuDFLoadExec
-                  FilterExec: CAST(URL@0 AS Utf8View) LIKE %google% AND SearchPhrase@1 != 
+                  FilterExec: URL@0 LIKE %google% AND SearchPhrase@1 !=\x20
                     CoalescePartitionsExec
-                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[URL, SearchPhrase], file_type=parquet, predicate=CAST(URL@13 AS Utf8View) LIKE %google% AND SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
+                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[URL, SearchPhrase], file_type=parquet, predicate=URL@13 LIKE %google% AND SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@4 != row_count@5 AND (SearchPhrase_min@2 !=  OR  != SearchPhrase_max@3), required_guarantees=[SearchPhrase not in ()]
         ");
         Ok(())
     }
@@ -339,15 +341,15 @@ mod tests {
     #[tokio::test]
     async fn test_clickbench_22() -> Result<(), Box<dyn Error>> {
         let plan = test_clickbench_query("q22").await?;
-        assert_snapshot!(plan, @r"
+        assert_snapshot!(plan, @"
         CuDFUnloadExec
           CuDFSortExec: TopK(fetch=10), expr=[c@3 DESC], preserve_partitioning=[false]
             CuDFProjectionExec: expr=[SearchPhrase@0 as SearchPhrase, min(hits.URL)@1 as min(hits.URL), min(hits.Title)@2 as min(hits.Title), count(Int64(1))@3 as c, count(DISTINCT hits.UserID)@4 as count(DISTINCT hits.UserID)]
               CuDFLoadExec
                 AggregateExec: mode=Single, gby=[SearchPhrase@3 as SearchPhrase], aggr=[min(hits.URL), min(hits.Title), count(Int64(1)), count(DISTINCT hits.UserID)]
-                  FilterExec: CAST(Title@0 AS Utf8View) LIKE %Google% AND CAST(URL@2 AS Utf8View) NOT LIKE %.google.% AND SearchPhrase@3 != 
+                  FilterExec: Title@0 LIKE %Google% AND URL@2 NOT LIKE %.google.% AND SearchPhrase@3 !=\x20
                     CoalescePartitionsExec
-                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[Title, UserID, URL, SearchPhrase], file_type=parquet, predicate=CAST(Title@2 AS Utf8View) LIKE %Google% AND CAST(URL@13 AS Utf8View) NOT LIKE %.google.% AND SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@2 != row_count@3 AND (SearchPhrase_min@0 !=  OR  != SearchPhrase_max@1), required_guarantees=[SearchPhrase not in ()]
+                      DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[Title, UserID, URL, SearchPhrase], file_type=parquet, predicate=Title@2 LIKE %Google% AND URL@13 NOT LIKE %.google.% AND SearchPhrase@39 != , pruning_predicate=SearchPhrase_null_count@6 != row_count@7 AND (SearchPhrase_min@4 !=  OR  != SearchPhrase_max@5), required_guarantees=[SearchPhrase not in ()]
         ");
         Ok(())
     }
@@ -359,9 +361,9 @@ mod tests {
         CuDFUnloadExec
           CuDFSortExec: TopK(fetch=10), expr=[EventTime@4 ASC NULLS LAST], preserve_partitioning=[false]
             CuDFLoadExec
-              FilterExec: CAST(URL@13 AS Utf8View) LIKE %google%
+              FilterExec: URL@13 LIKE %google%
                 CoalescePartitionsExec
-                  DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[WatchID, JavaEnable, Title, GoodEvent, EventTime, EventDate, CounterID, ClientIP, RegionID, UserID, CounterClass, OS, UserAgent, URL, Referer, IsRefresh, RefererCategoryID, RefererRegionID, URLCategoryID, URLRegionID, ResolutionWidth, ResolutionHeight, ResolutionDepth, FlashMajor, FlashMinor, FlashMinor2, NetMajor, NetMinor, UserAgentMajor, UserAgentMinor, CookieEnable, JavascriptEnable, IsMobile, MobilePhone, MobilePhoneModel, Params, IPNetworkID, TraficSourceID, SearchEngineID, SearchPhrase, AdvEngineID, IsArtifical, WindowClientWidth, WindowClientHeight, ClientTimeZone, ClientEventTime, SilverlightVersion1, SilverlightVersion2, SilverlightVersion3, SilverlightVersion4, PageCharset, CodeVersion, IsLink, IsDownload, IsNotBounce, FUniqID, OriginalURL, HID, IsOldCounter, IsEvent, IsParameter, DontCountHits, WithHash, HitColor, LocalEventTime, Age, Sex, Income, Interests, Robotness, RemoteIP, WindowName, OpenerName, HistoryLength, BrowserLanguage, BrowserCountry, SocialNetwork, SocialAction, HTTPError, SendTiming, DNSTiming, ConnectTiming, ResponseStartTiming, ResponseEndTiming, FetchTiming, SocialSourceNetworkID, SocialSourcePage, ParamPrice, ParamOrderID, ParamCurrency, ParamCurrencyID, OpenstatServiceName, OpenstatCampaignID, OpenstatAdID, OpenstatSourceID, UTMSource, UTMMedium, UTMCampaign, UTMContent, UTMTerm, FromTag, HasGCLID, RefererHash, URLHash, CLID], file_type=parquet, predicate=CAST(URL@13 AS Utf8View) LIKE %google% AND DynamicFilter [ empty ]
+                  DataSourceExec: file_groups={6 groups: [[/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/0.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/1.parquet:<int>..<int>, /data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>], [/data/clickbench/plan_range0-3/hits/2.parquet:<int>..<int>]]}, projection=[WatchID, JavaEnable, Title, GoodEvent, EventTime, EventDate, CounterID, ClientIP, RegionID, UserID, CounterClass, OS, UserAgent, URL, Referer, IsRefresh, RefererCategoryID, RefererRegionID, URLCategoryID, URLRegionID, ResolutionWidth, ResolutionHeight, ResolutionDepth, FlashMajor, FlashMinor, FlashMinor2, NetMajor, NetMinor, UserAgentMajor, UserAgentMinor, CookieEnable, JavascriptEnable, IsMobile, MobilePhone, MobilePhoneModel, Params, IPNetworkID, TraficSourceID, SearchEngineID, SearchPhrase, AdvEngineID, IsArtifical, WindowClientWidth, WindowClientHeight, ClientTimeZone, ClientEventTime, SilverlightVersion1, SilverlightVersion2, SilverlightVersion3, SilverlightVersion4, PageCharset, CodeVersion, IsLink, IsDownload, IsNotBounce, FUniqID, OriginalURL, HID, IsOldCounter, IsEvent, IsParameter, DontCountHits, WithHash, HitColor, LocalEventTime, Age, Sex, Income, Interests, Robotness, RemoteIP, WindowName, OpenerName, HistoryLength, BrowserLanguage, BrowserCountry, SocialNetwork, SocialAction, HTTPError, SendTiming, DNSTiming, ConnectTiming, ResponseStartTiming, ResponseEndTiming, FetchTiming, SocialSourceNetworkID, SocialSourcePage, ParamPrice, ParamOrderID, ParamCurrency, ParamCurrencyID, OpenstatServiceName, OpenstatCampaignID, OpenstatAdID, OpenstatSourceID, UTMSource, UTMMedium, UTMCampaign, UTMContent, UTMTerm, FromTag, HasGCLID, RefererHash, URLHash, CLID], file_type=parquet, predicate=URL@13 LIKE %google% AND DynamicFilter [ empty ]
         ");
         Ok(())
     }
@@ -436,7 +438,7 @@ mod tests {
             CuDFProjectionExec: expr=[regexp_replace(hits.Referer,Utf8("^https?://(?:www\.)?([^/]+)/.*$"),Utf8("\1"))@0 as k, avg(length(hits.Referer))@1 as l, count(Int64(1))@2 as c, min(hits.Referer)@3 as min(hits.Referer)]
               CuDFFilterExec: count(Int64(1))@2 > 100000
                 CuDFLoadExec
-                  AggregateExec: mode=Single, gby=[regexp_replace(CAST(Referer@0 AS LargeUtf8), ^https?://(?:www\.)?([^/]+)/.*$, \1) as regexp_replace(hits.Referer,Utf8("^https?://(?:www\.)?([^/]+)/.*$"),Utf8("\1"))], aggr=[avg(length(hits.Referer)), count(Int64(1)), min(hits.Referer)]
+                  AggregateExec: mode=Single, gby=[regexp_replace(Referer@0, ^https?://(?:www\.)?([^/]+)/.*$, \1) as regexp_replace(hits.Referer,Utf8("^https?://(?:www\.)?([^/]+)/.*$"),Utf8("\1"))], aggr=[avg(length(hits.Referer)), count(Int64(1)), min(hits.Referer)]
                     CuDFUnloadExec
                       CuDFFilterExec: Referer@0 != 
                         CuDFLoadExec
@@ -678,6 +680,7 @@ mod tests {
         let data_dir = ensure_clickbench_data(FILE_RANGE).await;
         let sql = clickbench::get_query(query_id)?;
 
+        apply_query_settings(&ctx, &sql).await?;
         register_tables(&ctx, &data_dir).await?;
 
         let df = ctx.sql(&sql).await?;
