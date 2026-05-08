@@ -1632,13 +1632,28 @@ mod tests {
             .expect("current device resource should not be null")
     }
 
+    fn expect_stream_and_resource<'a>(
+        stream: &'a cxx::UniquePtr<ffi::CudaStreamView>,
+        resource: &'a cxx::UniquePtr<ffi::DeviceAsyncResourceRef>,
+    ) -> (&'a ffi::CudaStreamView, &'a ffi::DeviceAsyncResourceRef) {
+        (expect_stream(stream), expect_resource(resource))
+    }
+
+    fn default_stream_and_resource() -> (
+        cxx::UniquePtr<ffi::CudaStreamView>,
+        cxx::UniquePtr<ffi::DeviceAsyncResourceRef>,
+    ) {
+        (
+            ffi::get_default_stream(),
+            ffi::get_current_device_resource_ref(),
+        )
+    }
+
     // Sorting tests
     #[test]
     fn test_sort_table_ascending() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
             stream_view,
@@ -1667,10 +1682,8 @@ mod tests {
 
     #[test]
     fn test_sort_table_descending() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
             stream_view,
@@ -1699,10 +1712,8 @@ mod tests {
 
     #[test]
     fn test_stable_sort_table() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
             stream_view,
@@ -1731,10 +1742,8 @@ mod tests {
 
     #[test]
     fn test_sorted_order() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
             stream_view,
@@ -1762,10 +1771,8 @@ mod tests {
 
     #[test]
     fn test_is_sorted() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
             stream_view,
@@ -1794,10 +1801,8 @@ mod tests {
 
     #[test]
     fn test_sort_by_key() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
             stream_view,
@@ -1828,10 +1833,8 @@ mod tests {
 
     #[test]
     fn test_stable_sort_by_key() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
             stream_view,
@@ -1863,10 +1866,8 @@ mod tests {
     // Binary operation tests
     #[test]
     fn test_binary_op_col_col_add() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
             stream_view,
@@ -1896,10 +1897,8 @@ mod tests {
 
     #[test]
     fn test_binary_op_col_col_multiply() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
             stream_view,
@@ -1990,13 +1989,14 @@ mod tests {
         let output_type = ffi::new_data_type_with_scale(TypeId::Decimal128 as i32, -2);
         let stream = ffi::get_default_stream();
         let resource = ffi::get_current_device_resource_ref();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
 
         let result = ffi::reduce(
             &column,
             &ffi::make_sum_aggregation(),
             &output_type,
-            expect_stream(&stream),
-            expect_resource(&resource),
+            stream_view,
+            resource_ref,
         )?;
         let result_type = result.data_type();
 
@@ -2012,10 +2012,8 @@ mod tests {
         let table = table_from_i32_columns(&[("values", vec![1, 2, 3])])?;
         let values = table.view().column(0);
         let init_table = table_from_i32_columns(&[("init", vec![10])])?;
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let init = ffi::get_element(&init_table.view().column(0), 0, stream_view, resource_ref);
         let output_type = ffi::new_data_type(TypeId::Int32 as i32);
 
@@ -2045,10 +2043,8 @@ mod tests {
         let table = table_from_nullable_i32_column("values", vec![Some(1), None, Some(3), None])?;
         let values = table.view().column(0);
         let output_type = ffi::new_data_type(TypeId::Int32 as i32);
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
 
         let exclude = ffi::reduce(
             &values,
@@ -2112,12 +2108,13 @@ mod tests {
         let right_keys = right_view.select(&[0]);
         let stream = ffi::get_default_stream();
         let resource = ffi::get_current_device_resource_ref();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let mut indices = ffi::inner_join_indices(
             &left_keys,
             &right_keys,
             NullEquality::Equal as i32,
-            expect_stream(&stream),
-            expect_resource(&resource),
+            stream_view,
+            resource_ref,
         )?;
         let left_indices = indices.pin_mut().release_left();
         let right_indices = indices.pin_mut().release_right();
@@ -2154,8 +2151,8 @@ mod tests {
                 .expect("right index vector should not be null"),
             &predicate,
             JoinKind::Inner as i32,
-            expect_stream(&stream),
-            expect_resource(&resource),
+            stream_view,
+            resource_ref,
         )?;
         let filtered_left = filtered.pin_mut().release_left();
         let filtered_right = filtered.pin_mut().release_right();
@@ -2171,10 +2168,8 @@ mod tests {
     // Filter tests
     #[test]
     fn test_apply_boolean_mask() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
             stream_view,
@@ -2211,10 +2206,8 @@ mod tests {
     // GroupBy tests
     #[test]
     fn test_groupby_sum() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
             stream_view,
@@ -2254,10 +2247,8 @@ mod tests {
 
     #[test]
     fn test_groupby_multiple_aggregations() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000001.parquet",
             stream_view,
@@ -2313,10 +2304,8 @@ mod tests {
     // Slice tests
     #[test]
     fn test_slice_column_basic() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
             stream_view,
@@ -2353,10 +2342,8 @@ mod tests {
 
     #[test]
     fn test_slice_column_from_start() -> Result<(), Box<dyn std::error::Error>> {
-        let stream = ffi::get_default_stream();
-        let resource = ffi::get_current_device_resource_ref();
-        let stream_view = expect_stream(&stream);
-        let resource_ref = expect_resource(&resource);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
             stream_view,
@@ -2429,10 +2416,11 @@ mod tests {
     fn test_current_device_resource_ref_reads_parquet() -> Result<(), Box<dyn std::error::Error>> {
         let stream = ffi::get_default_stream();
         let resource = get_current_device_resource_ref();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
         let table = ffi::read_parquet(
             "../testdata/weather/result-000000.parquet",
-            expect_stream(&stream),
-            expect_resource(&resource),
+            stream_view,
+            resource_ref,
         )?;
 
         assert!(table.num_rows() > 0);
@@ -2480,13 +2468,9 @@ mod tests {
         let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
         let stream = ffi::get_default_stream();
         let mr = ffi::get_current_device_resource_ref();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &mr);
         Ok(unsafe {
-            ffi::table_from_arrow_host(
-                schema_ptr,
-                device_array_ptr,
-                expect_stream(&stream),
-                expect_resource(&mr),
-            )
+            ffi::table_from_arrow_host(schema_ptr, device_array_ptr, stream_view, resource_ref)
         }?)
     }
 
@@ -2507,13 +2491,9 @@ mod tests {
         let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
         let stream = ffi::get_default_stream();
         let mr = ffi::get_current_device_resource_ref();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &mr);
         Ok(unsafe {
-            ffi::table_from_arrow_host(
-                schema_ptr,
-                device_array_ptr,
-                expect_stream(&stream),
-                expect_resource(&mr),
-            )
+            ffi::table_from_arrow_host(schema_ptr, device_array_ptr, stream_view, resource_ref)
         }?)
     }
 
@@ -2536,13 +2516,9 @@ mod tests {
         let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
         let stream = ffi::get_default_stream();
         let mr = ffi::get_current_device_resource_ref();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &mr);
         Ok(unsafe {
-            ffi::table_from_arrow_host(
-                schema_ptr,
-                device_array_ptr,
-                expect_stream(&stream),
-                expect_resource(&mr),
-            )
+            ffi::table_from_arrow_host(schema_ptr, device_array_ptr, stream_view, resource_ref)
         }?)
     }
 
@@ -2551,12 +2527,13 @@ mod tests {
         let mut schema = FFI_ArrowSchema::empty();
         let stream = ffi::get_default_stream();
         let resource = ffi::get_current_device_resource_ref();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
 
         let data = unsafe {
             table_view.to_arrow_array(
                 &mut array as *mut FFI_ArrowArray as *mut u8,
-                expect_stream(&stream),
-                expect_resource(&resource),
+                stream_view,
+                resource_ref,
             );
             table_view.to_arrow_schema(&mut schema as *mut FFI_ArrowSchema as *mut u8);
 
@@ -2575,12 +2552,13 @@ mod tests {
         let mut array = FFI_ArrowArray::empty();
         let stream = ffi::get_default_stream();
         let resource = ffi::get_current_device_resource_ref();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
 
         let data = unsafe {
             column_view.to_arrow_array(
                 &mut array as *mut FFI_ArrowArray as *mut u8,
-                expect_stream(&stream),
-                expect_resource(&resource),
+                stream_view,
+                resource_ref,
             );
 
             from_ffi_and_data_type(array, data_type).expect("ffi data should be valid")

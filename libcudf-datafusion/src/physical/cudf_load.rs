@@ -203,6 +203,9 @@ impl CuDFRecordBatchReceiverStreamBuilder {
                     import_timer.done();
 
                     let sync_timer = ctx.metrics.sync_time.timer();
+                    // Beware: `CuDFTable::from_arrow_host` internally uses the default stream.
+                    // If we ever migrate that to a different stream, this call should 
+                    // be updated to synchronize that stream.
                     synchronize_default_stream().map_err(cudf_to_df)?;
                     sync_timer.done();
 
