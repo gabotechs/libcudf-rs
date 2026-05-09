@@ -26,6 +26,15 @@ std::size_t ast_expression_tree_add_column_reference(
     return tree.inner.size() - 1;
 }
 
+std::size_t ast_expression_tree_add_column_name_reference(
+    AstExpressionTree& tree,
+    rust::Str column_name)
+{
+    tree.inner.emplace<cudf::ast::column_name_reference>(
+        std::string(column_name.data(), column_name.size()));
+    return tree.inner.size() - 1;
+}
+
 std::size_t ast_expression_tree_add_literal(AstExpressionTree& tree, const Scalar& scalar)
 {
     if (!scalar.inner) {

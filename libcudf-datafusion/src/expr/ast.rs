@@ -1,6 +1,6 @@
 use crate::errors::cudf_to_df;
 use crate::physical::normalize_scalar_for_cudf;
-use arrow_schema::DataType;
+use arrow_schema::{DataType, Schema};
 use datafusion::common::{not_impl_err, JoinSide};
 use datafusion::error::DataFusionError;
 use datafusion::physical_expr::expressions::{
@@ -12,6 +12,14 @@ use datafusion_physical_plan::joins::utils::{ColumnIndex, JoinFilter};
 use libcudf_rs::{
     CuDFAstExpression, CuDFAstNode, CuDFAstOperator, CuDFAstTableReference, CuDFScalar,
 };
+
+/// cuDF AST filter plus the file-schema columns it reads.
+pub(crate) struct CuDFParquetScanFilter {
+    /// Predicate expression passed to the cuDF Parquet reader.
+    pub(crate) expression: CuDFAstExpression,
+    /// File column names referenced by the predicate.
+    pub(crate) column_names: Vec<String>,
+}
 
 /// Lower a DataFusion join filter into a cuDF AST predicate.
 ///
@@ -46,6 +54,28 @@ pub(crate) fn is_join_filter_supported_by_cudf_ast(
         filter.expression().as_ref(),
         filter.column_indices(),
     ))
+}
+
+/// Lower a DataFusion Parquet scan predicate into a cuDF AST predicate.
+///
+/// The predicate uses cuDF column-name references so filter columns do not need
+/// to be present in the scan projection.
+pub(crate) fn parquet_filter_to_cudf_filter(
+    filter: &dyn PhysicalExpr,
+    file_schema: &Schema,
+) -> Result<CuDFParquetScanFilter, DataFusionError> {
+    if filter.data_type(file_schema)? != DataType::Boolean {
+        return not_impl_err!("Parquet filter expression must evaluate to Boolean for cuDF AST");
+    }
+
+    let mut ast = CuDFAstExpression::new();
+    let mut column_names = Vec::new();
+    lower_parquet_expr(filter, file_schema, &mut ast, &mut column_names)?;
+
+    Ok(CuDFParquetScanFilter {
+        expression: ast,
+        column_names,
+    })
 }
 
 fn lower_expr(
@@ -127,6 +157,185 @@ fn can_lower_expr(expr: &dyn PhysicalExpr, column_indices: &[ColumnIndex]) -> bo
     }
 
     false
+}
+
+fn lower_parquet_expr(
+    expr: &dyn PhysicalExpr,
+    file_schema: &Schema,
+    ast: &mut CuDFAstExpression,
+    column_names: &mut Vec<String>,
+) -> Result<CuDFAstNode, DataFusionError> {
+    let any = expr.as_any();
+    if let Some(binary) = any.downcast_ref::<BinaryExpr>() {
+        return lower_parquet_binary_expr(binary, file_schema, ast, column_names);
+    }
+    if let Some(column) = any.downcast_ref::<Column>() {
+        return lower_parquet_column_expr(column, file_schema, ast, column_names);
+    }
+    if let Some(literal) = any.downcast_ref::<Literal>() {
+        return lower_literal_expr(literal, ast);
+    }
+    if let Some(is_null) = any.downcast_ref::<IsNullExpr>() {
+        let input =
+            lower_parquet_column_arg(is_null.arg().as_ref(), file_schema, ast, column_names)?;
+        return ast
+            .unary_operation(CuDFAstOperator::IsNull, input)
+            .map_err(cudf_to_df);
+    }
+    if let Some(is_not_null) = any.downcast_ref::<IsNotNullExpr>() {
+        let input =
+            lower_parquet_column_arg(is_not_null.arg().as_ref(), file_schema, ast, column_names)?;
+        let is_null = ast
+            .unary_operation(CuDFAstOperator::IsNull, input)
+            .map_err(cudf_to_df)?;
+        return ast
+            .unary_operation(CuDFAstOperator::Not, is_null)
+            .map_err(cudf_to_df);
+    }
+
+    unsupported_parquet_filter()
+}
+
+fn lower_parquet_binary_expr(
+    expr: &BinaryExpr,
+    file_schema: &Schema,
+    ast: &mut CuDFAstExpression,
+    column_names: &mut Vec<String>,
+) -> Result<CuDFAstNode, DataFusionError> {
+    match expr.op() {
+        Operator::And | Operator::Or => {
+            let left = lower_parquet_expr(expr.left().as_ref(), file_schema, ast, column_names)?;
+            let right = lower_parquet_expr(expr.right().as_ref(), file_schema, ast, column_names)?;
+            let op = map_binary_op(expr.op()).expect("logical parquet op should map to cuDF AST");
+            ast.binary_operation(op, left, right).map_err(cudf_to_df)
+        }
+        Operator::Eq
+        | Operator::NotEq
+        | Operator::Lt
+        | Operator::LtEq
+        | Operator::Gt
+        | Operator::GtEq => {
+            validate_parquet_comparison(expr.left().as_ref(), expr.right().as_ref(), file_schema)?;
+            let left = lower_parquet_expr(expr.left().as_ref(), file_schema, ast, column_names)?;
+            let right = lower_parquet_expr(expr.right().as_ref(), file_schema, ast, column_names)?;
+            let op =
+                map_binary_op(expr.op()).expect("comparison parquet op should map to cuDF AST");
+            ast.binary_operation(op, left, right).map_err(cudf_to_df)
+        }
+        _ => unsupported_parquet_filter(),
+    }
+}
+
+fn lower_parquet_column_arg(
+    expr: &dyn PhysicalExpr,
+    file_schema: &Schema,
+    ast: &mut CuDFAstExpression,
+    column_names: &mut Vec<String>,
+) -> Result<CuDFAstNode, DataFusionError> {
+    let Some(column) = expr.as_any().downcast_ref::<Column>() else {
+        return unsupported_parquet_filter();
+    };
+    lower_parquet_column_expr(column, file_schema, ast, column_names)
+}
+
+fn lower_parquet_column_expr(
+    column: &Column,
+    file_schema: &Schema,
+    ast: &mut CuDFAstExpression,
+    column_names: &mut Vec<String>,
+) -> Result<CuDFAstNode, DataFusionError> {
+    let Some((name, data_type)) = parquet_column_name_and_type(column, file_schema) else {
+        return unsupported_parquet_filter();
+    };
+    if !is_supported_parquet_filter_type(&data_type) {
+        return unsupported_parquet_filter();
+    }
+    if !column_names.contains(&name) {
+        column_names.push(name.clone());
+    }
+    ast.column_name_reference(name).map_err(cudf_to_df)
+}
+
+fn validate_parquet_comparison(
+    left: &dyn PhysicalExpr,
+    right: &dyn PhysicalExpr,
+    file_schema: &Schema,
+) -> Result<(), DataFusionError> {
+    let left_is_column = parquet_column_name_and_type_expr(left, file_schema).is_some();
+    let right_is_column = parquet_column_name_and_type_expr(right, file_schema).is_some();
+    let left_literal_type = parquet_literal_type(left, file_schema);
+    let right_literal_type = parquet_literal_type(right, file_schema);
+
+    let supported = match (
+        left_is_column,
+        right_is_column,
+        left_literal_type,
+        right_literal_type,
+    ) {
+        (true, false, _, Some(data_type)) | (false, true, Some(data_type), _) => {
+            is_supported_parquet_filter_type(&data_type)
+        }
+        _ => false,
+    };
+    if supported {
+        Ok(())
+    } else {
+        unsupported_parquet_filter()
+    }
+}
+
+fn parquet_literal_type(expr: &dyn PhysicalExpr, file_schema: &Schema) -> Option<DataType> {
+    let literal = expr.as_any().downcast_ref::<Literal>()?;
+    normalize_scalar_for_cudf(literal.value().clone()).ok()?;
+    literal.data_type(file_schema).ok()
+}
+
+fn parquet_column_name_and_type_expr(
+    expr: &dyn PhysicalExpr,
+    file_schema: &Schema,
+) -> Option<(String, DataType)> {
+    let column = expr.as_any().downcast_ref::<Column>()?;
+    parquet_column_name_and_type(column, file_schema)
+}
+
+fn parquet_column_name_and_type(
+    column: &Column,
+    file_schema: &Schema,
+) -> Option<(String, DataType)> {
+    let field = file_schema.fields().get(column.index())?;
+    if column.name() != field.name() {
+        return None;
+    }
+    Some((field.name().clone(), column.data_type(file_schema).ok()?))
+}
+
+fn is_supported_parquet_filter_type(data_type: &DataType) -> bool {
+    matches!(
+        data_type,
+        DataType::Boolean
+            | DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
+            | DataType::Float16
+            | DataType::Float32
+            | DataType::Float64
+            | DataType::Date32
+            | DataType::Date64
+            | DataType::Timestamp(_, _)
+            | DataType::Utf8
+            | DataType::LargeUtf8
+            | DataType::Utf8View
+            | DataType::BinaryView
+    )
+}
+
+fn unsupported_parquet_filter<T>() -> Result<T, DataFusionError> {
+    not_impl_err!("Parquet filter expression is not supported by cuDF Parquet scan")
 }
 
 fn lower_binary_expr(

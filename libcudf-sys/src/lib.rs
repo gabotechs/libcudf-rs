@@ -150,6 +150,12 @@ pub mod ffi {
             table_reference: i32,
         ) -> Result<usize>;
 
+        /// Add a column-name reference expression to an AST tree.
+        fn ast_expression_tree_add_column_name_reference(
+            tree: Pin<&mut AstExpressionTree>,
+            column_name: &str,
+        ) -> Result<usize>;
+
         /// Add a scalar literal expression to an AST tree.
         fn ast_expression_tree_add_literal(
             tree: Pin<&mut AstExpressionTree>,
@@ -498,6 +504,27 @@ pub mod ffi {
         /// Set projected columns on `cudf::io::parquet_reader_options`.
         fn set_columns(self: Pin<&mut ParquetReaderOptions>, col_names: Vec<String>);
 
+        /// Set per-source row groups on `cudf::io::parquet_reader_options`.
+        ///
+        /// This is a flat FFI representation of cuDF's nested row group vector.
+        fn set_row_groups(
+            self: Pin<&mut ParquetReaderOptions>,
+            row_group_indices: Vec<i32>,
+            source_offsets: Vec<usize>,
+        );
+
+        /// Set AST filter on `cudf::io::parquet_reader_options`.
+        fn set_filter(
+            self: Pin<&mut ParquetReaderOptions>,
+            filter: &AstExpressionTree,
+        ) -> Result<()>;
+
+        /// Enable reading matching projected and filter columns from mismatched Parquet sources.
+        fn enable_allow_mismatched_pq_schemas(self: Pin<&mut ParquetReaderOptions>, val: bool);
+
+        /// Enable ignoring non-existent projected columns while reading.
+        fn enable_ignore_missing_columns(self: Pin<&mut ParquetReaderOptions>, val: bool);
+
         /// Take ownership of the table from `cudf::io::table_with_metadata`.
         fn release_table(self: Pin<&mut TableWithMetadata>) -> UniquePtr<Table>;
 
@@ -509,6 +536,12 @@ pub mod ffi {
 
         /// Return the total number of input row groups.
         fn num_input_row_groups(self: &TableWithMetadata) -> i32;
+
+        /// Return the number of entries in `table_metadata::schema_info`.
+        fn schema_info_count(self: &TableWithMetadata) -> usize;
+
+        /// Return `table_metadata::schema_info[index].name`.
+        fn schema_info_name(self: &TableWithMetadata, index: usize) -> String;
 
         /// Read Parquet using explicit reader options, CUDA stream, and device resource.
         fn read_parquet(

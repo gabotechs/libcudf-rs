@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 
+#include "ast.h"
 #include "memory_resource.h"
 #include "rust/cxx.h"
 #include "stream.h"
@@ -51,6 +52,14 @@ namespace libcudf_bridge {
         void set_source(const SourceInfo& source);
 
         void set_columns(rust::Vec<rust::String> col_names);
+
+        void set_row_groups(rust::Vec<int32_t> row_group_indices, rust::Vec<size_t> source_offsets);
+
+        void set_filter(const AstExpressionTree& filter);
+
+        void enable_allow_mismatched_pq_schemas(bool val);
+
+        void enable_ignore_missing_columns(bool val);
     };
 
     // Opaque wrapper for cudf::io::parquet_writer_options.
@@ -79,6 +88,10 @@ namespace libcudf_bridge {
         [[nodiscard]] size_t num_rows_per_source(size_t index) const;
 
         [[nodiscard]] int32_t num_input_row_groups() const;
+
+        [[nodiscard]] size_t schema_info_count() const;
+
+        [[nodiscard]] rust::String schema_info_name(size_t index) const;
     };
 
     // Opaque owning wrapper for the file metadata byte vector returned by write_parquet.

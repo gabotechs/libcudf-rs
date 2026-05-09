@@ -2,6 +2,7 @@ use crate::{CuDFError, CuDFScalar};
 use arrow::error::ArrowError;
 use cxx::UniquePtr;
 use libcudf_sys::{ffi, AstOperator, AstTableReference};
+use std::fmt;
 
 /// A node index inside a [`CuDFAstExpression`] tree.
 pub type CuDFAstNode = usize;
@@ -116,6 +117,12 @@ pub struct CuDFAstExpression {
     literals: Vec<CuDFScalar>,
 }
 
+impl fmt::Debug for CuDFAstExpression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CuDFAstExpression").finish_non_exhaustive()
+    }
+}
+
 impl CuDFAstExpression {
     /// Create an empty cuDF AST expression tree.
     pub fn new() -> Self {
@@ -148,6 +155,20 @@ impl CuDFAstExpression {
                 )))
             })?,
             table.into_sys() as i32,
+        )?)
+    }
+
+    /// Add a column-name reference node.
+    ///
+    /// cuDF Parquet filters use names so filter columns do not need to be
+    /// present in the projected output.
+    pub fn column_name_reference(
+        &mut self,
+        column_name: impl AsRef<str>,
+    ) -> Result<CuDFAstNode, CuDFError> {
+        Ok(ffi::ast_expression_tree_add_column_name_reference(
+            self.inner.pin_mut(),
+            column_name.as_ref(),
         )?)
     }
 
