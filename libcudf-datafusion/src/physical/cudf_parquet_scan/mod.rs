@@ -238,34 +238,7 @@ impl ExecutionPlan for CuDFParquetScanExec {
                     let parquet_batch = reader.read(file_batch)?;
                     read_timer.done();
 
-                    let sync_timer = metrics.sync_time.timer();
-                    synchronize_default_stream().map_err(cudf_to_df)?;
-                    sync_timer.done();
-
-                    let cast_timer = metrics.cast_time.timer();
-                    let mut cudf_cols: Vec<ArrayRef> =
-                        Vec::with_capacity(parquet_batch.columns.len());
-                    for (column, field) in parquet_batch.columns.into_iter().zip(schema.fields()) {
-                        let view = column.into_view();
-                        let column: ArrayRef = if view.data_type() == field.data_type() {
-                            Arc::new(view)
-                        } else {
-                            let casted = cast(&view, field.data_type()).map_err(cudf_to_df)?;
-                            synchronize_default_stream().map_err(cudf_to_df)?;
-                            Arc::new(casted.into_view())
-                        };
-                        cudf_cols.push(column);
-                    }
-                    cast_timer.done();
-
-                    let output_batch_timer = metrics.output_batch_time.timer();
-                    let batch = libcudf_rs::record_batch_with_schema(
-                        cudf_cols,
-                        &schema,
-                        parquet_batch.num_rows,
-                    )?;
-                    output_batch_timer.done();
-
+                    let batch = build_record_batch(parquet_batch, &schema, &metrics)?;
                     metrics.baseline.record_output(&batch);
                     Ok(batch)
                 })();
@@ -289,6 +262,36 @@ impl ExecutionPlan for CuDFParquetScanExec {
     fn metrics(&self) -> Option<MetricsSet> {
         Some(self.metrics.clone_inner())
     }
+}
+
+fn build_record_batch(
+    parquet_batch: reader::ReadBatch,
+    schema: &SchemaRef,
+    metrics: &ScanMetrics,
+) -> datafusion::common::Result<arrow::record_batch::RecordBatch> {
+    let cast_timer = metrics.cast_time.timer();
+    let mut cudf_cols: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
+    for (column, field) in parquet_batch.columns.into_iter().zip(schema.fields()) {
+        let view = column.into_view();
+        let column: ArrayRef = if view.data_type() == field.data_type() {
+            Arc::new(view)
+        } else {
+            let casted = cast(&view, field.data_type()).map_err(cudf_to_df)?;
+            Arc::new(casted.into_view())
+        };
+        cudf_cols.push(column);
+    }
+    cast_timer.done();
+
+    let sync_timer = metrics.sync_time.timer();
+    synchronize_default_stream().map_err(cudf_to_df)?;
+    sync_timer.done();
+
+    let output_batch_timer = metrics.output_batch_time.timer();
+    let batch = libcudf_rs::record_batch_with_schema(cudf_cols, schema, parquet_batch.num_rows)?;
+    output_batch_timer.done();
+
+    Ok(batch)
 }
 
 /// Metrics for one executing Parquet scan partition.
@@ -323,5 +326,140 @@ impl ScanMetrics {
     fn record_file_batch(&self, batch: &FileBatch) {
         self.files.add(batch.sources().len());
         self.file_bytes.add(batch.file_bytes());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CuDFParquetScanConfig, CuDFParquetScanExec, CuDFParquetSource, RowGroupSelection};
+    use arrow::array::{Array, ArrayRef, Int32Array, Scalar};
+    use arrow::record_batch::RecordBatch;
+    use arrow_schema::{DataType, Field, Schema};
+    use datafusion::execution::TaskContext;
+    use datafusion_physical_plan::{execute_stream, ExecutionPlan};
+    use futures_util::TryStreamExt;
+    use libcudf_rs::{CuDFAstExpression, CuDFAstOperator, CuDFColumnView, CuDFScalar};
+    use parquet::arrow::ArrowWriter;
+    use std::fs::{remove_file, File};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[tokio::test]
+    async fn filters_with_column_outside_projection() -> Result<(), Box<dyn std::error::Error>> {
+        let path = temp_parquet_file();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("value", DataType::Int32, false),
+            Field::new("id", DataType::Int32, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![
+                Arc::new(Int32Array::from(vec![10, 20, 30, 40])),
+                Arc::new(Int32Array::from(vec![1, 2, 3, 4])),
+            ],
+        )?;
+        write_parquet(&path, &batch)?;
+
+        let filter = Arc::new(greater_than_filter("id", 2)?);
+        let projected = execute_scan(
+            scan_config(path.clone(), Arc::clone(&schema))
+                .with_projection(Some(vec![0]))
+                .with_filter(Some(Arc::clone(&filter))),
+        )
+        .await?;
+        let empty_projection = execute_scan(
+            scan_config(path.clone(), schema)
+                .with_projection(Some(vec![]))
+                .with_filter(Some(filter)),
+        )
+        .await?;
+
+        remove_file(path).ok();
+        assert_eq!(projected.len(), 1);
+        assert_eq!(
+            cudf_i32_values(projected[0].column(0))?,
+            vec![Some(30), Some(40)]
+        );
+        assert_eq!(empty_projection.len(), 1);
+        assert_eq!(empty_projection[0].num_columns(), 0);
+        assert_eq!(empty_projection[0].num_rows(), 2);
+
+        Ok(())
+    }
+
+    async fn execute_scan(
+        config: CuDFParquetScanConfig,
+    ) -> Result<Vec<RecordBatch>, Box<dyn std::error::Error>> {
+        let plan: Arc<dyn ExecutionPlan> = Arc::new(CuDFParquetScanExec::try_new(config)?);
+        Ok(execute_stream(plan, Arc::new(TaskContext::default()))?
+            .try_collect::<Vec<_>>()
+            .await?)
+    }
+
+    fn scan_config(path: PathBuf, schema: Arc<Schema>) -> CuDFParquetScanConfig {
+        CuDFParquetScanConfig::from_source_groups(
+            vec![vec![CuDFParquetSource {
+                path,
+                byte_len: 0,
+                row_groups: RowGroupSelection::All,
+            }]],
+            schema,
+        )
+    }
+
+    fn write_parquet(
+        path: &PathBuf,
+        batch: &RecordBatch,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let file = File::create(path)?;
+        let mut writer = ArrowWriter::try_new(file, batch.schema(), None)?;
+        writer.write(batch)?;
+        writer.close()?;
+        Ok(())
+    }
+
+    fn greater_than_filter(
+        column: &str,
+        value: i32,
+    ) -> Result<CuDFAstExpression, Box<dyn std::error::Error>> {
+        let mut filter = CuDFAstExpression::new();
+        let column = filter.column_name_reference(column)?;
+        let value = CuDFScalar::from_arrow_host(Scalar::new(&Int32Array::from(vec![value])))?;
+        let value = filter.literal(value)?;
+        filter.binary_operation(CuDFAstOperator::Greater, column, value)?;
+        Ok(filter)
+    }
+
+    fn cudf_i32_values(column: &ArrayRef) -> Result<Vec<Option<i32>>, Box<dyn std::error::Error>> {
+        let column = column
+            .as_any()
+            .downcast_ref::<CuDFColumnView>()
+            .expect("parquet scan should return cuDF columns");
+        let host = column.to_arrow_host()?;
+        let ints = host
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("column should be Int32");
+        Ok((0..ints.len())
+            .map(|index| {
+                if ints.is_null(index) {
+                    None
+                } else {
+                    Some(ints.value(index))
+                }
+            })
+            .collect())
+    }
+
+    fn temp_parquet_file() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after Unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "libcudf-datafusion-scan-{}-{nanos}.parquet",
+            std::process::id()
+        ))
     }
 }

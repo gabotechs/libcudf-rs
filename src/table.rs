@@ -25,7 +25,7 @@ pub struct CuDFParquetReadResult {
     pub table: CuDFTable,
     /// Top-level column names returned by the cuDF reader, in table order.
     pub column_names: Vec<String>,
-    /// Number of rows read from all input sources.
+    /// Number of rows returned after row group and filter pruning.
     pub num_rows: usize,
 }
 
@@ -272,16 +272,8 @@ impl CuDFTable {
         let column_names = (0..result.schema_info_count())
             .map(|index| result.schema_info_name(index))
             .collect();
-        let num_rows =
-            (0..result.num_rows_per_source_count()).try_fold(0usize, |rows, index| {
-                rows.checked_add(result.num_rows_per_source(index))
-                    .ok_or_else(|| {
-                        ArrowError::InvalidArgumentError(
-                            "Parquet row count overflowed usize".to_string(),
-                        )
-                    })
-            })?;
         let inner = result.pin_mut().release_table();
+        let num_rows = inner.num_rows();
         Ok(CuDFParquetReadResult {
             table: Self { inner },
             column_names,
