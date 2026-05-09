@@ -66,7 +66,11 @@ impl<'a> ParquetScanCandidate<'a> {
         Ok(scan_config
             .with_projection(self.projected_file_columns()?)
             .with_filter(filter)
-            .with_files_per_batch(cudf_config.parquet_scan_files_per_batch))
+            .with_files_per_batch(cudf_config.parquet_scan_files_per_batch)
+            .with_read_limits(
+                cudf_config.parquet_scan_chunk_read_limit,
+                cudf_config.parquet_scan_pass_read_limit,
+            ))
     }
 
     fn wrap_scan(&self, scan: Arc<dyn ExecutionPlan>) -> Arc<dyn ExecutionPlan> {

@@ -2,6 +2,8 @@ use datafusion::common::{extensions_options, plan_err, DataFusionError};
 use datafusion::config::{ConfigExtension, ConfigOptions};
 
 pub(crate) const DEFAULT_PARQUET_SCAN_FILES_PER_BATCH: usize = 8;
+pub(crate) const DEFAULT_PARQUET_SCAN_CHUNK_READ_LIMIT: usize = 256 * 1024 * 1024;
+pub(crate) const DEFAULT_PARQUET_SCAN_PASS_READ_LIMIT: usize = 256 * 1024 * 1024;
 
 extensions_options! {
     pub struct CuDFConfig {
@@ -17,6 +19,13 @@ extensions_options! {
         pub parquet_scan: bool, default = false
         /// Maximum number of files included in each cuDF Parquet read.
         pub parquet_scan_files_per_batch: usize, default = DEFAULT_PARQUET_SCAN_FILES_PER_BATCH
+        /// Maximum approximate bytes returned by each cuDF chunked Parquet read.
+        ///
+        /// cuDF treats 0 as "no limit"; direct DataFusion scans reject 0 so this
+        /// path remains bounded.
+        pub parquet_scan_chunk_read_limit: usize, default = DEFAULT_PARQUET_SCAN_CHUNK_READ_LIMIT
+        /// Maximum approximate temporary read/decompression bytes for each cuDF Parquet pass.
+        pub parquet_scan_pass_read_limit: usize, default = DEFAULT_PARQUET_SCAN_PASS_READ_LIMIT
     }
 }
 
@@ -57,6 +66,23 @@ impl CuDFConfig {
     #[must_use]
     pub fn with_parquet_scan_files_per_batch(mut self, files_per_batch: usize) -> Self {
         self.parquet_scan_files_per_batch = files_per_batch;
+        self
+    }
+
+    /// Return a copy with the cuDF Parquet chunk read byte limit set.
+    ///
+    /// cuDF treats 0 as "no limit"; `CuDFParquetScanExec` rejects 0 to avoid
+    /// accidental unbounded direct scans.
+    #[must_use]
+    pub fn with_parquet_scan_chunk_read_limit(mut self, bytes: usize) -> Self {
+        self.parquet_scan_chunk_read_limit = bytes;
+        self
+    }
+
+    /// Return a copy with the cuDF Parquet pass read byte limit set.
+    #[must_use]
+    pub fn with_parquet_scan_pass_read_limit(mut self, bytes: usize) -> Self {
+        self.parquet_scan_pass_read_limit = bytes;
         self
     }
 

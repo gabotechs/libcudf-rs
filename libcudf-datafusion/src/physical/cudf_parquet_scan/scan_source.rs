@@ -6,7 +6,7 @@ use datafusion::parquet::file::metadata::ParquetMetaData;
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 /// Local Parquet file accepted by the v1 cuDF scan.
 #[derive(Debug, Clone)]
@@ -15,6 +15,7 @@ pub(crate) struct CuDFParquetSource {
     pub(crate) path: PathBuf,
     pub(crate) byte_len: usize,
     pub(crate) row_groups: RowGroupSelection,
+    metadata: Arc<OnceLock<Arc<ParquetMetaData>>>,
 }
 
 /// Parquet row groups selected for one source file.
@@ -46,10 +47,24 @@ pub(crate) enum CuDFParquetSourceError {
 /// Converts DataFusion Parquet files into cuDF scan sources.
 #[derive(Debug, Default)]
 pub(crate) struct CuDFParquetSourceBuilder {
-    metadata_by_path: HashMap<PathBuf, Arc<ParquetMetaData>>,
+    metadata_by_path: HashMap<PathBuf, Arc<OnceLock<Arc<ParquetMetaData>>>>,
 }
 
 impl CuDFParquetSource {
+    fn with_metadata_cache(
+        path: PathBuf,
+        byte_len: usize,
+        row_groups: RowGroupSelection,
+        metadata: Arc<OnceLock<Arc<ParquetMetaData>>>,
+    ) -> Self {
+        Self {
+            path,
+            byte_len,
+            row_groups,
+            metadata,
+        }
+    }
+
     pub(crate) fn byte_len(&self) -> usize {
         if self.byte_len > 0 {
             return self.byte_len;
@@ -65,7 +80,7 @@ impl CuDFParquetSource {
     }
 
     pub(crate) fn metadata(&self) -> Result<Arc<ParquetMetaData>> {
-        parquet_metadata(&self.path)
+        parquet_metadata_cached(&self.path, &self.metadata)
     }
 }
 
@@ -91,11 +106,10 @@ impl CuDFParquetSourceBuilder {
             .unwrap_or(RowGroupSelection::All);
         let byte_len = partitioned_file_byte_len(file)?;
 
-        Ok(CuDFParquetSource {
-            path,
-            byte_len,
-            row_groups,
-        })
+        let metadata = self.metadata_cache(&path);
+        Ok(CuDFParquetSource::with_metadata_cache(
+            path, byte_len, row_groups, metadata,
+        ))
     }
 
     fn row_groups_in_range(
@@ -111,14 +125,16 @@ impl CuDFParquetSourceBuilder {
         &mut self,
         path: &Path,
     ) -> std::result::Result<Arc<ParquetMetaData>, CuDFParquetSourceError> {
-        if let Some(metadata) = self.metadata_by_path.get(path) {
-            return Ok(Arc::clone(metadata));
-        }
+        parquet_metadata_cached(path, &self.metadata_cache(path))
+            .map_err(|_| CuDFParquetSourceError::FileMetadata)
+    }
 
-        let metadata = parquet_metadata(path).map_err(|_| CuDFParquetSourceError::FileMetadata)?;
-        self.metadata_by_path
-            .insert(path.to_path_buf(), Arc::clone(&metadata));
-        Ok(metadata)
+    fn metadata_cache(&mut self, path: &Path) -> Arc<OnceLock<Arc<ParquetMetaData>>> {
+        Arc::clone(
+            self.metadata_by_path
+                .entry(path.to_path_buf())
+                .or_insert_with(|| Arc::new(OnceLock::new())),
+        )
     }
 }
 
@@ -152,6 +168,21 @@ fn parquet_metadata(path: &Path) -> Result<Arc<ParquetMetaData>> {
     })?;
     let reader = ParquetRecordBatchReaderBuilder::try_new(file)?;
     Ok(Arc::clone(reader.metadata()))
+}
+
+fn parquet_metadata_cached(
+    path: &Path,
+    cache: &OnceLock<Arc<ParquetMetaData>>,
+) -> Result<Arc<ParquetMetaData>> {
+    if let Some(metadata) = cache.get() {
+        return Ok(Arc::clone(metadata));
+    }
+
+    let metadata = parquet_metadata(path)?;
+    let _ = cache.set(Arc::clone(&metadata));
+    Ok(cache
+        .get()
+        .map_or(metadata, |metadata| Arc::clone(metadata)))
 }
 
 fn partitioned_file_byte_len(
@@ -191,9 +222,10 @@ fn row_groups_in_range(
 
 #[cfg(test)]
 mod tests {
-    use super::{partitioned_file_byte_len, RowGroupSelection};
+    use super::{partitioned_file_byte_len, CuDFParquetSourceBuilder, RowGroupSelection};
     use datafusion::datasource::listing::PartitionedFile;
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     #[test]
     fn partitioned_file_byte_len_uses_file_range() -> Result<(), Box<dyn std::error::Error>> {
@@ -208,7 +240,52 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn source_metadata_is_loaded_once() -> Result<(), Box<dyn std::error::Error>> {
+        let path = weather_file("result-000000.parquet");
+        let source = source_for_path(&path)?;
+
+        let first = source.metadata()?;
+        let second = source.metadata()?;
+
+        assert!(Arc::ptr_eq(&first, &second));
+        Ok(())
+    }
+
+    #[test]
+    fn builder_sources_share_metadata_cache() -> Result<(), Box<dyn std::error::Error>> {
+        let path = weather_file("result-000000.parquet");
+        let mut builder = CuDFParquetSourceBuilder::default();
+
+        let first = builder
+            .try_from_partitioned_file(&partitioned_file(&path)?)
+            .map_err(|err| std::io::Error::other(format!("{err:?}")))?;
+        let second = builder
+            .try_from_partitioned_file(&partitioned_file(&path)?)
+            .map_err(|err| std::io::Error::other(format!("{err:?}")))?;
+
+        assert!(Arc::ptr_eq(&first.metadata()?, &second.metadata()?));
+        Ok(())
+    }
+
+    fn source_for_path(
+        path: &PathBuf,
+    ) -> Result<super::CuDFParquetSource, Box<dyn std::error::Error>> {
+        let mut builder = CuDFParquetSourceBuilder::default();
+        builder
+            .try_from_partitioned_file(&partitioned_file(path)?)
+            .map_err(|err| std::io::Error::other(format!("{err:?}")).into())
+    }
+
+    fn partitioned_file(path: &PathBuf) -> Result<PartitionedFile, Box<dyn std::error::Error>> {
+        let size = std::fs::metadata(path)?.len();
+        Ok(PartitionedFile::new(path.to_string_lossy(), size))
+    }
+
     fn weather_file(name: &str) -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../testdata/weather/{name}"))
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../testdata/weather/{name}"))
+            .canonicalize()
+            .expect("weather test file should exist")
     }
 }

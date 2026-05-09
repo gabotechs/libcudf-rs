@@ -84,6 +84,9 @@ pub mod ffi {
         /// cuDF Parquet reader options.
         type ParquetReaderOptions;
 
+        /// cuDF chunked Parquet reader.
+        type ChunkedParquetReader;
+
         /// cuDF Parquet writer options.
         type ParquetWriterOptions;
 
@@ -549,6 +552,21 @@ pub mod ffi {
             stream: &CudaStreamView,
             mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<TableWithMetadata>>;
+
+        /// Create a cuDF chunked Parquet reader.
+        fn chunked_parquet_reader_create(
+            chunk_read_limit: usize,
+            pass_read_limit: usize,
+            options: &ParquetReaderOptions,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        ) -> Result<UniquePtr<ChunkedParquetReader>>;
+
+        /// Return whether a chunked Parquet reader has unread rows.
+        fn has_next(self: &ChunkedParquetReader) -> bool;
+
+        /// Read the next chunk from a chunked Parquet reader.
+        fn read_chunk(self: &ChunkedParquetReader) -> Result<UniquePtr<TableWithMetadata>>;
 
         /// Return the size of the returned host byte vector.
         fn size(self: &HostByteVector) -> usize;

@@ -13,6 +13,8 @@
 #include <cudf/io/parquet.hpp>
 
 namespace libcudf_bridge {
+    struct TableWithMetadata;
+
     // Opaque wrapper for cudf::io::source_info.
     struct SourceInfo {
         cudf::io::source_info inner;
@@ -60,6 +62,24 @@ namespace libcudf_bridge {
         void enable_allow_mismatched_pq_schemas(bool val);
 
         void enable_ignore_missing_columns(bool val);
+    };
+
+    // Opaque wrapper for cudf::io::chunked_parquet_reader.
+    struct ChunkedParquetReader {
+        std::unique_ptr<cudf::io::chunked_parquet_reader> inner;
+
+        ChunkedParquetReader(
+            size_t chunk_read_limit,
+            size_t pass_read_limit,
+            const ParquetReaderOptions& options,
+            const CudaStreamView& stream,
+            const DeviceAsyncResourceRef& mr);
+
+        ~ChunkedParquetReader();
+
+        [[nodiscard]] bool has_next() const;
+
+        std::unique_ptr<TableWithMetadata> read_chunk() const;
     };
 
     // Opaque wrapper for cudf::io::parquet_writer_options.
@@ -120,6 +140,13 @@ namespace libcudf_bridge {
         const TableView& table);
 
     std::unique_ptr<TableWithMetadata> read_parquet(
+        const ParquetReaderOptions& options,
+        const CudaStreamView& stream,
+        const DeviceAsyncResourceRef& mr);
+
+    std::unique_ptr<ChunkedParquetReader> chunked_parquet_reader_create(
+        size_t chunk_read_limit,
+        size_t pass_read_limit,
         const ParquetReaderOptions& options,
         const CudaStreamView& stream,
         const DeviceAsyncResourceRef& mr);

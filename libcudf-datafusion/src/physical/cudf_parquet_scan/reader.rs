@@ -16,6 +16,8 @@ pub(super) struct ParquetBatchReader {
     schema: SchemaRef,
     read_columns: Option<Arc<[String]>>,
     filter: Option<Arc<CuDFAstExpression>>,
+    chunk_read_limit: usize,
+    pass_read_limit: usize,
 }
 
 /// cuDF columns plus row count for one output batch.
@@ -29,46 +31,56 @@ impl ParquetBatchReader {
         schema: SchemaRef,
         read_columns: Option<Arc<[String]>>,
         filter: Option<Arc<CuDFAstExpression>>,
+        chunk_read_limit: usize,
+        pass_read_limit: usize,
     ) -> Self {
         Self {
             schema,
             read_columns,
             filter,
+            chunk_read_limit,
+            pass_read_limit,
         }
     }
 
-    pub(super) fn read(&self, batch: &FileBatch) -> datafusion::common::Result<ReadBatch> {
+    pub(super) fn read<F>(&self, batch: &FileBatch, mut emit: F) -> datafusion::common::Result<bool>
+    where
+        F: FnMut(ReadBatch) -> datafusion::common::Result<bool>,
+    {
         let read_columns = self.read_columns.as_deref();
         let filter = self.filter.as_deref();
         if batch_has_no_selected_row_groups(batch) {
-            return empty_read_batch(&self.schema);
+            return emit(empty_read_batch(&self.schema)?);
         }
 
         if self.schema.fields().is_empty() && filter.is_none() {
-            return Ok(ReadBatch {
+            return emit(ReadBatch {
                 columns: vec![],
                 num_rows: parquet_batch_row_count(batch)?,
             });
         }
 
         if batch_has_missing_read_columns(batch, read_columns, &self.schema)? {
-            return read_parquet_sources_individually(batch, read_columns, filter, &self.schema);
+            return read_parquet_sources_individually(
+                batch,
+                read_columns,
+                filter,
+                &self.schema,
+                self.chunk_read_limit,
+                self.pass_read_limit,
+                &mut emit,
+            );
         }
 
-        match read_parquet_sources_together(batch, read_columns, filter) {
-            Ok(read) => {
-                if batch.sources().len() == 1 || contains_all_schema_columns(&read, &self.schema) {
-                    return align_parquet_read(read, &self.schema);
-                }
-            }
-            Err(err) => {
-                if batch.sources().len() == 1 {
-                    return Err(err);
-                }
-            }
-        }
-
-        read_parquet_sources_individually(batch, read_columns, filter, &self.schema)
+        read_parquet_sources_together(
+            batch,
+            read_columns,
+            filter,
+            self.chunk_read_limit,
+            self.pass_read_limit,
+            &self.schema,
+            &mut emit,
+        )
     }
 }
 
@@ -76,9 +88,21 @@ fn read_parquet_sources_together(
     batch: &FileBatch,
     read_columns: Option<&[String]>,
     filter: Option<&CuDFAstExpression>,
-) -> datafusion::common::Result<CuDFParquetReadResult> {
+    chunk_read_limit: usize,
+    pass_read_limit: usize,
+    schema: &SchemaRef,
+    emit: &mut impl FnMut(ReadBatch) -> datafusion::common::Result<bool>,
+) -> datafusion::common::Result<bool> {
     if let [source] = batch.sources() {
-        return read_parquet_source(source, read_columns, filter);
+        return read_parquet_source(
+            source,
+            read_columns,
+            filter,
+            chunk_read_limit,
+            pass_read_limit,
+            schema,
+            emit,
+        );
     }
     let files = batch
         .sources()
@@ -86,15 +110,57 @@ fn read_parquet_sources_together(
         .map(|source| &source.path)
         .collect::<Vec<_>>();
     let row_groups = parquet_batch_row_groups(batch)?;
-    libcudf_rs::CuDFTable::read_parquet_files(CuDFParquetReadOptions {
-        paths: &files,
-        columns: read_columns,
-        row_groups: row_groups.as_deref(),
-        filter,
-        allow_mismatched_pq_schemas: read_columns.is_some(),
-        ignore_missing_columns: true,
-    })
-    .map_err(cudf_to_df)
+    let mut emitted = false;
+    let mut continued = true;
+    let mut callback_error = None;
+    let read_result = libcudf_rs::CuDFTable::for_each_parquet_chunk(
+        CuDFParquetReadOptions {
+            paths: &files,
+            columns: read_columns,
+            row_groups: row_groups.as_deref(),
+            filter,
+            allow_mismatched_pq_schemas: read_columns.is_some(),
+            ignore_missing_columns: true,
+        },
+        chunk_read_limit,
+        pass_read_limit,
+        |read| {
+            emitted = true;
+            match align_parquet_read(read, schema).and_then(&mut *emit) {
+                Ok(keep_reading) => {
+                    continued = keep_reading;
+                    Ok(keep_reading)
+                }
+                Err(err) => {
+                    continued = false;
+                    callback_error = Some(err);
+                    Ok(false)
+                }
+            }
+        },
+    );
+    if let Some(err) = callback_error {
+        return Err(err);
+    }
+    match read_result {
+        Ok(()) => {}
+        Err(err) if !emitted => {
+            return read_parquet_sources_individually(
+                batch,
+                read_columns,
+                filter,
+                schema,
+                chunk_read_limit,
+                pass_read_limit,
+                emit,
+            );
+        }
+        Err(err) => return Err(cudf_to_df(err)),
+    }
+    if !emitted {
+        return emit(empty_read_batch(schema)?);
+    }
+    Ok(continued)
 }
 
 fn parquet_batch_row_groups(
@@ -202,20 +268,52 @@ fn read_parquet_source(
     source: &CuDFParquetSource,
     read_columns: Option<&[String]>,
     filter: Option<&CuDFAstExpression>,
-) -> datafusion::common::Result<CuDFParquetReadResult> {
+    chunk_read_limit: usize,
+    pass_read_limit: usize,
+    schema: &SchemaRef,
+    emit: &mut impl FnMut(ReadBatch) -> datafusion::common::Result<bool>,
+) -> datafusion::common::Result<bool> {
     let row_groups = source
         .row_group_selection()
         .indices()
         .map(|indices| vec![indices.to_vec()]);
-    libcudf_rs::CuDFTable::read_parquet_files(CuDFParquetReadOptions {
-        paths: std::slice::from_ref(&source.path),
-        columns: read_columns,
-        row_groups: row_groups.as_deref(),
-        filter,
-        allow_mismatched_pq_schemas: read_columns.is_some(),
-        ignore_missing_columns: true,
-    })
-    .map_err(cudf_to_df)
+    let mut emitted = false;
+    let mut continued = true;
+    let mut callback_error = None;
+    let read_result = libcudf_rs::CuDFTable::for_each_parquet_chunk(
+        CuDFParquetReadOptions {
+            paths: std::slice::from_ref(&source.path),
+            columns: read_columns,
+            row_groups: row_groups.as_deref(),
+            filter,
+            allow_mismatched_pq_schemas: read_columns.is_some(),
+            ignore_missing_columns: true,
+        },
+        chunk_read_limit,
+        pass_read_limit,
+        |read| {
+            emitted = true;
+            match align_parquet_read(read, schema).and_then(&mut *emit) {
+                Ok(keep_reading) => {
+                    continued = keep_reading;
+                    Ok(keep_reading)
+                }
+                Err(err) => {
+                    continued = false;
+                    callback_error = Some(err);
+                    Ok(false)
+                }
+            }
+        },
+    );
+    if let Some(err) = callback_error {
+        return Err(err);
+    }
+    read_result.map_err(cudf_to_df)?;
+    if !emitted {
+        return emit(empty_read_batch(schema)?);
+    }
+    Ok(continued)
 }
 
 fn read_parquet_sources_individually(
@@ -223,42 +321,37 @@ fn read_parquet_sources_individually(
     read_columns: Option<&[String]>,
     filter: Option<&CuDFAstExpression>,
     schema: &SchemaRef,
-) -> datafusion::common::Result<ReadBatch> {
-    let mut columns_by_field = (0..schema.fields().len())
-        .map(|_| Vec::with_capacity(batch.sources().len()))
-        .collect::<Vec<Vec<CuDFColumn>>>();
-    let mut total_rows = 0usize;
-
+    chunk_read_limit: usize,
+    pass_read_limit: usize,
+    emit: &mut impl FnMut(ReadBatch) -> datafusion::common::Result<bool>,
+) -> datafusion::common::Result<bool> {
+    let mut emitted = false;
     for source in batch.sources() {
         if source.row_group_selection().is_empty() {
             continue;
         }
 
-        let read = read_parquet_source(source, read_columns, filter)?;
-        let aligned = align_parquet_read(read, schema)?;
-        total_rows = total_rows.checked_add(aligned.num_rows).ok_or_else(|| {
-            DataFusionError::Execution("CuDFParquetScanExec row count overflowed usize".to_string())
-        })?;
-        for (index, column) in aligned.columns.into_iter().enumerate() {
-            columns_by_field[index].push(column);
+        let continued = read_parquet_source(
+            source,
+            read_columns,
+            filter,
+            chunk_read_limit,
+            pass_read_limit,
+            schema,
+            &mut |read| {
+                emitted = true;
+                emit(read)
+            },
+        )?;
+        if !continued {
+            return Ok(false);
         }
     }
 
-    let columns = columns_by_field
-        .into_iter()
-        .map(|columns| {
-            let views = columns
-                .into_iter()
-                .map(CuDFColumn::into_view)
-                .collect::<Vec<_>>();
-            CuDFColumn::concat(views).map_err(cudf_to_df)
-        })
-        .collect::<datafusion::common::Result<Vec<_>>>()?;
-
-    Ok(ReadBatch {
-        columns,
-        num_rows: total_rows,
-    })
+    if !emitted {
+        return emit(empty_read_batch(schema)?);
+    }
+    Ok(true)
 }
 
 fn align_parquet_read(
@@ -293,14 +386,6 @@ fn align_parquet_read(
     Ok(ReadBatch {
         columns,
         num_rows: read.num_rows,
-    })
-}
-
-fn contains_all_schema_columns(read: &CuDFParquetReadResult, schema: &SchemaRef) -> bool {
-    schema.fields().iter().all(|field| {
-        read.column_names
-            .iter()
-            .any(|column_name| column_name == field.name())
     })
 }
 

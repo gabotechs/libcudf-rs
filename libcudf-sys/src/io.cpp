@@ -107,6 +107,33 @@ namespace libcudf_bridge {
         inner.enable_ignore_missing_columns(val);
     }
 
+    ChunkedParquetReader::ChunkedParquetReader(
+        size_t chunk_read_limit,
+        size_t pass_read_limit,
+        const ParquetReaderOptions& options,
+        const CudaStreamView& stream,
+        const DeviceAsyncResourceRef& mr)
+        : inner(std::make_unique<cudf::io::chunked_parquet_reader>(
+              chunk_read_limit,
+              pass_read_limit,
+              options.inner,
+              stream.inner,
+              mr.inner)) {}
+
+    ChunkedParquetReader::~ChunkedParquetReader() = default;
+
+    bool ChunkedParquetReader::has_next() const {
+        return inner && inner->has_next();
+    }
+
+    std::unique_ptr<TableWithMetadata> ChunkedParquetReader::read_chunk() const {
+        if (!inner) {
+            throw std::runtime_error("Cannot read from a null chunked Parquet reader");
+        }
+        auto result = inner->read_chunk();
+        return std::make_unique<TableWithMetadata>(std::move(result));
+    }
+
     ParquetWriterOptions::ParquetWriterOptions() : inner() {}
 
     ParquetWriterOptions::ParquetWriterOptions(cudf::io::parquet_writer_options options)
@@ -188,6 +215,20 @@ namespace libcudf_bridge {
         const DeviceAsyncResourceRef& mr) {
         auto result = cudf::io::read_parquet(options.inner, stream.inner, mr.inner);
         return std::make_unique<TableWithMetadata>(std::move(result));
+    }
+
+    std::unique_ptr<ChunkedParquetReader> chunked_parquet_reader_create(
+        size_t chunk_read_limit,
+        size_t pass_read_limit,
+        const ParquetReaderOptions& options,
+        const CudaStreamView& stream,
+        const DeviceAsyncResourceRef& mr) {
+        return std::make_unique<ChunkedParquetReader>(
+            chunk_read_limit,
+            pass_read_limit,
+            options,
+            stream,
+            mr);
     }
 
     std::unique_ptr<HostByteVector> write_parquet(
