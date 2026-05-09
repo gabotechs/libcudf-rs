@@ -522,11 +522,35 @@ pub mod ffi {
             filter: &AstExpressionTree,
         ) -> Result<()>;
 
+        /// Enable conversion of strings to categories.
+        fn enable_convert_strings_to_categories(self: Pin<&mut ParquetReaderOptions>, val: bool);
+
+        /// Enable reading pandas metadata.
+        fn enable_use_pandas_metadata(self: Pin<&mut ParquetReaderOptions>, val: bool);
+
+        /// Enable reading Arrow schema metadata.
+        fn enable_use_arrow_schema(self: Pin<&mut ParquetReaderOptions>, val: bool);
+
         /// Enable reading matching projected and filter columns from mismatched Parquet sources.
         fn enable_allow_mismatched_pq_schemas(self: Pin<&mut ParquetReaderOptions>, val: bool);
 
         /// Enable ignoring non-existent projected columns while reading.
         fn enable_ignore_missing_columns(self: Pin<&mut ParquetReaderOptions>, val: bool);
+
+        /// Set number of rows to skip.
+        fn set_skip_rows(self: Pin<&mut ParquetReaderOptions>, val: i64);
+
+        /// Set number of rows to read.
+        fn set_num_rows(self: Pin<&mut ParquetReaderOptions>, val: i64);
+
+        /// Set bytes to skip before starting row group reads.
+        fn set_skip_bytes(self: Pin<&mut ParquetReaderOptions>, val: usize);
+
+        /// Set number of bytes after skipping to end row group reads at.
+        fn set_num_bytes(self: Pin<&mut ParquetReaderOptions>, val: usize);
+
+        /// Set timestamp type used to cast timestamp columns.
+        fn set_timestamp_type(self: Pin<&mut ParquetReaderOptions>, typ: &DataType);
 
         /// Take ownership of the table from `cudf::io::table_with_metadata`.
         fn release_table(self: Pin<&mut TableWithMetadata>) -> UniquePtr<Table>;

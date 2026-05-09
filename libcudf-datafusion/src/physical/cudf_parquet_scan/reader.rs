@@ -8,7 +8,7 @@ use datafusion::scalar::ScalarValue;
 use libcudf_rs::{
     CuDFAstExpression, CuDFColumn, CuDFParquetReadOptions, CuDFParquetReadResult, CuDFScalar,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Reads cuDF Parquet batches and aligns them to the scan output schema.
@@ -238,17 +238,10 @@ fn batch_has_missing_read_columns(
         if missing {
             return Ok(true);
         }
-        let metadata = source.metadata()?;
-        let available_columns = metadata
-            .file_metadata()
-            .schema_descr()
-            .columns()
-            .iter()
-            .map(|column| column.path().string())
-            .collect::<HashSet<_>>();
+        let available_columns = source.available_columns()?;
         Ok(required_columns
             .iter()
-            .any(|column| !available_columns.contains(column)))
+            .any(|column| !available_columns.contains(column.as_str())))
     })
 }
 

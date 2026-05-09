@@ -99,12 +99,44 @@ namespace libcudf_bridge {
         inner.set_filter(filter.inner.back());
     }
 
+    void ParquetReaderOptions::enable_convert_strings_to_categories(bool val) {
+        inner.enable_convert_strings_to_categories(val);
+    }
+
+    void ParquetReaderOptions::enable_use_pandas_metadata(bool val) {
+        inner.enable_use_pandas_metadata(val);
+    }
+
+    void ParquetReaderOptions::enable_use_arrow_schema(bool val) {
+        inner.enable_use_arrow_schema(val);
+    }
+
     void ParquetReaderOptions::enable_allow_mismatched_pq_schemas(bool val) {
         inner.enable_allow_mismatched_pq_schemas(val);
     }
 
     void ParquetReaderOptions::enable_ignore_missing_columns(bool val) {
         inner.enable_ignore_missing_columns(val);
+    }
+
+    void ParquetReaderOptions::set_skip_rows(int64_t val) {
+        inner.set_skip_rows(val);
+    }
+
+    void ParquetReaderOptions::set_num_rows(int64_t val) {
+        inner.set_num_rows(val);
+    }
+
+    void ParquetReaderOptions::set_skip_bytes(size_t val) {
+        inner.set_skip_bytes(val);
+    }
+
+    void ParquetReaderOptions::set_num_bytes(size_t val) {
+        inner.set_num_bytes(val);
+    }
+
+    void ParquetReaderOptions::set_timestamp_type(const DataType& type) {
+        inner.set_timestamp_type(type.inner);
     }
 
     ChunkedParquetReader::ChunkedParquetReader(

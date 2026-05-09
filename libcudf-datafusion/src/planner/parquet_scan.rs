@@ -17,7 +17,6 @@ use datafusion_expr::Operator;
 use datafusion_physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion_physical_plan::ExecutionPlan;
 use libcudf_rs::CuDFAstExpression;
-use std::collections::HashSet;
 use std::sync::Arc;
 
 struct ParquetScanCandidate<'a> {
@@ -214,19 +213,12 @@ fn validate_filter_columns(
         if source.row_group_selection().is_empty() {
             continue;
         }
-        let metadata = source
-            .metadata()
+        let available_columns = source
+            .available_columns()
             .map_err(|_| UnsupportedReason::FileMetadata)?;
-        let available_columns = metadata
-            .file_metadata()
-            .schema_descr()
-            .columns()
-            .iter()
-            .map(|column| column.path().string())
-            .collect::<HashSet<_>>();
         if column_names
             .iter()
-            .any(|column| !available_columns.contains(column))
+            .any(|column| !available_columns.contains(column.as_str()))
         {
             return Err(UnsupportedReason::Predicate);
         }

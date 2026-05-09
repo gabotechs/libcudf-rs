@@ -5,7 +5,7 @@ use datafusion::datasource::physical_plan::parquet::{
 };
 use datafusion::parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use datafusion::parquet::file::metadata::ParquetMetaData;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -18,6 +18,7 @@ pub(crate) struct CuDFParquetSource {
     pub(crate) byte_len: usize,
     pub(crate) row_groups: RowGroupSelection,
     metadata: Arc<OnceLock<Arc<ParquetMetaData>>>,
+    columns: Arc<OnceLock<Arc<HashSet<String>>>>,
 }
 
 /// Parquet row groups selected for one source file.
@@ -52,6 +53,7 @@ pub(crate) enum CuDFParquetSourceError {
 #[derive(Debug, Default)]
 pub(crate) struct CuDFParquetSourceBuilder {
     metadata_by_path: HashMap<PathBuf, Arc<OnceLock<Arc<ParquetMetaData>>>>,
+    columns_by_path: HashMap<PathBuf, Arc<OnceLock<Arc<HashSet<String>>>>>,
 }
 
 impl CuDFParquetSource {
@@ -60,12 +62,14 @@ impl CuDFParquetSource {
         byte_len: usize,
         row_groups: RowGroupSelection,
         metadata: Arc<OnceLock<Arc<ParquetMetaData>>>,
+        columns: Arc<OnceLock<Arc<HashSet<String>>>>,
     ) -> Self {
         Self {
             path,
             byte_len,
             row_groups,
             metadata,
+            columns,
         }
     }
 
@@ -86,6 +90,10 @@ impl CuDFParquetSource {
     pub(crate) fn metadata(&self) -> Result<Arc<ParquetMetaData>> {
         parquet_metadata_cached(&self.path, &self.metadata)
     }
+
+    pub(crate) fn available_columns(&self) -> Result<Arc<HashSet<String>>> {
+        parquet_columns_cached(self, &self.columns)
+    }
 }
 
 impl CuDFParquetSourceBuilder {
@@ -101,8 +109,9 @@ impl CuDFParquetSourceBuilder {
         let byte_len = partitioned_file_byte_len(file)?;
 
         let metadata = self.metadata_cache(&path);
+        let columns = self.columns_cache(&path);
         Ok(CuDFParquetSource::with_metadata_cache(
-            path, byte_len, row_groups, metadata,
+            path, byte_len, row_groups, metadata, columns,
         ))
     }
 
@@ -135,6 +144,14 @@ impl CuDFParquetSourceBuilder {
                 .or_insert_with(|| Arc::new(OnceLock::new())),
         )
     }
+
+    fn columns_cache(&mut self, path: &Path) -> Arc<OnceLock<Arc<HashSet<String>>>> {
+        Arc::clone(
+            self.columns_by_path
+                .entry(path.to_path_buf())
+                .or_insert_with(|| Arc::new(OnceLock::new())),
+        )
+    }
 }
 
 impl RowGroupSelection {
@@ -151,10 +168,13 @@ impl RowGroupSelection {
 }
 
 fn local_path(location: &str) -> PathBuf {
-    if location.starts_with('/') {
-        location.into()
+    let path = location
+        .strip_prefix("file://")
+        .map_or_else(|| PathBuf::from(location), PathBuf::from);
+    if path.is_absolute() || path.exists() {
+        path
     } else {
-        PathBuf::from("/").join(location)
+        PathBuf::from("/").join(path)
     }
 }
 
@@ -182,6 +202,30 @@ fn parquet_metadata_cached(
     Ok(cache
         .get()
         .map_or(metadata, |metadata| Arc::clone(metadata)))
+}
+
+fn parquet_columns_cached(
+    source: &CuDFParquetSource,
+    cache: &OnceLock<Arc<HashSet<String>>>,
+) -> Result<Arc<HashSet<String>>> {
+    if let Some(columns) = cache.get() {
+        return Ok(Arc::clone(columns));
+    }
+
+    let metadata = source.metadata()?;
+    let columns = Arc::new(parquet_columns(&metadata));
+    let _ = cache.set(Arc::clone(&columns));
+    Ok(cache.get().map_or(columns, |columns| Arc::clone(columns)))
+}
+
+fn parquet_columns(metadata: &ParquetMetaData) -> HashSet<String> {
+    metadata
+        .file_metadata()
+        .schema_descr()
+        .columns()
+        .iter()
+        .map(|column| column.path().string())
+        .collect()
 }
 
 fn partitioned_file_byte_len(
@@ -251,7 +295,9 @@ fn row_group_selection_from_access_plan(
 
 #[cfg(test)]
 mod tests {
-    use super::{partitioned_file_byte_len, CuDFParquetSourceBuilder, RowGroupSelection};
+    use super::{
+        local_path, partitioned_file_byte_len, CuDFParquetSourceBuilder, RowGroupSelection,
+    };
     use datafusion::datasource::listing::PartitionedFile;
     use datafusion::datasource::physical_plan::parquet::ParquetAccessPlan;
     use datafusion::parquet::arrow::arrow_reader::{RowSelection, RowSelector};
@@ -272,6 +318,24 @@ mod tests {
     }
 
     #[test]
+    fn local_path_resolves_relative_and_absolute_local_paths(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let weather = weather_file("result-000000.parquet");
+        let stripped_absolute = weather
+            .strip_prefix("/")
+            .expect("weather path should be absolute")
+            .to_string_lossy();
+
+        assert_eq!(local_path("Cargo.toml"), PathBuf::from("Cargo.toml"));
+        assert_eq!(local_path(stripped_absolute.as_ref()), weather);
+        assert_eq!(
+            local_path("file:///tmp/file.parquet"),
+            PathBuf::from("/tmp/file.parquet")
+        );
+        Ok(())
+    }
+
+    #[test]
     fn source_metadata_is_loaded_once() -> Result<(), Box<dyn std::error::Error>> {
         let path = weather_file("result-000000.parquet");
         let source = source_for_path(&path)?;
@@ -280,6 +344,19 @@ mod tests {
         let second = source.metadata()?;
 
         assert!(Arc::ptr_eq(&first, &second));
+        Ok(())
+    }
+
+    #[test]
+    fn source_available_columns_are_loaded_once() -> Result<(), Box<dyn std::error::Error>> {
+        let path = weather_file("result-000000.parquet");
+        let source = source_for_path(&path)?;
+
+        let first = source.available_columns()?;
+        let second = source.available_columns()?;
+
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(!first.is_empty());
         Ok(())
     }
 
@@ -296,6 +373,10 @@ mod tests {
             .map_err(|err| std::io::Error::other(format!("{err:?}")))?;
 
         assert!(Arc::ptr_eq(&first.metadata()?, &second.metadata()?));
+        assert!(Arc::ptr_eq(
+            &first.available_columns()?,
+            &second.available_columns()?
+        ));
         Ok(())
     }
 

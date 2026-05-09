@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "ast.h"
+#include "data_type.h"
 #include "memory_resource.h"
 #include "rust/cxx.h"
 #include "stream.h"
@@ -59,9 +60,25 @@ namespace libcudf_bridge {
 
         void set_filter(const AstExpressionTree& filter);
 
+        void enable_convert_strings_to_categories(bool val);
+
+        void enable_use_pandas_metadata(bool val);
+
+        void enable_use_arrow_schema(bool val);
+
         void enable_allow_mismatched_pq_schemas(bool val);
 
         void enable_ignore_missing_columns(bool val);
+
+        void set_skip_rows(int64_t val);
+
+        void set_num_rows(int64_t val);
+
+        void set_skip_bytes(size_t val);
+
+        void set_num_bytes(size_t val);
+
+        void set_timestamp_type(const DataType& type);
     };
 
     // Opaque wrapper for cudf::io::chunked_parquet_reader.
