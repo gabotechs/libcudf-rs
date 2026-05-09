@@ -25,6 +25,41 @@ impl ConfigExtension for CuDFConfig {
 }
 
 impl CuDFConfig {
+    /// Return a copy with cuDF optimizations enabled or disabled.
+    #[must_use]
+    pub fn with_enable(mut self, enable: bool) -> Self {
+        self.enable = enable;
+        self
+    }
+
+    /// Return a copy with the aggregate chunk target size set.
+    #[must_use]
+    pub fn with_aggregate_chunk_target_bytes(mut self, bytes: usize) -> Self {
+        self.aggregate_chunk_target_bytes = bytes;
+        self
+    }
+
+    /// Return a copy with the GPU upload batch row target set.
+    #[must_use]
+    pub fn with_batch_size(mut self, rows: usize) -> Self {
+        self.batch_size = rows;
+        self
+    }
+
+    /// Return a copy with direct cuDF Parquet scans enabled or disabled.
+    #[must_use]
+    pub fn with_parquet_scan(mut self, parquet_scan: bool) -> Self {
+        self.parquet_scan = parquet_scan;
+        self
+    }
+
+    /// Return a copy with the maximum files per cuDF Parquet read set.
+    #[must_use]
+    pub fn with_parquet_scan_files_per_batch(mut self, files_per_batch: usize) -> Self {
+        self.parquet_scan_files_per_batch = files_per_batch;
+        self
+    }
+
     /// Gets the [CuDFConfig] from the [ConfigOptions]'s extensions.
     pub fn from_config_options(cfg: &ConfigOptions) -> Result<&Self, DataFusionError> {
         let Some(distributed_cfg) = cfg.extensions.get::<CuDFConfig>() else {

@@ -4,7 +4,7 @@ mod tests {
     use datafusion::prelude::{SessionConfig, SessionContext};
     use datafusion_physical_plan::displayable;
     use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
-    use libcudf_datafusion::{assert_snapshot, SessionStateBuilderExt};
+    use libcudf_datafusion::{assert_snapshot, CuDFConfig, SessionStateBuilderExt};
     use libcudf_datafusion_benchmarks::datasets::{
         apply_query_settings, clickbench, register_tables,
     };
@@ -15,6 +15,16 @@ mod tests {
 
     const PARTITIONS: usize = 6;
     const FILE_RANGE: Range<usize> = 0..3;
+
+    #[tokio::test]
+    async fn test_clickbench_parquet_scan_plan() -> Result<(), Box<dyn Error>> {
+        let plan = test_clickbench_query_with_config("q1", parquet_scan_config()).await?;
+
+        assert_plan_contains(&plan, "CuDFParquetScanExec");
+        assert_plan_contains(&plan, "files_per_batch=8");
+        assert_plan_not_contains(&plan, "DataSourceExec");
+        Ok(())
+    }
 
     #[tokio::test]
     async fn test_clickbench_0() -> Result<(), Box<dyn Error>> {
@@ -668,10 +678,21 @@ mod tests {
     }
 
     async fn test_clickbench_query(query_id: &str) -> Result<String, Box<dyn Error>> {
+        test_clickbench_query_with_config(query_id, CuDFConfig::default()).await
+    }
+
+    async fn test_clickbench_query_with_config(
+        query_id: &str,
+        cudf_config: CuDFConfig,
+    ) -> Result<String, Box<dyn Error>> {
         let ctx = SessionContext::from(
             SessionStateBuilder::new()
                 .with_default_features()
-                .with_config(SessionConfig::new().with_target_partitions(PARTITIONS))
+                .with_config(
+                    SessionConfig::new()
+                        .with_target_partitions(PARTITIONS)
+                        .with_option_extension(cudf_config),
+                )
                 .with_cudf_planner()
                 .build(),
         );
@@ -687,6 +708,24 @@ mod tests {
         let plan = df.create_physical_plan().await?;
         let display = displayable(plan.as_ref()).indent(true).to_string();
         Ok(display)
+    }
+
+    fn parquet_scan_config() -> CuDFConfig {
+        CuDFConfig::default().with_parquet_scan(true)
+    }
+
+    fn assert_plan_contains(plan: &str, needle: &str) {
+        assert!(
+            plan.contains(needle),
+            "expected plan to contain `{needle}`:\n{plan}"
+        );
+    }
+
+    fn assert_plan_not_contains(plan: &str, needle: &str) {
+        assert!(
+            !plan.contains(needle),
+            "expected plan not to contain `{needle}`:\n{plan}"
+        );
     }
 
     fn register_cudf_aggregate_udfs(ctx: &SessionContext) {

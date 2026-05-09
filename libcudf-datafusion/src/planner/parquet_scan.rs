@@ -194,6 +194,7 @@ fn supported_parquet_options(options: &TableParquetOptions) -> bool {
     let default = TableParquetOptions::default();
     let mut normalized = options.clone();
     normalized.global.pushdown_filters = default.global.pushdown_filters;
+    normalized.global.binary_as_string = default.global.binary_as_string;
     normalized == default
 }
 
@@ -306,4 +307,19 @@ pub(crate) fn try_as_cudf_parquet_scan(
 
     let scan = Arc::new(CuDFParquetScanExec::try_new(scan_config)?) as Arc<dyn ExecutionPlan>;
     Ok(Some(candidate.wrap_scan(scan)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::supported_parquet_options;
+    use datafusion::common::config::TableParquetOptions;
+
+    #[test]
+    fn parquet_options_allow_reader_only_schema_flags() -> Result<(), Box<dyn std::error::Error>> {
+        let mut options = TableParquetOptions::default();
+        options.global.binary_as_string = true;
+
+        assert!(supported_parquet_options(&options));
+        Ok(())
+    }
 }

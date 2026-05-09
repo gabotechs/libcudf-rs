@@ -72,6 +72,14 @@ pub struct RunOpt {
     #[structopt(long)]
     cuda_batch_size: Option<usize>,
 
+    /// Enable the experimental cuDF-backed Parquet scan.
+    #[structopt(long = "enable-cudf-parquet-scan")]
+    enable_cudf_parquet_scan: bool,
+
+    /// Maximum number of files included in each cuDF Parquet read.
+    #[structopt(long = "cudf-parquet-scan-files-per-batch")]
+    cudf_parquet_scan_files_per_batch: Option<usize>,
+
     /// Activate debug mode to see more details
     #[structopt(short, long)]
     debug: bool,
@@ -128,13 +136,17 @@ impl RunOpt {
         }
         config = config.with_target_partitions(self.partitions());
         if self.gpu {
-            let mut cudf_config = CuDFConfig::default();
-            cudf_config.enable = true;
+            let mut cudf_config = CuDFConfig::default()
+                .with_enable(true)
+                .with_parquet_scan(self.enable_cudf_parquet_scan);
             if let Some(bytes) = self.aggregate_chunk_target_bytes {
-                cudf_config.aggregate_chunk_target_bytes = bytes;
+                cudf_config = cudf_config.with_aggregate_chunk_target_bytes(bytes);
             }
             if let Some(rows) = self.cuda_batch_size {
-                cudf_config.batch_size = rows;
+                cudf_config = cudf_config.with_batch_size(rows);
+            }
+            if let Some(files_per_batch) = self.cudf_parquet_scan_files_per_batch {
+                cudf_config = cudf_config.with_parquet_scan_files_per_batch(files_per_batch);
             }
             config = config.with_option_extension(cudf_config);
         }

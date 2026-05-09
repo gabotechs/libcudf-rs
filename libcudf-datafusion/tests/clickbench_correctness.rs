@@ -5,7 +5,7 @@ mod tests {
     use datafusion::prelude::{SessionConfig, SessionContext};
     use futures::TryStreamExt;
     use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
-    use libcudf_datafusion::SessionStateBuilderExt;
+    use libcudf_datafusion::{CuDFConfig, SessionStateBuilderExt};
     use libcudf_datafusion_benchmarks::datasets::{
         apply_query_settings, clickbench, register_tables,
     };
@@ -268,7 +268,11 @@ mod tests {
         let gpu_ctx = SessionContext::from(
             SessionStateBuilder::new()
                 .with_default_features()
-                .with_config(SessionConfig::new().with_target_partitions(PARTITIONS))
+                .with_config(
+                    SessionConfig::new()
+                        .with_target_partitions(PARTITIONS)
+                        .with_option_extension(parquet_scan_config()),
+                )
                 .with_cudf_planner()
                 .build(),
         );
@@ -303,6 +307,10 @@ mod tests {
         ctx.register_udaf((*max()).clone());
         ctx.register_udaf((*min()).clone());
         ctx.register_udaf((*sum()).clone());
+    }
+
+    fn parquet_scan_config() -> CuDFConfig {
+        CuDFConfig::default().with_parquet_scan(true)
     }
 
     static INIT_TEST_CLICKBENCH_TABLES: OnceCell<()> = OnceCell::const_new();
