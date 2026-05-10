@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::aggregate::{avg, count, max, min, sum};
+use crate::physical::aggregate::{avg, count, max, min, sum};
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema},
     catalog::{MemTable, TableProvider},

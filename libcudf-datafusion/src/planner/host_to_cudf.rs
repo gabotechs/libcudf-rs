@@ -1,7 +1,6 @@
-use crate::aggregate::try_as_cudf_aggregate;
 use crate::physical::{
-    is_cudf_plan, try_as_cudf_hash_join, CuDFFilterExec, CuDFLoadExec, CuDFProjectionExec,
-    CuDFSortExec, CuDFUnloadExec,
+    aggregate::try_as_cudf_aggregate, is_cudf_plan, try_as_cudf_hash_join, CuDFFilterExec,
+    CuDFLoadExec, CuDFProjectionExec, CuDFSortExec, CuDFUnloadExec,
 };
 use crate::planner::parquet_scan::try_as_cudf_parquet_scan;
 use crate::planner::CuDFConfig;

@@ -1,4 +1,5 @@
 use crate::expr::expr_to_cudf_expr;
+use crate::physical::aggregate::op::count::CuDFCount;
 use crate::planner::CuDFConfig;
 use arrow_schema::{DataType, Schema, SchemaRef};
 use datafusion::error::{DataFusionError, Result};
@@ -261,7 +262,7 @@ fn prepare_cudf_aggregate_parts(
         else {
             return Ok(None);
         };
-        let op = udf.gpu().clone();
+        let mut op = udf.gpu().clone();
 
         if !original_aggregate_args_supported(&expr)? {
             return Ok(None);
@@ -276,12 +277,20 @@ fn prepare_cudf_aggregate_parts(
             return Ok(None);
         }
 
+        let count_star = is_count_star(&expr);
         let mut converted = Vec::with_capacity(args.len());
         for arg in args {
             let Some(arg) = expr_to_cudf_aggregate_arg(arg)? else {
                 return Ok(None);
             };
             converted.push(arg);
+        }
+        if count_star && !matches!(mode, AggregateMode::Final | AggregateMode::FinalPartitioned) {
+            let Some((arg, _)) = group_by.expr().first() else {
+                return Ok(None);
+            };
+            op = Arc::new(CuDFCount::count_all());
+            converted = vec![arg.clone()];
         }
         aggs.push(PreparedAggregate {
             expr,
@@ -296,6 +305,15 @@ fn prepare_cudf_aggregate_parts(
         group_by,
         aggs,
     }))
+}
+
+fn is_count_star(expr: &AggregateFunctionExpr) -> bool {
+    expr.name().starts_with("count(")
+        && expr.expressions().iter().all(|arg| {
+            arg.as_any()
+                .downcast_ref::<Literal>()
+                .is_some_and(|literal| !literal.value().is_null())
+        })
 }
 
 fn original_aggregate_args_supported(expr: &AggregateFunctionExpr) -> Result<bool> {
@@ -343,13 +361,13 @@ pub(crate) fn try_as_cudf_aggregate(
 
 #[cfg(test)]
 mod test {
-    use crate::aggregate::op::avg::avg;
-    use crate::aggregate::op::count::count;
-    use crate::aggregate::op::max::max;
-    use crate::aggregate::op::min::min;
-    use crate::aggregate::op::sum::sum;
-    use crate::aggregate::CuDFAggregateExec;
     use crate::assert_snapshot;
+    use crate::physical::aggregate::op::avg::avg;
+    use crate::physical::aggregate::op::count::count;
+    use crate::physical::aggregate::op::max::max;
+    use crate::physical::aggregate::op::min::min;
+    use crate::physical::aggregate::op::sum::sum;
+    use crate::physical::aggregate::CuDFAggregateExec;
     use crate::physical::{CuDFLoadExec, CuDFUnloadExec};
     use crate::test_utils::sort_batches;
     use crate::CuDFConfig;

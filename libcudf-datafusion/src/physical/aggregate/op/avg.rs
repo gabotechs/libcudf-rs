@@ -1,7 +1,7 @@
-use crate::aggregate::op::udf::CuDFAggregateUDF;
-use crate::aggregate::CuDFAggregationOp;
 use crate::decimal::{decimal_count_type_for, decimal_div, is_supported_decimal};
 use crate::errors::cudf_to_df;
+use crate::physical::aggregate::op::udf::CuDFAggregateUDF;
+use crate::physical::aggregate::CuDFAggregationOp;
 use arrow::array::Array;
 use arrow_schema::DataType;
 use datafusion::common::exec_err;
@@ -47,13 +47,11 @@ impl CuDFAggregationOp for CuDFAvg {
             return exec_err!("AVG expects 1 argument, got {}", args.len());
         }
 
-        let mut count_request = AggregationRequest::from_column_view(args[0].clone());
-        count_request.add(AggregationOp::COUNT.group_by());
+        let mut request = AggregationRequest::from_column_view(args[0].clone());
+        request.add(AggregationOp::COUNT.group_by());
+        request.add(AggregationOp::SUM.group_by());
 
-        let mut sum_request = AggregationRequest::from_column_view(args[0].clone());
-        sum_request.add(AggregationOp::SUM.group_by());
-
-        Ok(vec![count_request, sum_request])
+        Ok(vec![request])
     }
 
     fn normalize_partial_state(&self, mut cols: Vec<CuDFColumn>) -> Result<Vec<CuDFColumn>> {

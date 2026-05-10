@@ -136,6 +136,7 @@ pub type Aggregation = GroupByAggregation;
 /// Types of aggregation operations
 ///
 /// Specifies the aggregation function to apply to grouped values.
+#[allow(non_camel_case_types)]
 pub enum AggregationOp {
     /// Sum of values
     SUM,
@@ -147,6 +148,8 @@ pub enum AggregationOp {
     MEAN,
     /// Count of non-null values
     COUNT,
+    /// Count of all values, including nulls
+    COUNT_ALL,
     /// Variance with delta degrees of freedom
     ///
     /// - `ddof = 0`: Population std dev
@@ -183,6 +186,9 @@ impl AggregationOp {
             MEAN => GroupByAggregation::new(make_mean_aggregation_groupby()),
             COUNT => {
                 GroupByAggregation::new(make_count_aggregation_groupby(NullPolicy::Exclude as i32))
+            }
+            COUNT_ALL => {
+                GroupByAggregation::new(make_count_aggregation_groupby(NullPolicy::Include as i32))
             }
             VARIANCE { ddof } => GroupByAggregation::new(make_variance_aggregation_groupby(*ddof)),
             STD { ddof } => GroupByAggregation::new(make_std_aggregation_groupby(*ddof)),

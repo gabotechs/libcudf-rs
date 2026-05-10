@@ -3,7 +3,6 @@
 //! This crate provides custom ExecutionPlan nodes that execute operations
 //! on the GPU using NVIDIA's cuDF library through DataFusion.
 
-pub mod aggregate;
 mod decimal;
 mod errors;
 mod expr;
@@ -14,5 +13,6 @@ mod planner;
 #[cfg(any(feature = "integration", test))]
 pub mod test_utils;
 
+pub use physical::aggregate;
 pub use physical::{CuDFLoadExec, CuDFUnloadExec};
 pub use planner::{CuDFConfig, SessionStateBuilderExt};

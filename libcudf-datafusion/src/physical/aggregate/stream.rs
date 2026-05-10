@@ -1,6 +1,6 @@
-use crate::aggregate::PreparedCuDFAggregate;
 use crate::errors::cudf_to_df;
 use crate::metrics::CuDFBaselineMetrics;
+use crate::physical::aggregate::PreparedCuDFAggregate;
 use arrow::array::{Array, ArrayRef, RecordBatch};
 use arrow_schema::SchemaRef;
 use datafusion::common::{exec_err, internal_err};

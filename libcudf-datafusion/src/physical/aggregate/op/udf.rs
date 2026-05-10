@@ -1,4 +1,4 @@
-use crate::aggregate::CuDFAggregationOp;
+use crate::physical::aggregate::CuDFAggregationOp;
 use arrow_schema::{DataType, FieldRef};
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::{Accumulator, Documentation, GroupsAccumulator, Signature};

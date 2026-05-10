@@ -1,6 +1,6 @@
-use crate::aggregate::op::udf::CuDFAggregateUDF;
-use crate::aggregate::CuDFAggregationOp;
 use crate::errors::cudf_to_df;
+use crate::physical::aggregate::op::udf::CuDFAggregateUDF;
+use crate::physical::aggregate::CuDFAggregationOp;
 use arrow_schema::DataType;
 use datafusion::common::exec_err;
 use datafusion::error::Result;
@@ -10,12 +10,20 @@ use libcudf_rs::{AggregationOp, AggregationRequest, CuDFColumn, CuDFColumnView};
 use std::sync::Arc;
 
 pub fn count() -> Arc<AggregateUDF> {
-    let udf = CuDFAggregateUDF::new(Arc::new(Count::default()), Arc::new(CuDFCount));
+    let udf = CuDFAggregateUDF::new(Arc::new(Count::default()), Arc::new(CuDFCount::default()));
     Arc::new(AggregateUDF::new_from_impl(udf))
 }
 
 #[derive(Debug, Default)]
-pub struct CuDFCount;
+pub struct CuDFCount {
+    count_nulls: bool,
+}
+
+impl CuDFCount {
+    pub(crate) fn count_all() -> Self {
+        Self { count_nulls: true }
+    }
+}
 
 impl CuDFAggregationOp for CuDFCount {
     fn num_state_columns(&self) -> usize {
@@ -28,7 +36,12 @@ impl CuDFAggregationOp for CuDFCount {
         }
 
         let mut request = AggregationRequest::from_column_view(args[0].clone());
-        request.add(AggregationOp::COUNT.group_by());
+        let op = if self.count_nulls {
+            AggregationOp::COUNT_ALL
+        } else {
+            AggregationOp::COUNT
+        };
+        request.add(op.group_by());
         Ok(vec![request])
     }
 
