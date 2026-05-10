@@ -17,6 +17,10 @@ impl CuDFColumnExpr {
     pub fn from_host(inner: Column) -> Self {
         Self { inner }
     }
+
+    pub(crate) fn host_column(&self) -> &Column {
+        &self.inner
+    }
 }
 
 impl Display for CuDFColumnExpr {

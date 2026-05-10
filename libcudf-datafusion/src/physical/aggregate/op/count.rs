@@ -1,11 +1,12 @@
 use crate::errors::cudf_to_df;
 use crate::physical::aggregate::op::udf::CuDFAggregateUDF;
-use crate::physical::aggregate::CuDFAggregationOp;
-use arrow_schema::DataType;
+use crate::physical::aggregate::{CuDFAggregationOp, ExprKey, ReusableStateKey};
+use arrow_schema::{DataType, SchemaRef};
 use datafusion::common::exec_err;
 use datafusion::error::Result;
 use datafusion::functions_aggregate::count::Count;
 use datafusion_expr::AggregateUDF;
+use datafusion_physical_plan::PhysicalExpr;
 use libcudf_rs::{AggregationOp, AggregationRequest, CuDFColumn, CuDFColumnView};
 use std::sync::Arc;
 
@@ -28,6 +29,20 @@ impl CuDFCount {
 impl CuDFAggregationOp for CuDFCount {
     fn num_state_columns(&self) -> usize {
         1
+    }
+
+    fn reusable_state_keys(
+        &self,
+        args: &[Arc<dyn PhysicalExpr>],
+        input_schema: &SchemaRef,
+    ) -> Result<Vec<(ReusableStateKey, usize)>> {
+        if self.count_nulls {
+            return Ok(vec![(ReusableStateKey::CountStar, 0)]);
+        }
+
+        Ok(ExprKey::try_from_single_arg(args, input_schema)?
+            .map(|key| vec![(ReusableStateKey::Count(key), 0)])
+            .unwrap_or_default())
     }
 
     fn partial_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {

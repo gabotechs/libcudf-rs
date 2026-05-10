@@ -1,4 +1,5 @@
 use crate::expr::expr_to_cudf_expr;
+use crate::expr::CuDFColumnExpr;
 use crate::physical::aggregate::op::count::CuDFCount;
 use crate::planner::CuDFConfig;
 use arrow_schema::{DataType, Schema, SchemaRef};
@@ -16,6 +17,7 @@ use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, InputOrderMode, PhysicalExpr, PlanProperties,
 };
 use std::any::{type_name, Any};
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
@@ -35,21 +37,58 @@ pub(crate) use op::CuDFAggregationOp;
 pub(crate) struct PreparedCuDFAggregate {
     mode: AggregateMode,
     group_by: PhysicalGroupBy,
-    aggs: Vec<PreparedAggregate>,
+    /// Physical cuDF aggregate requests. These produce the flat state columns
+    /// consumed by `outputs`, not every physical aggregate is emitted directly.
+    aggs: Vec<PreparedPhysicalAggregate>,
+    /// DataFusion aggregate output columns in schema order. Outputs may point at
+    /// physical state directly or derive from state produced by other aggregates.
+    outputs: Vec<PreparedAggregateOutput>,
 }
 
-/// One aggregate expression with all cuDF execution details resolved.
+/// One physical cuDF aggregate request and state slice.
 #[derive(Debug, Clone)]
-pub(crate) struct PreparedAggregate {
+pub(crate) struct PreparedPhysicalAggregate {
+    pub(crate) op: Arc<dyn CuDFAggregationOp>,
+    pub(crate) args: Vec<Arc<dyn PhysicalExpr>>,
+    pub(crate) output_type: DataType,
+}
+
+/// One DataFusion aggregate output column, in schema order.
+#[derive(Debug, Clone)]
+pub(crate) struct PreparedAggregateOutput {
     expr: Arc<AggregateFunctionExpr>,
-    op: Arc<dyn CuDFAggregationOp>,
-    args: Vec<Arc<dyn PhysicalExpr>>,
-    output_type: DataType,
+    kind: PreparedAggregateOutputKind,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum PreparedAggregateOutputKind {
+    Direct {
+        physical: usize,
+    },
+    Derived {
+        op: Arc<dyn CuDFAggregationOp>,
+        state: Vec<StateColumnRef>,
+        output_type: DataType,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct StateColumnRef {
+    pub(crate) aggregate: usize,
+    pub(crate) column: usize,
+}
+
+pub(crate) struct DerivedAggregateOutput {
+    pub(crate) state: Vec<StateColumnRef>,
+    pub(crate) output_type: DataType,
 }
 
 impl PreparedCuDFAggregate {
     fn aggr_expr(&self) -> Vec<Arc<AggregateFunctionExpr>> {
-        self.aggs.iter().map(|agg| agg.expr.clone()).collect()
+        self.outputs
+            .iter()
+            .map(|output| output.expr.clone())
+            .collect()
     }
 }
 
@@ -153,11 +192,11 @@ impl DisplayAs for CuDFAggregateExec {
             write!(f, "{}@{}", alias, expr)?;
         }
         write!(f, "], aggr_expr=[")?;
-        for (i, agg) in self.prepared.aggs.iter().enumerate() {
+        for (i, output) in self.prepared.outputs.iter().enumerate() {
             if i > 0 {
                 write!(f, ", ")?;
             }
-            write!(f, "{}", agg.expr.name())?;
+            write!(f, "{}", output.expr.name())?;
         }
         write!(f, "]")
     }
@@ -252,63 +291,330 @@ fn prepare_cudf_aggregate_parts(
 
     let aggregate_args = aggregate_expressions(&aggr_expr, &mode, group_by.expr().len())?;
 
-    let mut aggs = Vec::with_capacity(aggregate_args.len());
+    let mut candidates = Vec::with_capacity(aggr_expr.len());
     for (expr, args) in aggr_expr.into_iter().zip(aggregate_args) {
-        let Some(udf) = expr
-            .fun()
-            .inner()
-            .as_any()
-            .downcast_ref::<CuDFAggregateUDF>()
-        else {
+        let Some(candidate) = prepare_aggregate_candidate(expr, args, mode, input_schema)? else {
             return Ok(None);
         };
-        let mut op = udf.gpu().clone();
-
-        if !original_aggregate_args_supported(&expr)? {
-            return Ok(None);
-        }
-
-        let output_type = expr.field().data_type().clone();
-        let arg_types = args
-            .iter()
-            .map(|arg| arg.data_type(input_schema))
-            .collect::<Result<Vec<DataType>>>()?;
-        if !op.supports_input_types(mode, &arg_types, &output_type) {
-            return Ok(None);
-        }
-
-        let count_star = is_count_star(&expr);
-        let mut converted = Vec::with_capacity(args.len());
-        for arg in args {
-            let Some(arg) = expr_to_cudf_aggregate_arg(arg)? else {
-                return Ok(None);
-            };
-            converted.push(arg);
-        }
-        if count_star && !matches!(mode, AggregateMode::Final | AggregateMode::FinalPartitioned) {
-            let Some((arg, _)) = group_by.expr().first() else {
-                return Ok(None);
-            };
-            op = Arc::new(CuDFCount::count_all());
-            converted = vec![arg.clone()];
-        }
-        aggs.push(PreparedAggregate {
-            expr,
-            op,
-            args: converted,
-            output_type,
-        });
+        candidates.push(candidate);
     }
 
-    Ok(Some(PreparedCuDFAggregate {
-        mode,
-        group_by,
-        aggs,
+    let plan = if can_reuse_derived_state(mode) {
+        prepare_cudf_aggregate_with_reuse(mode, group_by, candidates, input_schema)?
+    } else {
+        prepare_cudf_aggregate_direct(mode, group_by, candidates)
+    };
+
+    Ok(Some(plan))
+}
+
+fn prepare_aggregate_candidate(
+    expr: Arc<AggregateFunctionExpr>,
+    args: Vec<Arc<dyn PhysicalExpr>>,
+    mode: AggregateMode,
+    input_schema: &SchemaRef,
+) -> Result<Option<AggregateCandidate>> {
+    let Some(udf) = expr
+        .fun()
+        .inner()
+        .as_any()
+        .downcast_ref::<CuDFAggregateUDF>()
+    else {
+        return Ok(None);
+    };
+    let op = udf.gpu().clone();
+
+    if !original_aggregate_args_supported(&expr)? {
+        return Ok(None);
+    }
+
+    let output_type = expr.field().data_type().clone();
+    let arg_types = args
+        .iter()
+        .map(|arg| arg.data_type(input_schema))
+        .collect::<Result<Vec<DataType>>>()?;
+    if !op.supports_input_types(mode, &arg_types, &output_type) {
+        return Ok(None);
+    }
+
+    let mut converted = Vec::with_capacity(args.len());
+    for arg in args {
+        let Some(arg) = expr_to_cudf_aggregate_arg(arg)? else {
+            return Ok(None);
+        };
+        converted.push(arg);
+    }
+
+    Ok(Some(AggregateCandidate {
+        kind: AggregateCandidateKind::from_expr(&expr, mode),
+        expr,
+        op,
+        args: converted,
+        output_type,
     }))
 }
 
+fn prepare_cudf_aggregate_direct(
+    mode: AggregateMode,
+    group_by: PhysicalGroupBy,
+    candidates: Vec<AggregateCandidate>,
+) -> PreparedCuDFAggregate {
+    let mut aggs = Vec::with_capacity(candidates.len());
+    let mut outputs = Vec::with_capacity(candidates.len());
+    let count_star_arg = group_by.expr()[0].0.clone();
+    for candidate in &candidates {
+        let physical = push_physical_aggregate(&mut aggs, candidate, &count_star_arg);
+        outputs.push(PreparedAggregateOutput {
+            expr: candidate.expr.clone(),
+            kind: PreparedAggregateOutputKind::Direct { physical },
+        });
+    }
+
+    PreparedCuDFAggregate {
+        mode,
+        group_by,
+        aggs,
+        outputs,
+    }
+}
+
+fn prepare_cudf_aggregate_with_reuse(
+    mode: AggregateMode,
+    group_by: PhysicalGroupBy,
+    candidates: Vec<AggregateCandidate>,
+    input_schema: &SchemaRef,
+) -> Result<PreparedCuDFAggregate> {
+    let mut aggs = Vec::with_capacity(candidates.len());
+    let mut outputs_by_candidate = Vec::with_capacity(candidates.len());
+    let mut state_registry = StateRegistry::default();
+    let count_star_arg = group_by.expr()[0].0.clone();
+
+    for candidate in &candidates {
+        if candidate.op.can_derive_from_reusable_state() {
+            outputs_by_candidate.push(None);
+            continue;
+        }
+
+        let physical = push_physical_aggregate(&mut aggs, candidate, &count_star_arg);
+        for (key, column) in candidate.reusable_state_keys(input_schema)? {
+            state_registry.insert(
+                key,
+                StateColumnRef {
+                    aggregate: physical,
+                    column,
+                },
+            );
+        }
+        outputs_by_candidate.push(Some(physical));
+    }
+
+    let mut outputs = Vec::with_capacity(candidates.len());
+    for (candidate, physical) in candidates.iter().zip(outputs_by_candidate) {
+        let derived = {
+            let mut state = AggregateStatePlanner::new(&mut aggs, &mut state_registry);
+            candidate.op.try_prepare_derived_output(
+                &candidate.args,
+                &candidate.output_type,
+                input_schema,
+                &mut state,
+            )?
+        };
+        if let Some(derived) = derived {
+            outputs.push(PreparedAggregateOutput {
+                expr: candidate.expr.clone(),
+                kind: PreparedAggregateOutputKind::Derived {
+                    op: candidate.op.clone(),
+                    state: derived.state,
+                    output_type: derived.output_type,
+                },
+            });
+            continue;
+        }
+
+        let physical = match physical {
+            Some(physical) => physical,
+            None => push_physical_aggregate(&mut aggs, candidate, &count_star_arg),
+        };
+        outputs.push(PreparedAggregateOutput {
+            expr: candidate.expr.clone(),
+            kind: PreparedAggregateOutputKind::Direct { physical },
+        });
+    }
+
+    Ok(PreparedCuDFAggregate {
+        mode,
+        group_by,
+        aggs,
+        outputs,
+    })
+}
+
+fn push_physical_aggregate(
+    aggs: &mut Vec<PreparedPhysicalAggregate>,
+    candidate: &AggregateCandidate,
+    count_star_arg: &Arc<dyn PhysicalExpr>,
+) -> usize {
+    let physical = aggs.len();
+    let mut op = candidate.op.clone();
+    let mut args = candidate.args.clone();
+    if candidate.kind == AggregateCandidateKind::CountStar {
+        op = Arc::new(CuDFCount::count_all());
+        args = vec![count_star_arg.clone()];
+    }
+    aggs.push(PreparedPhysicalAggregate {
+        op,
+        args,
+        output_type: candidate.output_type.clone(),
+    });
+    physical
+}
+
+fn can_reuse_derived_state(mode: AggregateMode) -> bool {
+    matches!(
+        mode,
+        AggregateMode::Single | AggregateMode::SinglePartitioned
+    )
+}
+
+#[derive(Clone)]
+struct AggregateCandidate {
+    kind: AggregateCandidateKind,
+    expr: Arc<AggregateFunctionExpr>,
+    op: Arc<dyn CuDFAggregationOp>,
+    args: Vec<Arc<dyn PhysicalExpr>>,
+    output_type: DataType,
+}
+
+impl AggregateCandidate {
+    fn reusable_state_keys(
+        &self,
+        input_schema: &SchemaRef,
+    ) -> Result<Vec<(ReusableStateKey, usize)>> {
+        if self.kind == AggregateCandidateKind::CountStar {
+            return Ok(vec![(ReusableStateKey::CountStar, 0)]);
+        }
+
+        self.op.reusable_state_keys(&self.args, input_schema)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AggregateCandidateKind {
+    Regular,
+    CountStar,
+}
+
+impl AggregateCandidateKind {
+    fn from_expr(expr: &AggregateFunctionExpr, mode: AggregateMode) -> Self {
+        if is_raw_input_mode(mode) && is_count_star(expr) {
+            Self::CountStar
+        } else {
+            Self::Regular
+        }
+    }
+}
+
+fn is_raw_input_mode(mode: AggregateMode) -> bool {
+    matches!(
+        mode,
+        AggregateMode::Single | AggregateMode::SinglePartitioned | AggregateMode::Partial
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ExprKey {
+    name: String,
+    index: usize,
+    data_type: DataType,
+}
+
+impl ExprKey {
+    pub(crate) fn try_from_single_arg(
+        args: &[Arc<dyn PhysicalExpr>],
+        input_schema: &SchemaRef,
+    ) -> Result<Option<Self>> {
+        let [arg] = args else {
+            return Ok(None);
+        };
+        Self::try_new(arg, input_schema)
+    }
+
+    fn try_new(expr: &Arc<dyn PhysicalExpr>, input_schema: &SchemaRef) -> Result<Option<Self>> {
+        let column = if let Some(column) = expr.as_any().downcast_ref::<Column>() {
+            column
+        } else if let Some(column) = expr.as_any().downcast_ref::<CuDFColumnExpr>() {
+            column.host_column()
+        } else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            name: column.name().to_string(),
+            index: column.index(),
+            data_type: expr.data_type(input_schema)?,
+        }))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum ReusableStateKey {
+    Sum(ExprKey),
+    Count(ExprKey),
+    CountStar,
+}
+
+#[derive(Default)]
+struct StateRegistry {
+    physical_by_state: HashMap<ReusableStateKey, StateColumnRef>,
+}
+
+impl StateRegistry {
+    fn insert(&mut self, key: ReusableStateKey, state: StateColumnRef) {
+        self.physical_by_state.entry(key).or_insert(state);
+    }
+
+    fn get(&self, key: &ReusableStateKey) -> Option<StateColumnRef> {
+        self.physical_by_state.get(key).copied()
+    }
+}
+
+pub(crate) struct AggregateStatePlanner<'a> {
+    aggs: &'a mut Vec<PreparedPhysicalAggregate>,
+    registry: &'a mut StateRegistry,
+}
+
+impl<'a> AggregateStatePlanner<'a> {
+    fn new(aggs: &'a mut Vec<PreparedPhysicalAggregate>, registry: &'a mut StateRegistry) -> Self {
+        Self { aggs, registry }
+    }
+
+    pub(crate) fn get(&self, key: &ReusableStateKey) -> Option<StateColumnRef> {
+        self.registry.get(key)
+    }
+
+    pub(crate) fn ensure(
+        &mut self,
+        key: ReusableStateKey,
+        build: impl FnOnce() -> Result<PreparedPhysicalAggregate>,
+    ) -> Result<StateColumnRef> {
+        if let Some(state) = self.registry.get(&key) {
+            return Ok(state);
+        }
+
+        // Derived outputs can require hidden physical state that is not one of
+        // DataFusion's requested outputs, for example SUM(a) to finalize AVG(a).
+        let physical = self.aggs.len();
+        self.aggs.push(build()?);
+        let state = StateColumnRef {
+            aggregate: physical,
+            column: 0,
+        };
+        self.registry.insert(key, state);
+        Ok(state)
+    }
+}
+
 fn is_count_star(expr: &AggregateFunctionExpr) -> bool {
-    expr.name().starts_with("count(")
+    expr.fun().name().eq_ignore_ascii_case("count")
         && expr.expressions().iter().all(|arg| {
             arg.as_any()
                 .downcast_ref::<Literal>()
@@ -371,10 +677,10 @@ mod test {
     use crate::physical::{CuDFLoadExec, CuDFUnloadExec};
     use crate::test_utils::sort_batches;
     use crate::CuDFConfig;
-    use arrow::array::{record_batch, Array, Int64Array, StringArray, StringViewArray};
+    use arrow::array::{record_batch, Array, ArrayRef, Int64Array, StringArray, StringViewArray};
     use arrow::record_batch::RecordBatch;
     use arrow::util::pretty::pretty_format_batches;
-    use arrow_schema::SchemaRef;
+    use arrow_schema::{DataType, Field, Schema, SchemaRef};
     use datafusion::common::ScalarValue;
     use datafusion::execution::runtime_env::RuntimeEnv;
     use datafusion::execution::TaskContext;
@@ -454,6 +760,51 @@ mod test {
         let batches = result.try_collect::<Vec<_>>().await?;
 
         Ok(batches)
+    }
+
+    fn aggregate_expr(
+        agg_fn: Arc<AggregateUDF>,
+        args: Vec<Arc<dyn PhysicalExpr>>,
+        schema: &SchemaRef,
+        alias: &str,
+    ) -> Result<Arc<datafusion_physical_plan::udaf::AggregateFunctionExpr>, Box<dyn Error>> {
+        Ok(Arc::new(
+            AggregateExprBuilder::new(agg_fn, args)
+                .schema(Arc::clone(schema))
+                .alias(alias)
+                .build()?,
+        ))
+    }
+
+    fn aggregate_for_batch(
+        batch: RecordBatch,
+        aggs: Vec<Arc<datafusion_physical_plan::udaf::AggregateFunctionExpr>>,
+    ) -> Result<CuDFAggregateExec, Box<dyn Error>> {
+        let schema = batch.schema();
+        let root = TestMemoryExec::try_new(&[vec![batch]], Arc::clone(&schema), None)?;
+        let load = CuDFLoadExec::try_new(Arc::new(root))?;
+        let group_by = PhysicalGroupBy::new_single(vec![(col("c", &schema)?, "c".to_string())]);
+
+        Ok(CuDFAggregateExec::try_new(
+            Arc::new(load),
+            AggregateMode::Single,
+            group_by,
+            aggs,
+        )?)
+    }
+
+    fn state_reuse_batch(nullable_a: bool) -> Result<RecordBatch, Box<dyn Error>> {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Int64, nullable_a),
+            Field::new("c", DataType::Utf8, false),
+        ]));
+        let a: ArrayRef = if nullable_a {
+            Arc::new(Int64Array::from(vec![Some(1), None, Some(4)]))
+        } else {
+            Arc::new(Int64Array::from(vec![1, 2, 4]))
+        };
+        let c: ArrayRef = Arc::new(StringArray::from(vec!["hello", "hello", "world"]));
+        Ok(RecordBatch::try_new(schema, vec![a, c])?)
     }
 
     #[tokio::test]
@@ -572,6 +923,125 @@ mod test {
         +-------+--------+
         ");
 
+        Ok(())
+    }
+
+    fn cudf_task_context() -> Arc<TaskContext> {
+        Arc::new(TaskContext::default().with_session_config(
+            SessionConfig::default().with_option_extension(CuDFConfig::default()),
+        ))
+    }
+
+    #[tokio::test]
+    async fn test_avg_reuses_sum_and_count_star_for_non_null_input() -> Result<(), Box<dyn Error>> {
+        let batch = state_reuse_batch(false)?;
+        let schema = batch.schema();
+        let lit_one: Arc<dyn PhysicalExpr> = Arc::new(Literal::new(ScalarValue::Int64(Some(1))));
+        let aggregate = aggregate_for_batch(
+            batch,
+            vec![
+                aggregate_expr(sum(), vec![col("a", &schema)?], &schema, "SUM(a)")?,
+                aggregate_expr(count(), vec![lit_one], &schema, "COUNT(*)")?,
+                aggregate_expr(avg(), vec![col("a", &schema)?], &schema, "AVG(a)")?,
+            ],
+        )?;
+
+        assert_eq!(aggregate.prepared.aggs.len(), 2);
+
+        let unload = CuDFUnloadExec::new(Arc::new(aggregate));
+        let result = unload.execute(0, cudf_task_context())?;
+        let batches = result.try_collect::<Vec<_>>().await?;
+        let output = pretty_format_batches(&sort_batches(&batches))?.to_string();
+        assert_snapshot!(output, @r"
+        +-------+--------+----------+--------+
+        | c     | SUM(a) | COUNT(*) | AVG(a) |
+        +-------+--------+----------+--------+
+        | hello | 3      | 2        | 1.5    |
+        | world | 4      | 1        | 4.0    |
+        +-------+--------+----------+--------+
+        ");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_nullable_avg_reuses_sum_and_count_column() -> Result<(), Box<dyn Error>> {
+        let batch = state_reuse_batch(true)?;
+        let schema = batch.schema();
+        let aggregate = aggregate_for_batch(
+            batch,
+            vec![
+                aggregate_expr(sum(), vec![col("a", &schema)?], &schema, "SUM(a)")?,
+                aggregate_expr(count(), vec![col("a", &schema)?], &schema, "COUNT(a)")?,
+                aggregate_expr(avg(), vec![col("a", &schema)?], &schema, "AVG(a)")?,
+            ],
+        )?;
+
+        assert_eq!(aggregate.prepared.aggs.len(), 2);
+
+        let unload = CuDFUnloadExec::new(Arc::new(aggregate));
+        let result = unload.execute(0, cudf_task_context())?;
+        let batches = result.try_collect::<Vec<_>>().await?;
+        let output = pretty_format_batches(&sort_batches(&batches))?.to_string();
+        assert_snapshot!(output, @r"
+        +-------+--------+----------+--------+
+        | c     | SUM(a) | COUNT(a) | AVG(a) |
+        +-------+--------+----------+--------+
+        | hello | 1      | 1        | 1.0    |
+        | world | 4      | 1        | 4.0    |
+        +-------+--------+----------+--------+
+        ");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_derived_avg_preserves_output_order() -> Result<(), Box<dyn Error>> {
+        let batch = state_reuse_batch(false)?;
+        let schema = batch.schema();
+        let lit_one: Arc<dyn PhysicalExpr> = Arc::new(Literal::new(ScalarValue::Int64(Some(1))));
+        let aggregate = aggregate_for_batch(
+            batch,
+            vec![
+                aggregate_expr(avg(), vec![col("a", &schema)?], &schema, "AVG(a)")?,
+                aggregate_expr(sum(), vec![col("a", &schema)?], &schema, "SUM(a)")?,
+                aggregate_expr(count(), vec![lit_one], &schema, "COUNT(*)")?,
+            ],
+        )?;
+
+        assert_eq!(aggregate.prepared.aggs.len(), 2);
+
+        let unload = CuDFUnloadExec::new(Arc::new(aggregate));
+        let result = unload.execute(0, cudf_task_context())?;
+        let batches = result.try_collect::<Vec<_>>().await?;
+        let output = pretty_format_batches(&sort_batches(&batches))?.to_string();
+        assert_snapshot!(output, @r"
+        +-------+--------+--------+----------+
+        | c     | AVG(a) | SUM(a) | COUNT(*) |
+        +-------+--------+--------+----------+
+        | hello | 1.5    | 3      | 2        |
+        | world | 4.0    | 4      | 1        |
+        +-------+--------+--------+----------+
+        ");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_nullable_avg_does_not_reuse_count_star() -> Result<(), Box<dyn Error>> {
+        let batch = state_reuse_batch(true)?;
+        let schema = batch.schema();
+        let lit_one: Arc<dyn PhysicalExpr> = Arc::new(Literal::new(ScalarValue::Int64(Some(1))));
+        let aggregate = aggregate_for_batch(
+            batch,
+            vec![
+                aggregate_expr(sum(), vec![col("a", &schema)?], &schema, "SUM(a)")?,
+                aggregate_expr(count(), vec![lit_one], &schema, "COUNT(*)")?,
+                aggregate_expr(avg(), vec![col("a", &schema)?], &schema, "AVG(a)")?,
+            ],
+        )?;
+
+        assert_eq!(aggregate.prepared.aggs.len(), 3);
         Ok(())
     }
 

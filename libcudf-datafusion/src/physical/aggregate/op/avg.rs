@@ -1,14 +1,19 @@
 use crate::decimal::{decimal_count_type_for, decimal_div, is_supported_decimal};
 use crate::errors::cudf_to_df;
+use crate::physical::aggregate::op::sum::CuDFSum;
 use crate::physical::aggregate::op::udf::CuDFAggregateUDF;
-use crate::physical::aggregate::CuDFAggregationOp;
+use crate::physical::aggregate::{
+    AggregateStatePlanner, CuDFAggregationOp, DerivedAggregateOutput, ExprKey,
+    PreparedPhysicalAggregate, ReusableStateKey,
+};
 use arrow::array::Array;
-use arrow_schema::DataType;
+use arrow_schema::{DataType, SchemaRef};
 use datafusion::common::exec_err;
 use datafusion::error::Result;
 use datafusion::functions_aggregate::average::Avg;
 use datafusion_expr::AggregateUDF;
 use datafusion_physical_plan::aggregates::AggregateMode;
+use datafusion_physical_plan::PhysicalExpr;
 use libcudf_rs::{
     cudf_binary_op, AggregationOp, AggregationRequest, CuDFBinaryOp, CuDFColumn, CuDFColumnView,
     CuDFColumnViewOrScalar,
@@ -28,6 +33,10 @@ impl CuDFAggregationOp for CuDFAvg {
         2 // [count, sum]
     }
 
+    fn can_derive_from_reusable_state(&self) -> bool {
+        true
+    }
+
     fn supports_input_types(
         &self,
         mode: AggregateMode,
@@ -40,6 +49,43 @@ impl CuDFAggregationOp for CuDFAvg {
             }
             _ => supports_raw_input_types(input_types, output_type),
         }
+    }
+
+    fn try_prepare_derived_output(
+        &self,
+        args: &[Arc<dyn PhysicalExpr>],
+        output_type: &DataType,
+        input_schema: &SchemaRef,
+        state: &mut AggregateStatePlanner<'_>,
+    ) -> Result<Option<DerivedAggregateOutput>> {
+        let Some(key) = ExprKey::try_from_single_arg(args, input_schema)? else {
+            return Ok(None);
+        };
+
+        let count = match state.get(&ReusableStateKey::Count(key.clone())) {
+            Some(count) => count,
+            None if !args[0].nullable(input_schema)? => {
+                let Some(count) = state.get(&ReusableStateKey::CountStar) else {
+                    return Ok(None);
+                };
+                count
+            }
+            None => return Ok(None),
+        };
+
+        let sum_key = ReusableStateKey::Sum(key);
+        let sum = state.ensure(sum_key, || {
+            Ok(PreparedPhysicalAggregate {
+                op: Arc::new(CuDFSum),
+                args: args.to_vec(),
+                output_type: args[0].data_type(input_schema)?,
+            })
+        })?;
+
+        Ok(Some(DerivedAggregateOutput {
+            state: vec![count, sum],
+            output_type: output_type.clone(),
+        }))
     }
 
     fn partial_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {
@@ -85,30 +131,37 @@ impl CuDFAggregationOp for CuDFAvg {
         state_cols: &[CuDFColumnView],
         output_type: &DataType,
     ) -> Result<CuDFColumnView> {
-        if state_cols.len() != 2 {
-            return exec_err!(
-                "AVG finalize expects 2 state columns, got {}",
-                state_cols.len()
-            );
-        }
+        finalize_avg_state(state_cols, output_type)
+    }
+}
 
-        if is_supported_decimal(output_type) {
-            return finalize_decimal_avg(&state_cols[1], &state_cols[0], output_type);
-        }
+fn finalize_avg_state(
+    state_cols: &[CuDFColumnView],
+    output_type: &DataType,
+) -> Result<CuDFColumnView> {
+    if state_cols.len() != 2 {
+        return exec_err!(
+            "AVG finalize expects 2 state columns, got {}",
+            state_cols.len()
+        );
+    }
 
-        let result = cudf_binary_op(
-            CuDFColumnViewOrScalar::ColumnView(state_cols[1].clone()),
-            CuDFColumnViewOrScalar::ColumnView(state_cols[0].clone()),
-            CuDFBinaryOp::Div,
-            &DataType::Float64,
-        )
-        .map_err(cudf_to_df)?;
+    if is_supported_decimal(output_type) {
+        return finalize_decimal_avg(&state_cols[1], &state_cols[0], output_type);
+    }
 
-        match result {
-            CuDFColumnViewOrScalar::ColumnView(view) => Ok(view),
-            CuDFColumnViewOrScalar::Scalar(_) => {
-                exec_err!("AVG finalize: expected ColumnView from division, got Scalar")
-            }
+    let result = cudf_binary_op(
+        CuDFColumnViewOrScalar::ColumnView(state_cols[1].clone()),
+        CuDFColumnViewOrScalar::ColumnView(state_cols[0].clone()),
+        CuDFBinaryOp::Div,
+        &DataType::Float64,
+    )
+    .map_err(cudf_to_df)?;
+
+    match result {
+        CuDFColumnViewOrScalar::ColumnView(view) => Ok(view),
+        CuDFColumnViewOrScalar::Scalar(_) => {
+            exec_err!("AVG finalize: expected ColumnView from division, got Scalar")
         }
     }
 }

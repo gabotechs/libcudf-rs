@@ -1,9 +1,11 @@
 use crate::physical::aggregate::op::udf::CuDFAggregateUDF;
-use crate::physical::aggregate::CuDFAggregationOp;
+use crate::physical::aggregate::{CuDFAggregationOp, ExprKey, ReusableStateKey};
+use arrow_schema::SchemaRef;
 use datafusion::common::exec_err;
 use datafusion::error::Result;
 use datafusion::functions_aggregate::sum::Sum;
 use datafusion_expr::AggregateUDF;
+use datafusion_physical_plan::PhysicalExpr;
 use libcudf_rs::{AggregationOp, AggregationRequest, CuDFColumnView};
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -19,6 +21,16 @@ pub struct CuDFSum;
 impl CuDFAggregationOp for CuDFSum {
     fn num_state_columns(&self) -> usize {
         1
+    }
+
+    fn reusable_state_keys(
+        &self,
+        args: &[Arc<dyn PhysicalExpr>],
+        input_schema: &SchemaRef,
+    ) -> Result<Vec<(ReusableStateKey, usize)>> {
+        Ok(ExprKey::try_from_single_arg(args, input_schema)?
+            .map(|key| vec![(ReusableStateKey::Sum(key), 0)])
+            .unwrap_or_default())
     }
 
     fn partial_requests(&self, args: &[CuDFColumnView]) -> Result<Vec<AggregationRequest>> {

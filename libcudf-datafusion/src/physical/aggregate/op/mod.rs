@@ -1,8 +1,12 @@
+use crate::physical::aggregate::{AggregateStatePlanner, DerivedAggregateOutput, ReusableStateKey};
 use arrow_schema::DataType;
+use arrow_schema::SchemaRef;
 use datafusion::error::Result;
 use datafusion_physical_plan::aggregates::AggregateMode;
+use datafusion_physical_plan::PhysicalExpr;
 use libcudf_rs::{AggregationRequest, CuDFColumn, CuDFColumnView};
 use std::fmt::Debug;
+use std::sync::Arc;
 
 pub mod avg;
 pub mod count;
@@ -36,6 +40,33 @@ pub trait CuDFAggregationOp: Debug + Send + Sync {
         _output_type: &DataType,
     ) -> bool {
         true
+    }
+
+    /// Whether this aggregate can produce its final output from reusable state
+    /// published by other physical aggregates.
+    fn can_derive_from_reusable_state(&self) -> bool {
+        false
+    }
+
+    /// State keys published by this physical aggregate, if its output can be
+    /// reused by another aggregate in the same `AggregateExec`.
+    fn reusable_state_keys(
+        &self,
+        _args: &[Arc<dyn PhysicalExpr>],
+        _input_schema: &SchemaRef,
+    ) -> Result<Vec<(ReusableStateKey, usize)>> {
+        Ok(vec![])
+    }
+
+    /// Build a derived output from reusable state, if the state is available.
+    fn try_prepare_derived_output(
+        &self,
+        _args: &[Arc<dyn PhysicalExpr>],
+        _output_type: &DataType,
+        _input_schema: &SchemaRef,
+        _state: &mut AggregateStatePlanner<'_>,
+    ) -> Result<Option<DerivedAggregateOutput>> {
+        Ok(None)
     }
 
     /// Build cuDF aggregation requests for raw input data.

@@ -1,6 +1,8 @@
 use crate::errors::cudf_to_df;
 use crate::metrics::CuDFBaselineMetrics;
-use crate::physical::aggregate::PreparedCuDFAggregate;
+use crate::physical::aggregate::{
+    PreparedAggregateOutputKind, PreparedCuDFAggregate, StateColumnRef,
+};
 use arrow::array::{Array, ArrayRef, RecordBatch};
 use arrow_schema::SchemaRef;
 use datafusion::common::{exec_err, internal_err};
@@ -57,11 +59,11 @@ impl GroupByMetrics {
     }
 }
 
-/// Maps each aggregation op to its slice of the flat state_columns array.
+/// Maps each physical aggregation op to its slice of the flat state_columns array.
 ///
 /// Built once at construction from `num_state_columns()`.
 ///
-/// Example for `[SUM, AVG, MAX]`:
+/// Example for physical aggregates `[SUM, AVG, MAX]`:
 /// ```text
 ///   SUM -> (0, 1), AVG -> (1, 2), MAX -> (3, 1)
 /// ```
@@ -90,7 +92,7 @@ pub struct CuDFAggregateStream {
     input: SendableRecordBatchStream,
     output_schema: SchemaRef,
     prepared: PreparedCuDFAggregate,
-    /// cuDF expressions that extract each op's argument columns from a batch.
+    /// cuDF expressions that extract each physical op's argument columns from a batch.
     aggregate_args: Vec<Vec<Arc<dyn PhysicalExpr>>>,
     column_mapping: ColumnMapping,
     state: StreamState,
@@ -311,8 +313,7 @@ impl CuDFAggregateStream {
         let _timer = self.group_by_metrics.emitting_time.timer();
         let num_rows = running.keys.num_rows();
         let key_columns = running.keys.into_columns();
-        let mut arrays: Vec<ArrayRef> =
-            Vec::with_capacity(key_columns.len() + self.prepared.aggs.len());
+        let mut arrays: Vec<ArrayRef> = Vec::with_capacity(self.output_schema.fields().len());
 
         for col in key_columns {
             arrays.push(Arc::new(col.into_view()));
@@ -326,26 +327,46 @@ impl CuDFAggregateStream {
 
         let is_partial = matches!(self.prepared.mode, AggregateMode::Partial);
 
-        for (op_idx, agg) in self.prepared.aggs.iter().enumerate() {
-            let (start, count) = self.column_mapping.ranges[op_idx];
-            let state_views: Vec<CuDFColumnView> = state_views[start..start + count].to_vec();
+        for output in &self.prepared.outputs {
+            match &output.kind {
+                PreparedAggregateOutputKind::Direct { physical } => {
+                    let agg = &self.prepared.aggs[*physical];
+                    let state_views = self.state_slice(&state_views, *physical);
 
-            if is_partial {
-                // Partial mode: emit raw state columns, cast to match state_fields schema
-                let state_fields = agg.expr.state_fields()?;
-                for (col_idx, view) in state_views.into_iter().enumerate() {
-                    let target_type = state_fields[col_idx].data_type();
-                    if view.data_type() != target_type {
-                        let casted = libcudf_rs::cast(&view, target_type).map_err(cudf_to_df)?;
-                        arrays.push(Arc::new(casted.into_view()));
+                    if is_partial {
+                        let state_fields = output.expr.state_fields()?;
+                        for (col_idx, view) in state_views.into_iter().enumerate() {
+                            let target_type = state_fields[col_idx].data_type();
+                            if view.data_type() != target_type {
+                                let casted =
+                                    libcudf_rs::cast(&view, target_type).map_err(cudf_to_df)?;
+                                arrays.push(Arc::new(casted.into_view()));
+                            } else {
+                                arrays.push(Arc::new(view));
+                            }
+                        }
                     } else {
-                        arrays.push(Arc::new(view));
+                        let finalized = agg.op.finalize(&state_views, &agg.output_type)?;
+                        arrays.push(Arc::new(finalized));
                     }
                 }
-            } else {
-                // Single/Final/FinalPartitioned/SinglePartitioned: finalize
-                let finalized = agg.op.finalize(&state_views, &agg.output_type)?;
-                arrays.push(Arc::new(finalized));
+                PreparedAggregateOutputKind::Derived {
+                    op,
+                    state,
+                    output_type,
+                } => {
+                    if is_partial {
+                        return internal_err!(
+                            "Derived aggregate output is not valid for Partial mode"
+                        );
+                    }
+                    let state_views = state
+                        .iter()
+                        .map(|state| self.state_column(&state_views, *state))
+                        .collect::<Vec<_>>();
+                    let finalized = op.finalize(&state_views, output_type)?;
+                    arrays.push(Arc::new(finalized));
+                }
             }
         }
 
@@ -354,6 +375,20 @@ impl CuDFAggregateStream {
             &self.output_schema,
             num_rows,
         )?))
+    }
+
+    fn state_slice(&self, state_views: &[CuDFColumnView], aggregate: usize) -> Vec<CuDFColumnView> {
+        let (start, count) = self.column_mapping.ranges[aggregate];
+        state_views[start..start + count].to_vec()
+    }
+
+    fn state_column(
+        &self,
+        state_views: &[CuDFColumnView],
+        state: StateColumnRef,
+    ) -> CuDFColumnView {
+        let (start, _) = self.column_mapping.ranges[state.aggregate];
+        state_views[start + state.column].clone()
     }
 
     /// Evaluate GROUP BY expressions on a batch and wrap the resulting key

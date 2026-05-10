@@ -1,5 +1,4 @@
 use crate::expr::binary::CuDFBinaryExpr;
-use crate::expr::column::CuDFColumnExpr;
 use crate::expr::literal::CuDFLiteral;
 use arrow::array::Array;
 use datafusion::common::{exec_err, not_impl_err};
@@ -15,6 +14,8 @@ pub(crate) mod ast;
 mod binary;
 mod column;
 mod literal;
+
+pub(crate) use column::CuDFColumnExpr;
 
 pub(crate) fn columnar_value_to_cudf(
     c: ColumnarValue,
