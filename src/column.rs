@@ -1,7 +1,7 @@
 use crate::data_type::arrow_type_to_cudf;
 use crate::device_resource::resource_ref;
 use crate::stream::stream_ref;
-use crate::{CuDFColumnView, CuDFError};
+use crate::{CuDFColumnView, CuDFError, CuDFScalar};
 use arrow::array::Array;
 use arrow::ffi::FFI_ArrowArray;
 use arrow_schema::ffi::FFI_ArrowSchema;
@@ -72,6 +72,23 @@ impl CuDFColumn {
             )
         }?;
         Ok(Self { inner })
+    }
+
+    /// Create a column by repeating a scalar value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the column cannot be allocated on the GPU.
+    pub fn from_scalar(scalar: &CuDFScalar, len: usize) -> Result<Self, CuDFError> {
+        crate::config::ensure_pools_configured();
+        let stream = ffi::get_default_stream();
+        let mr = ffi::get_current_device_resource_ref();
+        Ok(Self::new(ffi::make_column_from_scalar(
+            scalar.inner(),
+            len,
+            stream_ref(&stream)?,
+            resource_ref(&mr)?,
+        )?))
     }
 
     /// Return a [CuDFColumnView] pointing to this [CuDFColumn]. The current [CuDFColumn] will

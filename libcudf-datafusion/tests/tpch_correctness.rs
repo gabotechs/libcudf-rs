@@ -5,8 +5,9 @@ mod tests {
     use datafusion::prelude::{SessionConfig, SessionContext};
     use futures::TryStreamExt;
     use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
-    use libcudf_datafusion::SessionStateBuilderExt;
+    use libcudf_datafusion::{CuDFConfig, SessionStateBuilderExt};
     use libcudf_datafusion_benchmarks::datasets::{register_tables, tpch};
+    use std::env;
     use std::error::Error;
     use std::fmt::Display;
     use std::fs;
@@ -16,6 +17,7 @@ mod tests {
     const PARTITIONS: usize = 6;
     const TPCH_SCALE_FACTOR: f64 = 1.0;
     const TPCH_DATA_PARTS: i32 = 16;
+    const DIRECT_PARQUET_SCAN_TEST_ENV: &str = "LIBCUDF_DATAFUSION_DIRECT_PARQUET_SCAN_TESTS";
 
     #[tokio::test]
     async fn test_tpch_1() -> Result<(), Box<dyn Error>> {
@@ -139,7 +141,11 @@ mod tests {
         let gpu_ctx = SessionContext::from(
             SessionStateBuilder::new()
                 .with_default_features()
-                .with_config(SessionConfig::new().with_target_partitions(PARTITIONS))
+                .with_config(
+                    SessionConfig::new()
+                        .with_target_partitions(PARTITIONS)
+                        .with_option_extension(parquet_scan_config()),
+                )
                 .with_cudf_planner()
                 .build(),
         );
@@ -193,6 +199,19 @@ mod tests {
         ctx.register_udaf((*max()).clone());
         ctx.register_udaf((*min()).clone());
         ctx.register_udaf((*sum()).clone());
+    }
+
+    fn parquet_scan_config() -> CuDFConfig {
+        CuDFConfig::default().with_parquet_scan(correctness_parquet_scan_enabled())
+    }
+
+    fn correctness_parquet_scan_enabled() -> bool {
+        env::var(DIRECT_PARQUET_SCAN_TEST_ENV).is_ok_and(|value| {
+            matches!(
+                value.as_str(),
+                "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"
+            )
+        })
     }
 
     static INIT_TEST_TPCH_TABLES: OnceCell<()> = OnceCell::const_new();

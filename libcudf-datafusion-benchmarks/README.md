@@ -130,6 +130,39 @@ runs. cuDF aggregate chunks derive their default target from that cap:
 `--cudf-aggregate-chunk-target-bytes` only when testing an explicit aggregate
 chunk budget.
 
+Enable the experimental cuDF-backed Parquet scan for GPU runs with:
+
+```bash
+target/release/dfbench run \
+  --dataset tpch_sf1 \
+  --query q22 \
+  --iterations 3 \
+  --gpu \
+  --enable-cudf-parquet-scan
+```
+
+For paired harness reports, the flag applies only to the GPU leg:
+
+```bash
+target/release/dfbench harness \
+  --dataset tpch_sf1 \
+  --query q22 \
+  --iterations 3 \
+  --enable-cudf-parquet-scan
+```
+
+Use `--cudf-parquet-scan-files-per-batch` to override how many files are
+included in each cuDF Parquet read:
+
+```bash
+target/release/dfbench harness \
+  --dataset tpch_sf1 \
+  --query q22 \
+  --iterations 3 \
+  --enable-cudf-parquet-scan \
+  --cudf-parquet-scan-files-per-batch 4
+```
+
 Capture physical plans for selected queries:
 
 ```bash
@@ -249,6 +282,8 @@ are excluded from speedup totals.
 
 - Run release builds for timing data.
 - Keep correctness checks in tests, not in the benchmark harness.
+- Direct Parquet scan correctness and plan tests are gated by
+  `LIBCUDF_DATAFUSION_DIRECT_PARQUET_SCAN_TESTS=1`.
 - `benchmark-results/` is ignored by git.
 - The harness keeps CPU and GPU runs in separate subprocesses so command logs
   and process-level setup are reproducible.

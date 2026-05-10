@@ -4,7 +4,7 @@ mod tests {
     use datafusion::prelude::{SessionConfig, SessionContext};
     use datafusion_physical_plan::displayable;
     use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
-    use libcudf_datafusion::{assert_snapshot, SessionStateBuilderExt};
+    use libcudf_datafusion::{assert_snapshot, CuDFConfig, SessionStateBuilderExt};
     use libcudf_datafusion_benchmarks::datasets::{
         apply_query_settings, clickbench, register_tables,
     };
@@ -15,7 +15,6 @@ mod tests {
 
     const PARTITIONS: usize = 6;
     const FILE_RANGE: Range<usize> = 0..3;
-
     #[tokio::test]
     async fn test_clickbench_0() -> Result<(), Box<dyn Error>> {
         let plan = test_clickbench_query("q0").await?;
@@ -668,10 +667,21 @@ mod tests {
     }
 
     async fn test_clickbench_query(query_id: &str) -> Result<String, Box<dyn Error>> {
+        test_clickbench_query_with_config(query_id, CuDFConfig::default()).await
+    }
+
+    async fn test_clickbench_query_with_config(
+        query_id: &str,
+        cudf_config: CuDFConfig,
+    ) -> Result<String, Box<dyn Error>> {
         let ctx = SessionContext::from(
             SessionStateBuilder::new()
                 .with_default_features()
-                .with_config(SessionConfig::new().with_target_partitions(PARTITIONS))
+                .with_config(
+                    SessionConfig::new()
+                        .with_target_partitions(PARTITIONS)
+                        .with_option_extension(cudf_config),
+                )
                 .with_cudf_planner()
                 .build(),
         );

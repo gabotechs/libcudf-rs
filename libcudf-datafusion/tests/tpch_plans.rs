@@ -4,7 +4,7 @@ mod tests {
     use datafusion::prelude::{SessionConfig, SessionContext};
     use datafusion_physical_plan::displayable;
     use libcudf_datafusion::aggregate::{avg, count, max, min, sum};
-    use libcudf_datafusion::{assert_snapshot, SessionStateBuilderExt};
+    use libcudf_datafusion::{assert_snapshot, CuDFConfig, SessionStateBuilderExt};
     use libcudf_datafusion_benchmarks::datasets::{register_tables, tpch};
     use std::error::Error;
     use std::fs;
@@ -14,7 +14,6 @@ mod tests {
     const PARTITIONS: usize = 6;
     const TPCH_SCALE_FACTOR: f64 = 0.02;
     const TPCH_DATA_PARTS: i32 = 16;
-
     #[tokio::test]
     async fn test_tpch_1() -> Result<(), Box<dyn Error>> {
         let plan = test_tpch_query("q1").await?;
@@ -628,10 +627,21 @@ mod tests {
     }
 
     async fn test_tpch_query(query_id: &str) -> Result<String, Box<dyn Error>> {
+        test_tpch_query_with_config(query_id, CuDFConfig::default()).await
+    }
+
+    async fn test_tpch_query_with_config(
+        query_id: &str,
+        cudf_config: CuDFConfig,
+    ) -> Result<String, Box<dyn Error>> {
         let ctx = SessionContext::from(
             SessionStateBuilder::new()
                 .with_default_features()
-                .with_config(SessionConfig::new().with_target_partitions(PARTITIONS))
+                .with_config(
+                    SessionConfig::new()
+                        .with_target_partitions(PARTITIONS)
+                        .with_option_extension(cudf_config),
+                )
                 .with_cudf_planner()
                 .build(),
         );

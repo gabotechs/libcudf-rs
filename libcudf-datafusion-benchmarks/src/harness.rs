@@ -49,6 +49,14 @@ pub struct HarnessOpt {
     #[structopt(long)]
     cuda_batch_size: Option<usize>,
 
+    /// Run the GPU leg with the experimental cuDF-backed Parquet scan.
+    #[structopt(long = "enable-cudf-parquet-scan")]
+    enable_cudf_parquet_scan: bool,
+
+    /// Maximum number of files included in each cuDF Parquet read.
+    #[structopt(long = "cudf-parquet-scan-files-per-batch")]
+    cudf_parquet_scan_files_per_batch: Option<usize>,
+
     /// Run each query once before timed iterations.
     #[structopt(long)]
     warmup: bool,
@@ -87,6 +95,8 @@ struct HarnessMetadata {
     gpu_execution_batch_size: Option<usize>,
     aggregate_chunk_target_bytes: Option<usize>,
     load_coalesce_target_rows: Option<usize>,
+    enable_cudf_parquet_scan: bool,
+    cudf_parquet_scan_files_per_batch: Option<usize>,
     warmup: bool,
     plan_queries: Vec<String>,
     profile_queries: Vec<String>,
@@ -181,6 +191,8 @@ impl HarnessOpt {
             gpu_execution_batch_size,
             aggregate_chunk_target_bytes: self.aggregate_chunk_target_bytes,
             load_coalesce_target_rows: self.cuda_batch_size,
+            enable_cudf_parquet_scan: self.enable_cudf_parquet_scan,
+            cudf_parquet_scan_files_per_batch: self.cudf_parquet_scan_files_per_batch,
             warmup: self.warmup,
             plan_queries: self.plan_query.clone(),
             profile_queries: self.profile_query.clone(),
@@ -249,8 +261,15 @@ impl HarnessOpt {
                 args.push(bytes.to_string());
             }
             if let Some(rows) = self.cuda_batch_size {
-                args.push("--cudf-load-coalesce-target-rows".to_string());
+                args.push("--cuda-batch-size".to_string());
                 args.push(rows.to_string());
+            }
+            if self.enable_cudf_parquet_scan {
+                args.push("--enable-cudf-parquet-scan".to_string());
+            }
+            if let Some(files_per_batch) = self.cudf_parquet_scan_files_per_batch {
+                args.push("--cudf-parquet-scan-files-per-batch".to_string());
+                args.push(files_per_batch.to_string());
             }
         }
         if debug {
@@ -440,6 +459,14 @@ fn write_report(run_dir: &Path, metadata: &HarnessMetadata) -> Result<()> {
     report.push_str(&format!(
         "- cuDF load coalesce target rows: `{:?}`\n",
         metadata.load_coalesce_target_rows
+    ));
+    report.push_str(&format!(
+        "- cuDF parquet scan enabled: `{}`\n",
+        metadata.enable_cudf_parquet_scan
+    ));
+    report.push_str(&format!(
+        "- cuDF parquet scan files per batch: `{:?}`\n",
+        metadata.cudf_parquet_scan_files_per_batch
     ));
     report.push_str(&format!("- warmup: `{}`\n\n", metadata.warmup));
 
@@ -853,6 +880,49 @@ mod tests {
         assert!(contains_arg_pair(&gpu_args, "--batch-size", "65536"));
     }
 
+    #[test]
+    fn run_args_pass_parquet_scan_options_to_gpu_only() {
+        let mut opt = harness_opt(Some(8192), Some(131072));
+        opt.enable_cudf_parquet_scan = true;
+        opt.cudf_parquet_scan_files_per_batch = Some(2);
+        opt.cuda_batch_size = Some(524288);
+
+        let cpu_args = opt.dfbench_run_args(
+            false,
+            opt.cpu_execution_batch_size(),
+            false,
+            None,
+            3,
+            Some(Path::new("/tmp/cpu")),
+            true,
+        );
+        let gpu_args = opt.dfbench_run_args(
+            true,
+            opt.gpu_execution_batch_size(),
+            false,
+            None,
+            3,
+            Some(Path::new("/tmp/gpu")),
+            true,
+        );
+
+        assert!(!cpu_args
+            .iter()
+            .any(|arg| arg == "--enable-cudf-parquet-scan"));
+        assert!(!cpu_args
+            .iter()
+            .any(|arg| arg == "--cudf-parquet-scan-files-per-batch"));
+        assert!(gpu_args
+            .iter()
+            .any(|arg| arg == "--enable-cudf-parquet-scan"));
+        assert!(contains_arg_pair(
+            &gpu_args,
+            "--cudf-parquet-scan-files-per-batch",
+            "2"
+        ));
+        assert!(contains_arg_pair(&gpu_args, "--cuda-batch-size", "524288"));
+    }
+
     fn harness_opt(
         batch_size: Option<usize>,
         gpu_execution_batch_size: Option<usize>,
@@ -866,6 +936,8 @@ mod tests {
             gpu_execution_batch_size,
             aggregate_chunk_target_bytes: None,
             cuda_batch_size: None,
+            enable_cudf_parquet_scan: false,
+            cudf_parquet_scan_files_per_batch: None,
             warmup: false,
             output: PathBuf::from("/tmp/bench-results"),
             run_id: None,

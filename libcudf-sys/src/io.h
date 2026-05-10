@@ -4,6 +4,8 @@
 #include <memory>
 #include <vector>
 
+#include "ast.h"
+#include "data_type.h"
 #include "memory_resource.h"
 #include "rust/cxx.h"
 #include "stream.h"
@@ -12,6 +14,8 @@
 #include <cudf/io/parquet.hpp>
 
 namespace libcudf_bridge {
+    struct TableWithMetadata;
+
     // Opaque wrapper for cudf::io::source_info.
     struct SourceInfo {
         cudf::io::source_info inner;
@@ -51,6 +55,48 @@ namespace libcudf_bridge {
         void set_source(const SourceInfo& source);
 
         void set_columns(rust::Vec<rust::String> col_names);
+
+        void set_row_groups(rust::Vec<int32_t> row_group_indices, rust::Vec<size_t> source_offsets);
+
+        void set_filter(const AstExpressionTree& filter);
+
+        void enable_convert_strings_to_categories(bool val);
+
+        void enable_use_pandas_metadata(bool val);
+
+        void enable_use_arrow_schema(bool val);
+
+        void enable_allow_mismatched_pq_schemas(bool val);
+
+        void enable_ignore_missing_columns(bool val);
+
+        void set_skip_rows(int64_t val);
+
+        void set_num_rows(int64_t val);
+
+        void set_skip_bytes(size_t val);
+
+        void set_num_bytes(size_t val);
+
+        void set_timestamp_type(const DataType& type);
+    };
+
+    // Opaque wrapper for cudf::io::chunked_parquet_reader.
+    struct ChunkedParquetReader {
+        std::unique_ptr<cudf::io::chunked_parquet_reader> inner;
+
+        ChunkedParquetReader(
+            size_t chunk_read_limit,
+            size_t pass_read_limit,
+            const ParquetReaderOptions& options,
+            const CudaStreamView& stream,
+            const DeviceAsyncResourceRef& mr);
+
+        ~ChunkedParquetReader();
+
+        [[nodiscard]] bool has_next() const;
+
+        std::unique_ptr<TableWithMetadata> read_chunk() const;
     };
 
     // Opaque wrapper for cudf::io::parquet_writer_options.
@@ -79,6 +125,10 @@ namespace libcudf_bridge {
         [[nodiscard]] size_t num_rows_per_source(size_t index) const;
 
         [[nodiscard]] int32_t num_input_row_groups() const;
+
+        [[nodiscard]] size_t schema_info_count() const;
+
+        [[nodiscard]] rust::String schema_info_name(size_t index) const;
     };
 
     // Opaque owning wrapper for the file metadata byte vector returned by write_parquet.
@@ -107,6 +157,13 @@ namespace libcudf_bridge {
         const TableView& table);
 
     std::unique_ptr<TableWithMetadata> read_parquet(
+        const ParquetReaderOptions& options,
+        const CudaStreamView& stream,
+        const DeviceAsyncResourceRef& mr);
+
+    std::unique_ptr<ChunkedParquetReader> chunked_parquet_reader_create(
+        size_t chunk_read_limit,
+        size_t pass_read_limit,
         const ParquetReaderOptions& options,
         const CudaStreamView& stream,
         const DeviceAsyncResourceRef& mr);

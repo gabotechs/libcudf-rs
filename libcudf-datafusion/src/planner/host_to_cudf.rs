@@ -3,6 +3,7 @@ use crate::physical::{
     is_cudf_plan, try_as_cudf_hash_join, CuDFFilterExec, CuDFLoadExec, CuDFProjectionExec,
     CuDFSortExec, CuDFUnloadExec,
 };
+use crate::planner::parquet_scan::try_as_cudf_parquet_scan;
 use crate::planner::CuDFConfig;
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::config::ConfigOptions;
@@ -74,10 +75,16 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
             let plan_is_cudf = is_cudf_plan(plan.as_ref());
             let children = plan.children();
             let mut new_children: Vec<Arc<dyn ExecutionPlan>> = Vec::with_capacity(children.len());
-            for child in children.iter() {
+            for child in children {
                 let child_is_cudf = is_cudf_plan(child.as_ref());
 
                 if plan_is_cudf && !child_is_cudf && !plan.as_any().is::<CuDFLoadExec>() {
+                    if let Some(scan) = try_as_cudf_parquet_scan(child, cudf_config)? {
+                        new_children.push(scan);
+                        changed = true;
+                        continue;
+                    }
+
                     if let Some(cp) = child.as_any().downcast_ref::<CoalescePartitionsExec>() {
                         new_children.push(Arc::new(CuDFLoadExec::try_new(Arc::clone(cp.input()))?));
                     } else {

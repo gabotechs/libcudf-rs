@@ -2,7 +2,7 @@ use crate::cudf_array::is_cudf_array;
 use crate::device_resource::resource_ref;
 use crate::stream::stream_ref;
 use crate::table_view::CuDFTableView;
-use crate::{CuDFColumn, CuDFError};
+use crate::{CuDFAstExpression, CuDFColumn, CuDFError};
 use arrow::array::{Array, ArrayData, StructArray};
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow::record_batch::RecordBatch;
@@ -17,6 +17,39 @@ use std::sync::Arc;
 /// This is a safe wrapper around cuDF's table type.
 pub struct CuDFTable {
     pub(crate) inner: UniquePtr<ffi::Table>,
+}
+
+/// Result of reading Parquet with cuDF, including metadata needed for schema adaptation.
+pub struct CuDFParquetReadResult {
+    /// Table returned by cuDF.
+    pub table: CuDFTable,
+    /// Top-level column names returned by the cuDF reader, in table order.
+    pub column_names: Vec<String>,
+    /// Number of rows returned after row group and filter pruning.
+    pub num_rows: usize,
+}
+
+/// Options for reading one or more Parquet files with cuDF.
+pub struct CuDFParquetReadOptions<'a, P, S>
+where
+    P: AsRef<Path>,
+    S: AsRef<str>,
+{
+    /// Parquet file paths to read.
+    pub paths: &'a [P],
+    /// Optional projected column names.
+    pub columns: Option<&'a [S]>,
+    /// Optional row group indices per input file.
+    pub row_groups: Option<&'a [Vec<i32>]>,
+    /// Optional cuDF AST filter applied by the Parquet reader.
+    ///
+    /// cuDF stores this as a borrowed AST expression reference, so the filter
+    /// must outlive the synchronous read or chunked read call using it.
+    pub filter: Option<&'a CuDFAstExpression>,
+    /// Whether cuDF should read matching columns from mismatched Parquet sources.
+    pub allow_mismatched_pq_schemas: bool,
+    /// Whether cuDF should ignore projected columns missing from an input source.
+    pub ignore_missing_columns: bool,
 }
 
 impl CuDFTable {
@@ -94,7 +127,98 @@ impl CuDFTable {
         P: AsRef<Path>,
         S: AsRef<str>,
     {
+        Ok(Self::read_parquet_files_with_columns(paths, columns)?.table)
+    }
+
+    /// Read selected columns from one or more Parquet files with cuDF metadata.
+    pub fn read_parquet_files_with_columns<P, S>(
+        paths: &[P],
+        columns: Option<&[S]>,
+    ) -> Result<CuDFParquetReadResult, CuDFError>
+    where
+        P: AsRef<Path>,
+        S: AsRef<str>,
+    {
+        Self::read_parquet_files(CuDFParquetReadOptions {
+            paths,
+            columns,
+            row_groups: None,
+            filter: None,
+            allow_mismatched_pq_schemas: false,
+            ignore_missing_columns: true,
+        })
+    }
+
+    /// Read Parquet files with cuDF metadata.
+    pub fn read_parquet_files<P, S>(
+        read_options: CuDFParquetReadOptions<'_, P, S>,
+    ) -> Result<CuDFParquetReadResult, CuDFError>
+    where
+        P: AsRef<Path>,
+        S: AsRef<str>,
+    {
+        let options = Self::parquet_reader_options(read_options)?;
+        Self::read_parquet_options_with_metadata(options)
+    }
+
+    /// Read all Parquet chunks with cuDF metadata for each chunk.
+    ///
+    /// This convenience method collects all chunks. Use
+    /// [`Self::for_each_parquet_chunk`] to process chunks as they are read.
+    pub fn read_parquet_files_chunked<P, S>(
+        read_options: CuDFParquetReadOptions<'_, P, S>,
+        chunk_read_limit: usize,
+        pass_read_limit: usize,
+    ) -> Result<Vec<CuDFParquetReadResult>, CuDFError>
+    where
+        P: AsRef<Path>,
+        S: AsRef<str>,
+    {
+        let mut chunks = Vec::new();
+        Self::for_each_parquet_chunk(read_options, chunk_read_limit, pass_read_limit, |chunk| {
+            chunks.push(chunk);
+            Ok(true)
+        })?;
+        Ok(chunks)
+    }
+
+    /// Read Parquet files in cuDF chunks, invoking `callback` for each chunk.
+    ///
+    /// Returning `Ok(false)` from the callback stops reading early. If `filter`
+    /// is set in `read_options`, the filter expression must remain alive until
+    /// this method returns because cuDF stores a borrowed AST reference.
+    pub fn for_each_parquet_chunk<P, S, F>(
+        read_options: CuDFParquetReadOptions<'_, P, S>,
+        chunk_read_limit: usize,
+        pass_read_limit: usize,
+        callback: F,
+    ) -> Result<(), CuDFError>
+    where
+        P: AsRef<Path>,
+        S: AsRef<str>,
+        F: FnMut(CuDFParquetReadResult) -> Result<bool, CuDFError>,
+    {
+        let options = Self::parquet_reader_options(read_options)?;
+        Self::for_each_parquet_options_chunk(options, chunk_read_limit, pass_read_limit, callback)
+    }
+
+    fn parquet_reader_options<P, S>(
+        read_options: CuDFParquetReadOptions<'_, P, S>,
+    ) -> Result<UniquePtr<ffi::ParquetReaderOptions>, CuDFError>
+    where
+        P: AsRef<Path>,
+        S: AsRef<str>,
+    {
         crate::config::ensure_pools_configured();
+        let CuDFParquetReadOptions {
+            paths,
+            columns,
+            row_groups,
+            filter,
+            allow_mismatched_pq_schemas,
+            ignore_missing_columns,
+        } = read_options;
+
         if paths.is_empty() {
             return Err(ArrowError::InvalidArgumentError(
                 "at least one Parquet file is required".to_string(),
@@ -117,6 +241,25 @@ impl CuDFTable {
         let source = ffi::source_info_from_file_paths(path_strings);
         let source = source.as_ref().expect("source_info should not be null");
         let mut options = ffi::parquet_reader_options_create(source);
+        Self::set_parquet_columns(&mut options, columns);
+        Self::set_parquet_row_groups(&mut options, row_groups, paths.len())?;
+        Self::set_parquet_filter(&mut options, filter)?;
+        options
+            .pin_mut()
+            .enable_allow_mismatched_pq_schemas(allow_mismatched_pq_schemas);
+        options
+            .pin_mut()
+            .enable_ignore_missing_columns(ignore_missing_columns);
+
+        Ok(options)
+    }
+
+    fn set_parquet_columns<S>(
+        options: &mut UniquePtr<ffi::ParquetReaderOptions>,
+        columns: Option<&[S]>,
+    ) where
+        S: AsRef<str>,
+    {
         if let Some(columns) = columns {
             options.pin_mut().set_columns(
                 columns
@@ -125,7 +268,53 @@ impl CuDFTable {
                     .collect(),
             );
         }
+    }
 
+    fn set_parquet_row_groups(
+        options: &mut UniquePtr<ffi::ParquetReaderOptions>,
+        row_groups: Option<&[Vec<i32>]>,
+        path_count: usize,
+    ) -> Result<(), CuDFError> {
+        let Some(row_groups) = row_groups else {
+            return Ok(());
+        };
+        if row_groups.len() != path_count {
+            return Err(ArrowError::InvalidArgumentError(format!(
+                "expected row groups for {path_count} Parquet files, got {}",
+                row_groups.len()
+            ))
+            .into());
+        }
+
+        let mut indices = Vec::new();
+        let mut offsets = Vec::with_capacity(row_groups.len() + 1);
+        offsets.push(0);
+        for source_groups in row_groups {
+            indices.extend(source_groups.iter().copied());
+            offsets.push(indices.len());
+        }
+        options.pin_mut().set_row_groups(indices, offsets);
+        Ok(())
+    }
+
+    fn set_parquet_filter(
+        options: &mut UniquePtr<ffi::ParquetReaderOptions>,
+        filter: Option<&CuDFAstExpression>,
+    ) -> Result<(), CuDFError> {
+        if let Some(filter) = filter {
+            options.pin_mut().set_filter(
+                filter
+                    .inner()
+                    .as_ref()
+                    .expect("ast_expression_tree should not be null"),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn read_parquet_options_with_metadata(
+        options: UniquePtr<ffi::ParquetReaderOptions>,
+    ) -> Result<CuDFParquetReadResult, CuDFError> {
         let stream = ffi::get_default_stream();
         let mr = ffi::get_current_device_resource_ref();
         let mut result = ffi::read_parquet(
@@ -135,8 +324,61 @@ impl CuDFTable {
             stream.as_ref().expect("default stream should not be null"),
             mr.as_ref().expect("device resource should not be null"),
         )?;
+        let column_names = (0..result.schema_info_count())
+            .map(|index| result.schema_info_name(index))
+            .collect();
         let inner = result.pin_mut().release_table();
-        Ok(Self { inner })
+        let num_rows = inner.num_rows();
+        Ok(CuDFParquetReadResult {
+            table: Self { inner },
+            column_names,
+            num_rows,
+        })
+    }
+
+    fn for_each_parquet_options_chunk<F>(
+        options: UniquePtr<ffi::ParquetReaderOptions>,
+        chunk_read_limit: usize,
+        pass_read_limit: usize,
+        mut callback: F,
+    ) -> Result<(), CuDFError>
+    where
+        F: FnMut(CuDFParquetReadResult) -> Result<bool, CuDFError>,
+    {
+        let stream = ffi::get_default_stream();
+        let mr = ffi::get_current_device_resource_ref();
+        let reader = ffi::chunked_parquet_reader_create(
+            chunk_read_limit,
+            pass_read_limit,
+            options
+                .as_ref()
+                .expect("parquet_reader_options should not be null"),
+            stream.as_ref().expect("default stream should not be null"),
+            mr.as_ref().expect("device resource should not be null"),
+        )?;
+
+        while reader.has_next() {
+            let mut result = reader.read_chunk()?;
+            if !callback(Self::parquet_read_result_from_metadata(&mut result))? {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn parquet_read_result_from_metadata(
+        result: &mut UniquePtr<ffi::TableWithMetadata>,
+    ) -> CuDFParquetReadResult {
+        let column_names = (0..result.schema_info_count())
+            .map(|index| result.schema_info_name(index))
+            .collect();
+        let inner = result.pin_mut().release_table();
+        let num_rows = inner.num_rows();
+        CuDFParquetReadResult {
+            table: Self { inner },
+            column_names,
+            num_rows,
+        }
     }
 
     /// Write the table to a Parquet file

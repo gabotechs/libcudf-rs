@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "scalar.h"
+#include "rust/cxx.h"
 
 #include <cudf/ast/expressions.hpp>
 
@@ -23,6 +24,10 @@ namespace libcudf_bridge {
         AstExpressionTree& tree,
         int32_t column_index,
         int32_t table_reference);
+
+    std::size_t ast_expression_tree_add_column_name_reference(
+        AstExpressionTree& tree,
+        rust::Str column_name);
 
     std::size_t ast_expression_tree_add_literal(
         AstExpressionTree& tree,

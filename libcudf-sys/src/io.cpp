@@ -2,6 +2,7 @@
 #include "libcudf-sys/src/lib.rs.h"
 
 #include <cudf/io/parquet.hpp>
+#include <stdexcept>
 
 namespace libcudf_bridge {
     namespace {
@@ -14,6 +15,37 @@ namespace libcudf_bridge {
             result.reserve(values.size());
             for (const auto& value: values) {
                 result.emplace_back(static_cast<std::string>(value));
+            }
+            return result;
+        }
+
+        std::vector<std::vector<cudf::size_type>> to_row_groups(
+            const rust::Vec<int32_t>& row_group_indices,
+            const rust::Vec<size_t>& source_offsets) {
+            if (source_offsets.empty() || source_offsets.front() != 0) {
+                throw std::invalid_argument("row group source offsets must start at zero");
+            }
+
+            std::vector<std::vector<cudf::size_type>> result;
+            result.reserve(source_offsets.size() - 1);
+            size_t previous = 0;
+            for (size_t offset_index = 1; offset_index < source_offsets.size(); ++offset_index) {
+                auto next = source_offsets[offset_index];
+                if (next < previous || next > row_group_indices.size()) {
+                    throw std::invalid_argument("invalid row group source offset");
+                }
+
+                std::vector<cudf::size_type> groups;
+                groups.reserve(next - previous);
+                for (size_t index = previous; index < next; ++index) {
+                    groups.push_back(static_cast<cudf::size_type>(row_group_indices[index]));
+                }
+                result.push_back(std::move(groups));
+                previous = next;
+            }
+
+            if (previous != row_group_indices.size()) {
+                throw std::invalid_argument("row group source offsets do not cover all indices");
             }
             return result;
         }
@@ -54,6 +86,86 @@ namespace libcudf_bridge {
         inner.set_columns(to_std_strings(col_names));
     }
 
+    void ParquetReaderOptions::set_row_groups(
+        rust::Vec<int32_t> row_group_indices,
+        rust::Vec<size_t> source_offsets) {
+        inner.set_row_groups(to_row_groups(row_group_indices, source_offsets));
+    }
+
+    void ParquetReaderOptions::set_filter(const AstExpressionTree& filter) {
+        if (filter.inner.size() == 0) {
+            throw std::runtime_error("Cannot set an empty AST filter on ParquetReaderOptions");
+        }
+        inner.set_filter(filter.inner.back());
+    }
+
+    void ParquetReaderOptions::enable_convert_strings_to_categories(bool val) {
+        inner.enable_convert_strings_to_categories(val);
+    }
+
+    void ParquetReaderOptions::enable_use_pandas_metadata(bool val) {
+        inner.enable_use_pandas_metadata(val);
+    }
+
+    void ParquetReaderOptions::enable_use_arrow_schema(bool val) {
+        inner.enable_use_arrow_schema(val);
+    }
+
+    void ParquetReaderOptions::enable_allow_mismatched_pq_schemas(bool val) {
+        inner.enable_allow_mismatched_pq_schemas(val);
+    }
+
+    void ParquetReaderOptions::enable_ignore_missing_columns(bool val) {
+        inner.enable_ignore_missing_columns(val);
+    }
+
+    void ParquetReaderOptions::set_skip_rows(int64_t val) {
+        inner.set_skip_rows(val);
+    }
+
+    void ParquetReaderOptions::set_num_rows(int64_t val) {
+        inner.set_num_rows(val);
+    }
+
+    void ParquetReaderOptions::set_skip_bytes(size_t val) {
+        inner.set_skip_bytes(val);
+    }
+
+    void ParquetReaderOptions::set_num_bytes(size_t val) {
+        inner.set_num_bytes(val);
+    }
+
+    void ParquetReaderOptions::set_timestamp_type(const DataType& type) {
+        inner.set_timestamp_type(type.inner);
+    }
+
+    ChunkedParquetReader::ChunkedParquetReader(
+        size_t chunk_read_limit,
+        size_t pass_read_limit,
+        const ParquetReaderOptions& options,
+        const CudaStreamView& stream,
+        const DeviceAsyncResourceRef& mr)
+        : inner(std::make_unique<cudf::io::chunked_parquet_reader>(
+              chunk_read_limit,
+              pass_read_limit,
+              options.inner,
+              stream.inner,
+              mr.inner)) {}
+
+    ChunkedParquetReader::~ChunkedParquetReader() = default;
+
+    bool ChunkedParquetReader::has_next() const {
+        return inner && inner->has_next();
+    }
+
+    std::unique_ptr<TableWithMetadata> ChunkedParquetReader::read_chunk() const {
+        if (!inner) {
+            throw std::runtime_error("Cannot read from a null chunked Parquet reader");
+        }
+        auto result = inner->read_chunk();
+        return std::make_unique<TableWithMetadata>(std::move(result));
+    }
+
     ParquetWriterOptions::ParquetWriterOptions() : inner() {}
 
     ParquetWriterOptions::ParquetWriterOptions(cudf::io::parquet_writer_options options)
@@ -82,6 +194,14 @@ namespace libcudf_bridge {
 
     int32_t TableWithMetadata::num_input_row_groups() const {
         return inner.metadata.num_input_row_groups;
+    }
+
+    size_t TableWithMetadata::schema_info_count() const {
+        return inner.metadata.schema_info.size();
+    }
+
+    rust::String TableWithMetadata::schema_info_name(size_t index) const {
+        return inner.metadata.schema_info.at(index).name;
     }
 
     HostByteVector::HostByteVector(std::unique_ptr<std::vector<uint8_t>> bytes)
@@ -127,6 +247,20 @@ namespace libcudf_bridge {
         const DeviceAsyncResourceRef& mr) {
         auto result = cudf::io::read_parquet(options.inner, stream.inner, mr.inner);
         return std::make_unique<TableWithMetadata>(std::move(result));
+    }
+
+    std::unique_ptr<ChunkedParquetReader> chunked_parquet_reader_create(
+        size_t chunk_read_limit,
+        size_t pass_read_limit,
+        const ParquetReaderOptions& options,
+        const CudaStreamView& stream,
+        const DeviceAsyncResourceRef& mr) {
+        return std::make_unique<ChunkedParquetReader>(
+            chunk_read_limit,
+            pass_read_limit,
+            options,
+            stream,
+            mr);
     }
 
     std::unique_ptr<HostByteVector> write_parquet(

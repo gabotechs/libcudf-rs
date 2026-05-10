@@ -84,6 +84,9 @@ pub mod ffi {
         /// cuDF Parquet reader options.
         type ParquetReaderOptions;
 
+        /// cuDF chunked Parquet reader.
+        type ChunkedParquetReader;
+
         /// cuDF Parquet writer options.
         type ParquetWriterOptions;
 
@@ -148,6 +151,12 @@ pub mod ffi {
             tree: Pin<&mut AstExpressionTree>,
             column_index: i32,
             table_reference: i32,
+        ) -> Result<usize>;
+
+        /// Add a column-name reference expression to an AST tree.
+        fn ast_expression_tree_add_column_name_reference(
+            tree: Pin<&mut AstExpressionTree>,
+            column_name: &str,
         ) -> Result<usize>;
 
         /// Add a scalar literal expression to an AST tree.
@@ -498,6 +507,51 @@ pub mod ffi {
         /// Set projected columns on `cudf::io::parquet_reader_options`.
         fn set_columns(self: Pin<&mut ParquetReaderOptions>, col_names: Vec<String>);
 
+        /// Set per-source row groups on `cudf::io::parquet_reader_options`.
+        ///
+        /// This is a flat FFI representation of cuDF's nested row group vector.
+        fn set_row_groups(
+            self: Pin<&mut ParquetReaderOptions>,
+            row_group_indices: Vec<i32>,
+            source_offsets: Vec<usize>,
+        );
+
+        /// Set AST filter on `cudf::io::parquet_reader_options`.
+        fn set_filter(
+            self: Pin<&mut ParquetReaderOptions>,
+            filter: &AstExpressionTree,
+        ) -> Result<()>;
+
+        /// Enable conversion of strings to categories.
+        fn enable_convert_strings_to_categories(self: Pin<&mut ParquetReaderOptions>, val: bool);
+
+        /// Enable reading pandas metadata.
+        fn enable_use_pandas_metadata(self: Pin<&mut ParquetReaderOptions>, val: bool);
+
+        /// Enable reading Arrow schema metadata.
+        fn enable_use_arrow_schema(self: Pin<&mut ParquetReaderOptions>, val: bool);
+
+        /// Enable reading matching projected and filter columns from mismatched Parquet sources.
+        fn enable_allow_mismatched_pq_schemas(self: Pin<&mut ParquetReaderOptions>, val: bool);
+
+        /// Enable ignoring non-existent projected columns while reading.
+        fn enable_ignore_missing_columns(self: Pin<&mut ParquetReaderOptions>, val: bool);
+
+        /// Set number of rows to skip.
+        fn set_skip_rows(self: Pin<&mut ParquetReaderOptions>, val: i64);
+
+        /// Set number of rows to read.
+        fn set_num_rows(self: Pin<&mut ParquetReaderOptions>, val: i64);
+
+        /// Set bytes to skip before starting row group reads.
+        fn set_skip_bytes(self: Pin<&mut ParquetReaderOptions>, val: usize);
+
+        /// Set number of bytes after skipping to end row group reads at.
+        fn set_num_bytes(self: Pin<&mut ParquetReaderOptions>, val: usize);
+
+        /// Set timestamp type used to cast timestamp columns.
+        fn set_timestamp_type(self: Pin<&mut ParquetReaderOptions>, typ: &DataType);
+
         /// Take ownership of the table from `cudf::io::table_with_metadata`.
         fn release_table(self: Pin<&mut TableWithMetadata>) -> UniquePtr<Table>;
 
@@ -510,12 +564,33 @@ pub mod ffi {
         /// Return the total number of input row groups.
         fn num_input_row_groups(self: &TableWithMetadata) -> i32;
 
+        /// Return the number of entries in `table_metadata::schema_info`.
+        fn schema_info_count(self: &TableWithMetadata) -> usize;
+
+        /// Return `table_metadata::schema_info[index].name`.
+        fn schema_info_name(self: &TableWithMetadata, index: usize) -> String;
+
         /// Read Parquet using explicit reader options, CUDA stream, and device resource.
         fn read_parquet(
             options: &ParquetReaderOptions,
             stream: &CudaStreamView,
             mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<TableWithMetadata>>;
+
+        /// Create a cuDF chunked Parquet reader.
+        fn chunked_parquet_reader_create(
+            chunk_read_limit: usize,
+            pass_read_limit: usize,
+            options: &ParquetReaderOptions,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        ) -> Result<UniquePtr<ChunkedParquetReader>>;
+
+        /// Return whether a chunked Parquet reader has unread rows.
+        fn has_next(self: &ChunkedParquetReader) -> bool;
+
+        /// Read the next chunk from a chunked Parquet reader.
+        fn read_chunk(self: &ChunkedParquetReader) -> Result<UniquePtr<TableWithMetadata>>;
 
         /// Return the size of the returned host byte vector.
         fn size(self: &HostByteVector) -> usize;
