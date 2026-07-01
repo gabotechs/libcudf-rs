@@ -186,6 +186,12 @@ pub mod ffi {
         /// Opaque non-owning wrapper for an RMM CUDA stream view.
         type CudaStreamView;
 
+        /// Opaque non-owning wrapper for an upstream CCCL CUDA stream ref.
+        type CudaStreamRef;
+
+        /// Opaque owning wrapper for a CUDA event.
+        type CudaEvent;
+
         /// Return whether this wrapper still owns an underlying CUDA stream.
         ///
         /// In C++, you could do something like
@@ -210,6 +216,27 @@ pub mod ffi {
 
         /// Synchronize the viewed CUDA stream.
         fn synchronize(self: &CudaStreamView) -> Result<()>;
+
+        /// Create and record a CUDA event on this stream.
+        ///
+        /// `flags` is the raw upstream `cuda::event_flags` bitmask; this keeps
+        /// sys mechanical while allowing upstream flag combinations through cxx.
+        fn record_event(self: &CudaStreamRef, flags: u32) -> Result<UniquePtr<CudaEvent>>;
+
+        /// Make this stream wait until the CUDA event has completed.
+        fn wait_event(self: &CudaStreamRef, event: &CudaEvent) -> Result<()>;
+
+        /// Return whether this wrapper owns a live CUDA event.
+        fn is_valid(self: &CudaEvent) -> bool;
+
+        /// Record this CUDA event on the given stream.
+        fn record(self: &CudaEvent, stream: &CudaStreamRef) -> Result<()>;
+
+        /// Block until this CUDA event has completed.
+        fn sync(self: &CudaEvent) -> Result<()>;
+
+        /// Return true if this CUDA event has completed.
+        fn is_done(self: &CudaEvent) -> Result<bool>;
 
         /// Opaque non-owning wrapper for an RMM device async resource reference.
         type DeviceAsyncResourceRef;
@@ -1051,11 +1078,27 @@ pub mod ffi {
         /// Return a non-owning view for an owned CUDA stream.
         fn cuda_stream_view(stream: &CudaStream) -> UniquePtr<CudaStreamView>;
 
+        /// Convert an RMM CUDA stream view into an upstream CCCL CUDA stream ref.
+        ///
+        /// Factory function because cxx cannot expose C++ conversion operators directly.
+        fn cuda_stream_ref_from_view(stream: &CudaStreamView) -> UniquePtr<CudaStreamRef>;
+
+        /// Create a CUDA event on a device with explicit upstream event flags.
+        ///
+        /// Factory function because cxx cannot expose C++ constructors directly.
+        fn cuda_event_create_on_device(device_id: i32, flags: u32) -> Result<UniquePtr<CudaEvent>>;
+
         /// Get cuDF's current default stream.
         fn get_default_stream() -> UniquePtr<CudaStreamView>;
 
         /// Check whether cuDF is using the CUDA per-thread default stream.
         fn is_ptds_enabled() -> bool;
+
+        /// Return the current CUDA device ordinal.
+        fn cuda_get_device() -> Result<i32>;
+
+        /// Set the current CUDA device ordinal.
+        fn cuda_set_device(device_id: i32) -> Result<()>;
 
         /// Return cuDF's current device memory resource reference.
         fn get_current_device_resource_ref() -> UniquePtr<DeviceAsyncResourceRef>;
@@ -1731,6 +1774,18 @@ unsafe impl Send for ffi::CudaStream {}
 /// SAFETY: Shared references to the opaque stream wrapper are safe.
 unsafe impl Sync for ffi::CudaStream {}
 
+/// SAFETY: CUDA stream refs are non-owning handles that can be transferred between threads.
+unsafe impl Send for ffi::CudaStreamRef {}
+
+/// SAFETY: Shared references to the opaque stream ref wrapper are safe.
+unsafe impl Sync for ffi::CudaStreamRef {}
+
+/// SAFETY: CUDA event handles can be transferred between threads.
+unsafe impl Send for ffi::CudaEvent {}
+
+/// SAFETY: Shared references to the opaque event wrapper are safe.
+unsafe impl Sync for ffi::CudaEvent {}
+
 /// SAFETY: The cuda memory resource is a process-global allocator; the wrapper
 /// just owns its `unique_ptr` and is safe to move and share across threads.
 unsafe impl Send for ffi::CudaMemoryResource {}
@@ -1764,6 +1819,7 @@ mod tests {
 
     const CUDA_STREAM_FLAG_SYNC_DEFAULT: u32 = 0;
     const CUDA_STREAM_FLAG_NON_BLOCKING: u32 = 1;
+    const CUDA_EVENT_FLAG_DEFAULT: u32 = 0;
 
     fn expect_stream(stream: &cxx::UniquePtr<ffi::CudaStreamView>) -> &ffi::CudaStreamView {
         stream.as_ref().expect("default stream should not be null")
@@ -2609,6 +2665,63 @@ mod tests {
             assert!(default_view.is_default());
         }
         default_view.synchronize()?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_cuda_device_bindings() -> Result<(), Box<dyn std::error::Error>> {
+        let current_device = ffi::cuda_get_device()?;
+        ffi::cuda_set_device(current_device)?;
+        assert_eq!(ffi::cuda_get_device()?, current_device);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_cuda_event_bindings() -> Result<(), Box<dyn std::error::Error>> {
+        let producer = ffi::cuda_stream_create_with_flags(CUDA_STREAM_FLAG_NON_BLOCKING)?;
+        let consumer = ffi::cuda_stream_create_with_flags(CUDA_STREAM_FLAG_NON_BLOCKING)?;
+        let producer_view =
+            ffi::cuda_stream_view(producer.as_ref().expect("CudaStream should not be null"));
+        let consumer_view =
+            ffi::cuda_stream_view(consumer.as_ref().expect("CudaStream should not be null"));
+        let producer_ref = ffi::cuda_stream_ref_from_view(
+            producer_view
+                .as_ref()
+                .expect("CudaStreamView should not be null"),
+        );
+        let consumer_ref = ffi::cuda_stream_ref_from_view(
+            consumer_view
+                .as_ref()
+                .expect("CudaStreamView should not be null"),
+        );
+
+        let event =
+            ffi::cuda_event_create_on_device(ffi::cuda_get_device()?, CUDA_EVENT_FLAG_DEFAULT)?;
+        let event_ref = event.as_ref().expect("CudaEvent should not be null");
+        assert!(event_ref.is_valid());
+        event_ref.record(
+            producer_ref
+                .as_ref()
+                .expect("CudaStreamRef should not be null"),
+        )?;
+        event_ref.sync()?;
+        assert!(event_ref.is_done()?);
+
+        let event = producer_ref
+            .as_ref()
+            .expect("CudaStreamRef should not be null")
+            .record_event(CUDA_EVENT_FLAG_DEFAULT)?;
+        consumer_ref
+            .as_ref()
+            .expect("CudaStreamRef should not be null")
+            .wait_event(event.as_ref().expect("CudaEvent should not be null"))?;
+        consumer.synchronize()?;
+        assert!(event
+            .as_ref()
+            .expect("CudaEvent should not be null")
+            .is_done()?);
 
         Ok(())
     }

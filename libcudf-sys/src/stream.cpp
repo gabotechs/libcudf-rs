@@ -1,6 +1,9 @@
 #include "stream.h"
 
+#include <rmm/detail/error.hpp>
+
 #include <stdexcept>
+#include <utility>
 
 namespace libcudf_bridge {
     namespace {
@@ -13,9 +16,18 @@ namespace libcudf_bridge {
         static_assert(
             static_cast<uint32_t>(rmm::cuda_stream::flags::non_blocking) ==
             kCudaStreamFlagNonBlocking);
+        static_assert(static_cast<uint32_t>(cuda::event_flags::none) == cudaEventDefault);
+        static_assert(
+            static_cast<uint32_t>(cuda::event_flags::blocking_sync) == cudaEventBlockingSync);
+        static_assert(
+            static_cast<uint32_t>(cuda::event_flags::interprocess) == cudaEventInterprocess);
 
         [[nodiscard]] rmm::cuda_stream::flags to_rmm_flags(const uint32_t flags) {
             return static_cast<rmm::cuda_stream::flags>(flags);
+        }
+
+        [[nodiscard]] cuda::event_flags to_event_flags(const uint32_t flags) {
+            return static_cast<cuda::event_flags>(flags);
         }
     } // namespace
 
@@ -33,6 +45,22 @@ namespace libcudf_bridge {
 
     void CudaStreamView::synchronize() const {
         inner.synchronize();
+    }
+
+    CudaStreamRef::CudaStreamRef(cuda::stream_ref stream) : inner(stream) {}
+
+    CudaStreamRef::~CudaStreamRef() = default;
+
+    std::unique_ptr<CudaEvent> CudaStreamRef::record_event(const uint32_t flags) const {
+        auto event = inner.record_event(to_event_flags(flags));
+        return std::make_unique<CudaEvent>(std::move(event));
+    }
+
+    void CudaStreamRef::wait_event(const CudaEvent& event) const {
+        if (!event.is_valid()) {
+            throw std::runtime_error("Cannot wait on null CUDA event");
+        }
+        inner.wait(event.inner);
     }
 
     /// By default, create a stream that synchronizes with the default stream
@@ -64,6 +92,35 @@ namespace libcudf_bridge {
         inner->synchronize();
     }
 
+    CudaEvent::CudaEvent(cuda::event event) : inner(std::move(event)) {}
+
+    CudaEvent::~CudaEvent() = default;
+
+    bool CudaEvent::is_valid() const {
+        return static_cast<bool>(inner);
+    }
+
+    void CudaEvent::record(const CudaStreamRef& stream) const {
+        if (!is_valid()) {
+            throw std::runtime_error("Cannot record null CUDA event");
+        }
+        inner.record(stream.inner);
+    }
+
+    void CudaEvent::sync() const {
+        if (!is_valid()) {
+            throw std::runtime_error("Cannot synchronize null CUDA event");
+        }
+        inner.sync();
+    }
+
+    bool CudaEvent::is_done() const {
+        if (!is_valid()) {
+            throw std::runtime_error("Cannot query null CUDA event");
+        }
+        return inner.is_done();
+    }
+
     std::unique_ptr<CudaStream> cuda_stream_create() {
         return std::make_unique<CudaStream>();
     }
@@ -76,11 +133,32 @@ namespace libcudf_bridge {
         return std::make_unique<CudaStreamView>(stream.view());
     }
 
+    std::unique_ptr<CudaStreamRef> cuda_stream_ref_from_view(const CudaStreamView& stream) {
+        return std::make_unique<CudaStreamRef>(static_cast<cuda::stream_ref>(stream.inner));
+    }
+
+    std::unique_ptr<CudaEvent> cuda_event_create_on_device(
+        const int32_t device_id,
+        const uint32_t flags) {
+        return std::make_unique<CudaEvent>(
+            cuda::event(cuda::device_ref{device_id}, to_event_flags(flags)));
+    }
+
     std::unique_ptr<CudaStreamView> get_default_stream() {
         return std::make_unique<CudaStreamView>(cudf::get_default_stream());
     }
 
     bool is_ptds_enabled() {
         return cudf::is_ptds_enabled();
+    }
+
+    int32_t cuda_get_device() {
+        int device{};
+        RMM_CUDA_TRY(cudaGetDevice(&device));
+        return device;
+    }
+
+    void cuda_set_device(const int32_t device_id) {
+        RMM_CUDA_TRY(cudaSetDevice(device_id));
     }
 } // namespace libcudf_bridge
