@@ -46,26 +46,28 @@ fn make_right(ctx: &CuDFExecutionContext, m: usize) -> CuDFTable {
 }
 
 /// Upload both tables to GPU and return pre-built views.
-fn gpu_views(left_n: usize, right_m: usize) -> (CuDFTableView, CuDFTableView) {
+fn gpu_views(
+    left_n: usize,
+    right_m: usize,
+) -> (CuDFExecutionContext, CuDFTableView, CuDFTableView) {
     let ctx = CuDFExecutionContext::try_default_stream().unwrap();
-    let left = Arc::new(make_left(&ctx, left_n, right_m));
-    let right = Arc::new(make_right(&ctx, right_m));
-    ctx.synchronize().unwrap();
-    (Arc::clone(&left).view(), Arc::clone(&right).view())
+    let left = make_left(&ctx, left_n, right_m);
+    let right = make_right(&ctx, right_m);
+    (ctx, Arc::new(left).view(), Arc::new(right).view())
 }
 
 fn bench_inner_join(c: &mut Criterion) {
     let mut group = c.benchmark_group("join/inner");
 
     for &(left_n, right_m) in SIZES {
-        let (lv, rv) = gpu_views(left_n, right_m);
+        let (ctx, lv, rv) = gpu_views(left_n, right_m);
         let id = format!("{left_n}x{right_m}");
 
         group.throughput(Throughput::Elements(left_n as u64));
         group.bench_with_input(BenchmarkId::new("all_cols", &id), &(), |b, _| {
             b.iter(|| {
                 black_box(
-                    inner_join(&lv, &rv, &[0], &[0], None, None)
+                    ctx.execute(inner_join(&lv, &rv, &[0], &[0]))
                         .unwrap()
                         .num_rows(),
                 )
@@ -75,9 +77,13 @@ fn bench_inner_join(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("projected_1col", &id), &(), |b, _| {
             b.iter(|| {
                 black_box(
-                    inner_join(&lv, &rv, &[0], &[0], Some(&[1]), Some(&[1]))
-                        .unwrap()
-                        .num_rows(),
+                    ctx.execute(
+                        inner_join(&lv, &rv, &[0], &[0])
+                            .select_left(&[1])
+                            .select_right(&[1]),
+                    )
+                    .unwrap()
+                    .num_rows(),
                 )
             })
         });
@@ -90,7 +96,7 @@ fn bench_left_join(c: &mut Criterion) {
     let mut group = c.benchmark_group("join/left");
 
     for &(left_n, right_m) in SIZES {
-        let (lv, rv) = gpu_views(left_n, right_m);
+        let (ctx, lv, rv) = gpu_views(left_n, right_m);
 
         group.throughput(Throughput::Elements(left_n as u64));
         group.bench_with_input(
@@ -99,7 +105,7 @@ fn bench_left_join(c: &mut Criterion) {
             |b, _| {
                 b.iter(|| {
                     black_box(
-                        left_join(&lv, &rv, &[0], &[0], None, None)
+                        ctx.execute(left_join(&lv, &rv, &[0], &[0]))
                             .unwrap()
                             .num_rows(),
                     )
@@ -115,13 +121,21 @@ fn bench_semi_join(c: &mut Criterion) {
     let mut group = c.benchmark_group("join/semi");
 
     for &(left_n, right_m) in SIZES {
-        let (lv, rv) = gpu_views(left_n, right_m);
+        let (ctx, lv, rv) = gpu_views(left_n, right_m);
 
         group.throughput(Throughput::Elements(left_n as u64));
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("{left_n}x{right_m}")),
             &(),
-            |b, _| b.iter(|| black_box(left_semi_join(&lv, &rv, &[0], &[0]).unwrap().num_rows())),
+            |b, _| {
+                b.iter(|| {
+                    black_box(
+                        ctx.execute(left_semi_join(&lv, &rv, &[0], &[0]))
+                            .unwrap()
+                            .num_rows(),
+                    )
+                })
+            },
         );
     }
 

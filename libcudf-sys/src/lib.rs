@@ -1738,11 +1738,17 @@ unsafe impl Send for ffi::GroupBy {}
 /// SAFETY: GroupBy configuration can be accessed from multiple threads.
 unsafe impl Sync for ffi::GroupBy {}
 
-/// SAFETY: HashJoin owns its cuDF state and is only moved across threads.
+/// SAFETY: HashJoin owns its cuDF state and can be moved between threads.
 unsafe impl Send for ffi::HashJoin {}
 
-/// SAFETY: FilteredJoin owns its cuDF state and is only moved across threads.
+/// SAFETY: cuDF hash_join supports probing the reusable table from multiple threads.
+unsafe impl Sync for ffi::HashJoin {}
+
+/// SAFETY: FilteredJoin owns its cuDF state and can be moved between threads.
 unsafe impl Send for ffi::FilteredJoin {}
+
+/// SAFETY: cuDF filtered_join supports probing the reusable table from multiple threads.
+unsafe impl Sync for ffi::FilteredJoin {}
 
 /// SAFETY: DeviceIndexVector owns device memory and can be moved between threads.
 unsafe impl Send for ffi::DeviceIndexVector {}

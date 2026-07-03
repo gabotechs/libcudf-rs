@@ -21,16 +21,16 @@ use std::marker::PhantomData;
 ///
 /// The trait is sealed: callers can execute operations produced by libcudf-rs,
 /// but cannot implement their own.
-pub trait CuDFOperation: sealed::Sealed {
+pub trait CuDFOperation: operation_impl::CuDFOperationImpl {
     /// Value produced by the operation.
     type Output;
 }
 
-mod sealed {
+pub(crate) mod operation_impl {
     use crate::{CuDFExecutionContext, CuDFOperation, Result};
 
-    /// Internal execution hook for sealed operation values.
-    pub trait Sealed {
+    /// Internal execution hook for operation values produced by this crate.
+    pub trait CuDFOperationImpl {
         fn execute_on_context(
             self,
             ctx: &CuDFExecutionContext,
@@ -40,7 +40,7 @@ mod sealed {
     }
 }
 
-/// Executes a sealed operation on `ctx`.
+/// Executes an operation on `ctx`.
 pub(crate) fn execute_on_context<O>(
     operation: O,
     ctx: &CuDFExecutionContext,
@@ -48,7 +48,7 @@ pub(crate) fn execute_on_context<O>(
 where
     O: CuDFOperation,
 {
-    sealed::Sealed::execute_on_context(operation, ctx)
+    operation_impl::CuDFOperationImpl::execute_on_context(operation, ctx)
 }
 
 /// Wraps a one-shot closure as a cuDF operation.
@@ -76,7 +76,7 @@ where
     type Output = Output;
 }
 
-impl<Output, F> sealed::Sealed for DeferredOperation<F, Output>
+impl<Output, F> operation_impl::CuDFOperationImpl for DeferredOperation<F, Output>
 where
     F: FnOnce(&CuDFExecutionContext) -> crate::Result<Output>,
 {

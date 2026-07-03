@@ -39,6 +39,11 @@ pub(crate) struct OperationLaunch<'a> {
 }
 
 impl OperationLaunch<'_> {
+    /// Execution context that owns this launch.
+    pub(crate) fn context(&self) -> &CuDFExecutionContext {
+        self.ctx
+    }
+
     /// CUDA stream view passed to sys bindings.
     pub(crate) fn stream(&self) -> Result<&ffi::CudaStreamView> {
         self.stream

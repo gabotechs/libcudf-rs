@@ -663,7 +663,7 @@ mod tests {
     use datafusion::physical_expr::PhysicalExpr;
     use datafusion_expr::Operator;
     use datafusion_physical_plan::joins::utils::{ColumnIndex, JoinFilter};
-    use libcudf_rs::{CuDFFilteredHashJoinArgs, CuDFHashJoin, CuDFNullEquality, CuDFTable};
+    use libcudf_rs::{CuDFHashJoin, CuDFNullEquality, CuDFTable};
     use std::error::Error;
     use std::sync::Arc;
 
@@ -920,20 +920,19 @@ mod tests {
         probe: CuDFTable,
     ) -> Result<RecordBatch, Box<dyn Error>> {
         let build_view = Arc::clone(&build).view();
-        let join = CuDFHashJoin::try_new(&build_view, &[0], CuDFNullEquality::Unequal)?;
+        let join = execute_cudf(
+            CuDFHashJoin::build(&build_view, &[0]).null_equality(CuDFNullEquality::Unequal),
+        )?;
         let probe_view = probe.into_view();
         let predicate = join_filter_to_cudf_ast(&filter)?;
-        let result = join.inner_join_filtered(CuDFFilteredHashJoinArgs {
-            probe: &probe_view,
-            probe_on: &[0],
-            build_conditional: &build_view,
-            probe_conditional: &probe_view,
-            predicate: &predicate,
-            build_payload: &build_view,
-            probe_payload: &probe_view,
-            build_out_cols: Some(&[1]),
-            probe_out_cols: Some(&[1]),
-        })?;
+        let result = execute_cudf(
+            join.inner(&probe_view, &[0])
+                .filter(&predicate)
+                .condition_tables(&build_view, &probe_view)
+                .payloads(&build_view, &probe_view)
+                .select_build(&[1])
+                .select_probe(&[1]),
+        )?;
         Ok(execute_cudf(result.into_view().to_arrow_host())?)
     }
 }

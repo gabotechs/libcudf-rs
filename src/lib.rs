@@ -55,8 +55,9 @@ pub use errors::{CuDFError, Result};
 pub use execution_context::CuDFExecutionContext;
 pub use group_by::*;
 pub use join::{
-    cross_join, full_join, inner_join, left_anti_join, left_join, left_semi_join,
-    CuDFFilteredHashJoinArgs, CuDFHashJoin, CuDFNullEquality,
+    cross_join, full_join, inner_join, left_anti_join, left_join, left_semi_join, CreateHashJoin,
+    CrossJoin, CuDFHashJoin, CuDFNullEquality, CuDFStreamingJoin, EquiJoin, JoinProbe,
+    LeftFilterJoin, UnmatchedBuildRows,
 };
 pub use parquet::{CuDFParquetReadOptions, CuDFParquetReadResult};
 pub use pinned::pin_record_batch;

@@ -22,8 +22,7 @@ use datafusion_physical_plan::{
 };
 use futures::{StreamExt, TryStreamExt};
 use libcudf_rs::{
-    CuDFAstExpression, CuDFFilteredHashJoinArgs, CuDFHashJoin, CuDFNullEquality, CuDFTable,
-    CuDFTableView,
+    CuDFAstExpression, CuDFHashJoin, CuDFNullEquality, CuDFStreamingJoin, CuDFTable, CuDFTableView,
 };
 use std::any::Any;
 use std::fmt::Formatter;
@@ -384,6 +383,7 @@ struct JoinPlan {
 struct StreamingBuildSide {
     left: Arc<CuDFTable>,
     join: CuDFHashJoin,
+    streaming_join: Option<CuDFStreamingJoin>,
     filter: Option<CuDFAstExpression>,
     left_out: Option<Vec<usize>>,
     right_out: Option<Vec<usize>>,
@@ -496,13 +496,21 @@ impl StreamingJoinState {
             .transpose()?;
         let join = {
             let _timer = self.metrics.build_time.timer();
-            CuDFHashJoin::try_new(&left_view, &self.plan.left_on, CuDFNullEquality::Unequal)
-                .map_err(cudf_to_df)?
+            execute_cudf(
+                CuDFHashJoin::build(&left_view, &self.plan.left_on)
+                    .null_equality(CuDFNullEquality::Unequal),
+            )?
+        };
+        let streaming_join = if matches!(self.plan.join_type, JoinType::Left | JoinType::Full) {
+            Some(join.clone().into_streaming_join())
+        } else {
+            None
         };
 
         self.build = Some(StreamingBuildSide {
             left,
             join,
+            streaming_join,
             filter,
             left_out,
             right_out,
@@ -519,80 +527,77 @@ impl StreamingJoinState {
         let right_view = right.view();
         let _timer = self.metrics.join_time.timer();
 
-        let result =
-            match (self.plan.join_type, build.filter.as_ref()) {
-                (JoinType::Inner, Some(predicate)) => {
-                    build.join.inner_join_filtered(CuDFFilteredHashJoinArgs {
-                        probe: &right_view,
-                        probe_on: &self.plan.right_on,
-                        build_conditional: &left_view,
-                        probe_conditional: &right_view,
-                        predicate,
-                        build_payload: &left_view,
-                        probe_payload: &right_view,
-                        build_out_cols: build.left_out.as_deref(),
-                        probe_out_cols: build.right_out.as_deref(),
-                    })
-                }
-                (JoinType::Inner, None) => build.join.inner_join(
-                    &right_view,
-                    &self.plan.right_on,
-                    &left_view,
-                    &right_view,
-                    build.left_out.as_deref(),
-                    build.right_out.as_deref(),
-                ),
-                (JoinType::Left, Some(predicate)) => build
+        let result = match self.plan.join_type {
+            JoinType::Inner => {
+                let mut op = build
                     .join
-                    .inner_join_filtered_and_record_matches(CuDFFilteredHashJoinArgs {
-                        probe: &right_view,
-                        probe_on: &self.plan.right_on,
-                        build_conditional: &left_view,
-                        probe_conditional: &right_view,
-                        predicate,
-                        build_payload: &left_view,
-                        probe_payload: &right_view,
-                        build_out_cols: build.left_out.as_deref(),
-                        probe_out_cols: build.right_out.as_deref(),
-                    }),
-                (JoinType::Left, None) => build.join.inner_join_and_record_matches(
-                    &right_view,
-                    &self.plan.right_on,
-                    &left_view,
-                    &right_view,
-                    build.left_out.as_deref(),
-                    build.right_out.as_deref(),
-                ),
-                (JoinType::Full, Some(predicate)) => build
-                    .join
-                    .probe_left_join_filtered_and_record_matches(CuDFFilteredHashJoinArgs {
-                        probe: &right_view,
-                        probe_on: &self.plan.right_on,
-                        build_conditional: &left_view,
-                        probe_conditional: &right_view,
-                        predicate,
-                        build_payload: &left_view,
-                        probe_payload: &right_view,
-                        build_out_cols: build.left_out.as_deref(),
-                        probe_out_cols: build.right_out.as_deref(),
-                    }),
-                (JoinType::Full, None) => build.join.probe_left_join_and_record_matches(
-                    &right_view,
-                    &self.plan.right_on,
-                    &left_view,
-                    &right_view,
-                    build.left_out.as_deref(),
-                    build.right_out.as_deref(),
-                ),
-                other => {
-                    return Err(DataFusionError::NotImplemented(format!(
-                        "CuDFHashJoinExec: unsupported streaming join type {:?}",
-                        other.0
-                    )))
+                    .inner(&right_view, &self.plan.right_on)
+                    .payloads(&left_view, &right_view);
+                if let Some(cols) = build.left_out.as_deref() {
+                    op = op.select_build(cols);
                 }
-            };
+                if let Some(cols) = build.right_out.as_deref() {
+                    op = op.select_probe(cols);
+                }
+                if let Some(predicate) = build.filter.as_ref() {
+                    op = op
+                        .filter(predicate)
+                        .condition_tables(&left_view, &right_view);
+                }
+                execute_cudf(op)
+            }
+            JoinType::Left => {
+                let streaming = build.streaming_join.as_mut().ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "streaming join state should exist for left join".to_string(),
+                    )
+                })?;
+                let mut op = streaming
+                    .inner(&right_view, &self.plan.right_on)
+                    .payloads(&left_view, &right_view);
+                if let Some(cols) = build.left_out.as_deref() {
+                    op = op.select_build(cols);
+                }
+                if let Some(cols) = build.right_out.as_deref() {
+                    op = op.select_probe(cols);
+                }
+                if let Some(predicate) = build.filter.as_ref() {
+                    op = op
+                        .filter(predicate)
+                        .condition_tables(&left_view, &right_view);
+                }
+                execute_cudf(op)
+            }
+            JoinType::Full => {
+                let streaming = build.streaming_join.as_mut().ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "streaming join state should exist for full join".to_string(),
+                    )
+                })?;
+                let mut op = streaming
+                    .left(&right_view, &self.plan.right_on)
+                    .payloads(&left_view, &right_view);
+                if let Some(cols) = build.left_out.as_deref() {
+                    op = op.select_build(cols);
+                }
+                if let Some(cols) = build.right_out.as_deref() {
+                    op = op.select_probe(cols);
+                }
+                if let Some(predicate) = build.filter.as_ref() {
+                    op = op
+                        .filter(predicate)
+                        .condition_tables(&left_view, &right_view);
+                }
+                execute_cudf(op)
+            }
+            other => {
+                return Err(DataFusionError::NotImplemented(format!(
+                    "CuDFHashJoinExec: unsupported streaming join type {other:?}",
+                )))
+            }
+        };
 
-        result.map_err(cudf_to_df)
+        result
     }
 
     /// Emit collected-left rows that never matched any streamed right batch.
@@ -610,15 +615,21 @@ impl StreamingJoinState {
 
         let result = {
             let _timer = self.metrics.join_time.timer();
-            build
-                .join
-                .unmatched_build_rows(
-                    &left_view,
-                    &right_view,
-                    build.left_out.as_deref(),
-                    build.right_out.as_deref(),
+            let streaming = build.streaming_join.as_ref().ok_or_else(|| {
+                DataFusionError::Internal(
+                    "streaming join state should exist before finalizing".to_string(),
                 )
-                .map_err(cudf_to_df)?
+            })?;
+            let mut op = streaming
+                .unmatched_build_rows()
+                .payloads(&left_view, &right_view);
+            if let Some(cols) = build.left_out.as_deref() {
+                op = op.select_build(cols);
+            }
+            if let Some(cols) = build.right_out.as_deref() {
+                op = op.select_probe(cols);
+            }
+            execute_cudf(op)?
         };
 
         let batch = result

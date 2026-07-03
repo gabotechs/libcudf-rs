@@ -42,10 +42,6 @@ impl CuDFTableView {
         self.inner
     }
 
-    pub(crate) fn storage(&self) -> Option<CuDFViewStorage> {
-        self.storage.clone()
-    }
-
     /// Create a table view from column views.
     ///
     /// The returned table view keeps each input column view alive and records

@@ -111,10 +111,3 @@ impl CuDFStream {
             .ok_or(CuDFError::NullHandle("CUDA stream"))
     }
 }
-
-/// Return a non-null CUDA stream view reference from a cuDF FFI handle.
-pub(crate) fn stream_ref(stream: &UniquePtr<ffi::CudaStreamView>) -> Result<&ffi::CudaStreamView> {
-    stream
-        .as_ref()
-        .ok_or(CuDFError::NullHandle("CUDA stream view"))
-}
