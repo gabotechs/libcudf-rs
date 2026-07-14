@@ -106,7 +106,7 @@ pub fn cudf_binary_op(
 
     let result = match (left, right) {
         (CuDFColumnViewOrScalar::ColumnView(lhs), CuDFColumnViewOrScalar::ColumnView(rhs)) => {
-            ffi::binary_operation_col_col(
+            ffi::binary_operation_column_column(
                 lhs.inner(),
                 rhs.inner(),
                 op as i32,
@@ -116,7 +116,7 @@ pub fn cudf_binary_op(
             )
         }
         (CuDFColumnViewOrScalar::ColumnView(lhs), CuDFColumnViewOrScalar::Scalar(rhs)) => {
-            ffi::binary_operation_col_scalar(
+            ffi::binary_operation_column_scalar(
                 lhs.inner(),
                 rhs.inner(),
                 op as i32,
@@ -126,7 +126,7 @@ pub fn cudf_binary_op(
             )
         }
         (CuDFColumnViewOrScalar::Scalar(lhs), CuDFColumnViewOrScalar::ColumnView(rhs)) => {
-            ffi::binary_operation_scalar_col(
+            ffi::binary_operation_scalar_column(
                 lhs.inner(),
                 rhs.inner(),
                 op as i32,

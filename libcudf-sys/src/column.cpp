@@ -43,7 +43,7 @@ namespace libcudf_bridge {
         return std::make_unique<DataType>(inner->type());
     }
 
-    std::unique_ptr<ColumnView> column_view_clone(const ColumnView& view) {
+    [[nodiscard]] std::unique_ptr<ColumnView> column_view_clone(const ColumnView& view) {
         if (!view.inner) {
             throw std::runtime_error("Cannot clone null column view");
         }

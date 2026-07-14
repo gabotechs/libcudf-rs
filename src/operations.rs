@@ -2,8 +2,9 @@ use crate::data_type::arrow_type_to_cudf_data_type;
 use crate::device_resource::resource_ref;
 use crate::stream::stream_ref;
 use crate::{CuDFColumn, CuDFColumnView, CuDFError, CuDFRef, CuDFTable, CuDFTableView};
+use arrow::array::Array;
 use arrow_schema::{ArrowError, DataType};
-use libcudf_sys::ffi;
+use libcudf_sys::{ffi, OutOfBoundsPolicy};
 use std::sync::Arc;
 
 /// Gather rows from a table based on a gather map
@@ -16,11 +17,11 @@ use std::sync::Arc;
 /// * `table` - The table view to gather rows from
 /// * `gather_map` - A column of indices indicating which rows to gather
 ///
+/// Out-of-bounds indices produce null rows.
+///
 /// # Errors
 ///
-/// Returns an error if:
-/// - The gather map contains out-of-bounds indices
-/// - There is insufficient GPU memory
+/// Returns an error if the gather map is invalid or GPU execution fails.
 ///
 /// # Examples
 ///
@@ -40,11 +41,40 @@ use std::sync::Arc;
 /// # Ok::<(), libcudf_rs::CuDFError>(())
 /// ```
 pub fn gather(table: &CuDFTableView, gather_map: &CuDFColumnView) -> Result<CuDFTable, CuDFError> {
+    gather_with_policy(table, gather_map, OutOfBoundsPolicy::Nullify)
+}
+
+/// Gather rows without checking whether indices are in bounds.
+///
+/// This avoids the bounds check performed by [`gather`] when the producer of
+/// `gather_map` already guarantees valid indices.
+///
+/// # Safety
+///
+/// Every index in `gather_map` must be in `[-table.num_rows(), table.num_rows())`.
+/// Violating this precondition causes undefined behavior in cuDF.
+///
+/// # Errors
+///
+/// Returns an error if the gather map is otherwise invalid or GPU execution fails.
+pub unsafe fn gather_unchecked(
+    table: &CuDFTableView,
+    gather_map: &CuDFColumnView,
+) -> Result<CuDFTable, CuDFError> {
+    gather_with_policy(table, gather_map, OutOfBoundsPolicy::DontCheck)
+}
+
+fn gather_with_policy(
+    table: &CuDFTableView,
+    gather_map: &CuDFColumnView,
+    policy: OutOfBoundsPolicy,
+) -> Result<CuDFTable, CuDFError> {
     let stream = ffi::get_default_stream();
     let mr = ffi::get_current_device_resource_ref();
     let inner = ffi::gather(
         table.inner(),
         gather_map.inner(),
+        policy as i32,
         stream_ref(&stream)?,
         resource_ref(&mr)?,
     )?;
@@ -146,8 +176,35 @@ pub fn slice_column(
     offset: usize,
     length: usize,
 ) -> Result<CuDFColumnView, CuDFError> {
+    let end = offset.checked_add(length).ok_or_else(|| {
+        ArrowError::InvalidArgumentError("column slice end overflowed usize".to_string())
+    })?;
+    if end > column.len() {
+        return Err(ArrowError::InvalidArgumentError(format!(
+            "column slice [{offset}, {end}) exceeds length {}",
+            column.len()
+        ))
+        .into());
+    }
+    let indices = [
+        crate::errors::usize_to_cudf_size(offset, "column slice offset")?,
+        crate::errors::usize_to_cudf_size(end, "column slice end")?,
+    ];
     let stream = ffi::get_default_stream();
-    let inner = ffi::slice_column(column.inner(), offset, length, stream_ref(&stream)?)?;
+    // SAFETY: the returned view is attached to a clone of `column` below.
+    let views = unsafe { ffi::slice_column(column.inner(), &indices, stream_ref(&stream)?) }?;
+    let views = views
+        .as_ref()
+        .ok_or(CuDFError::NullHandle("column view vector"))?;
+    if views.len() != 1 {
+        return Err(ArrowError::ComputeError(format!(
+            "cuDF returned {} views for one slice interval",
+            views.len()
+        ))
+        .into());
+    }
+    // SAFETY: the result keeps `column` alive for the lifetime of the view.
+    let inner = unsafe { views.get(0) }?;
     CuDFColumnView::try_from_inner(inner, Some(Arc::new(column.clone()) as Arc<dyn CuDFRef>))
 }
 
@@ -189,6 +246,52 @@ pub fn cast(column: &CuDFColumnView, target_type: &DataType) -> Result<CuDFColum
 mod tests {
     use super::*;
     use arrow::array::*;
+    use arrow_schema::{Field, Schema};
+
+    #[test]
+    fn gather_nullifies_out_of_bounds_indices() -> Result<(), Box<dyn std::error::Error>> {
+        let schema = Schema::new(vec![Field::new("value", DataType::Int32, false)]);
+        let batch = arrow::record_batch::RecordBatch::try_new(
+            Arc::new(schema),
+            vec![Arc::new(Int32Array::from(vec![10, 20, 30]))],
+        )?;
+        let table = CuDFTable::try_from_arrow_host(batch)?.into_view();
+        let gather_map = Arc::new(CuDFColumn::try_from_arrow_host(&Int32Array::from(vec![
+            2, 5,
+        ]))?)
+        .view();
+
+        let result = gather(&table, &gather_map)?.into_view().to_arrow_host()?;
+        let values = result
+            .column(0)
+            .as_primitive::<arrow::datatypes::Int32Type>();
+        assert_eq!(values.iter().collect::<Vec<_>>(), vec![Some(30), None]);
+        Ok(())
+    }
+
+    #[test]
+    fn gather_unchecked_accepts_known_valid_indices() -> Result<(), Box<dyn std::error::Error>> {
+        let schema = Schema::new(vec![Field::new("value", DataType::Int32, false)]);
+        let batch = arrow::record_batch::RecordBatch::try_new(
+            Arc::new(schema),
+            vec![Arc::new(Int32Array::from(vec![10, 20, 30]))],
+        )?;
+        let table = CuDFTable::try_from_arrow_host(batch)?.into_view();
+        let gather_map = Arc::new(CuDFColumn::try_from_arrow_host(&Int32Array::from(vec![
+            2, 0,
+        ]))?)
+        .view();
+
+        // SAFETY: both gather indices are within the three-row input table.
+        let result = unsafe { gather_unchecked(&table, &gather_map) }?
+            .into_view()
+            .to_arrow_host()?;
+        let values = result
+            .column(0)
+            .as_primitive::<arrow::datatypes::Int32Type>();
+        assert_eq!(values.values(), &[30, 10]);
+        Ok(())
+    }
 
     #[test]
     fn test_cast_int32_to_int64() -> Result<(), Box<dyn std::error::Error>> {

@@ -131,14 +131,14 @@ fn gather_join_output(
 ) -> Result<CuDFTable, CuDFError> {
     let stream = ffi::get_default_stream();
     let resource = ffi::get_current_device_resource_ref();
-    let left = CuDFTable::try_from_inner(ffi::gather_with_policy(
+    let left = CuDFTable::try_from_inner(ffi::gather(
         left_payload,
         left_indices,
         left_policy as i32,
         stream_ref(&stream)?,
         resource_ref(&resource)?,
     )?)?;
-    let right = CuDFTable::try_from_inner(ffi::gather_with_policy(
+    let right = CuDFTable::try_from_inner(ffi::gather(
         right_payload,
         right_indices,
         right_policy as i32,
@@ -290,7 +290,7 @@ fn distinct_valid_indices(indices: CuDFColumnView) -> Result<Option<Arc<CuDFColu
     let zero = int32_scalar(0)?;
     let bool_type = bool_data_type()?;
     let valid_mask = Arc::new(CuDFColumn::try_from_inner(
-        ffi::binary_operation_col_scalar(
+        ffi::binary_operation_column_scalar(
             indices.inner(),
             zero.inner(),
             BinaryOperator::GreaterEqual as i32,
@@ -339,7 +339,7 @@ fn matched_row_mask(
     let false_scalar = bool_scalar(false)?;
     let mask = Arc::new(CuDFColumn::try_from_inner(ffi::make_column_from_scalar(
         false_scalar.inner(),
-        row_count,
+        crate::errors::usize_to_cudf_size(row_count, "join row count")?,
         stream_ref(&stream)?,
         resource_ref(&resource)?,
     )?)?);
@@ -373,7 +373,7 @@ fn unmatched_indices_from_matches(
     let false_scalar = bool_scalar(false)?;
     let bool_type = bool_data_type()?;
     let unmatched_mask = Arc::new(CuDFColumn::try_from_inner(
-        ffi::binary_operation_col_scalar(
+        ffi::binary_operation_column_scalar(
             Arc::clone(&matched_mask).view().inner(),
             false_scalar.inner(),
             BinaryOperator::Equal as i32,
@@ -403,13 +403,15 @@ fn join_index_sequence(size: usize, init: i32, step: i32) -> Result<Arc<CuDFColu
     let step_array = Int32Array::from(vec![step]);
     let init_scalar = CuDFScalar::try_from_arrow_host(Scalar::new(&init_array))?;
     let step_scalar = CuDFScalar::try_from_arrow_host(Scalar::new(&step_array))?;
-    Ok(Arc::new(CuDFColumn::try_from_inner(ffi::sequence(
-        size,
-        init_scalar.inner(),
-        step_scalar.inner(),
-        stream_ref(&stream)?,
-        resource_ref(&resource)?,
-    )?)?))
+    Ok(Arc::new(CuDFColumn::try_from_inner(
+        ffi::sequence_with_step(
+            crate::errors::usize_to_cudf_size(size, "join index sequence length")?,
+            init_scalar.inner(),
+            step_scalar.inner(),
+            stream_ref(&stream)?,
+            resource_ref(&resource)?,
+        )?,
+    )?))
 }
 
 fn int32_scalar(value: i32) -> Result<CuDFScalar, CuDFError> {
@@ -794,7 +796,7 @@ impl CuDFHashJoin {
                 let false_scalar = bool_scalar(false)?;
                 let mask = Arc::new(CuDFColumn::try_from_inner(ffi::make_column_from_scalar(
                     false_scalar.inner(),
-                    self.build_rows,
+                    crate::errors::usize_to_cudf_size(self.build_rows, "join build row count")?,
                     stream_ref(&stream)?,
                     resource_ref(&resource)?,
                 )?)?);
@@ -832,7 +834,7 @@ impl CuDFHashJoin {
         let false_scalar = bool_scalar(false)?;
         let bool_type = bool_data_type()?;
         let unmatched_mask = Arc::new(CuDFColumn::try_from_inner(
-            ffi::binary_operation_col_scalar(
+            ffi::binary_operation_column_scalar(
                 Arc::clone(matched_build_mask).view().inner(),
                 false_scalar.inner(),
                 BinaryOperator::Equal as i32,
@@ -992,6 +994,7 @@ pub fn left_semi_join(
     CuDFTable::try_from_inner(ffi::gather(
         left.inner(),
         indices_view.inner(),
+        OutOfBoundsPolicy::DontCheck as i32,
         stream_ref(&stream)?,
         resource_ref(&resource)?,
     )?)
@@ -1028,6 +1031,7 @@ pub fn left_anti_join(
     CuDFTable::try_from_inner(ffi::gather(
         left.inner(),
         indices_view.inner(),
+        OutOfBoundsPolicy::DontCheck as i32,
         stream_ref(&stream)?,
         resource_ref(&resource)?,
     )?)

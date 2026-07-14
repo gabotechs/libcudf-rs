@@ -160,7 +160,7 @@ pub fn sort_by_all(
     let stream = ffi::get_default_stream();
     let mr = ffi::get_current_device_resource_ref();
 
-    let inner = ffi::stable_sort_table(
+    let inner = ffi::stable_sort(
         table.inner(),
         &column_order_i32,
         &null_precedence_i32,

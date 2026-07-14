@@ -1,7 +1,7 @@
 use crate::{CuDFError, CuDFScalar};
 use arrow::error::ArrowError;
 use cxx::UniquePtr;
-use libcudf_sys::{ffi, AstOperator, AstTableReference};
+use libcudf_sys::{ffi, AstOperator, AstTableReference, TypeId};
 use std::fmt;
 
 /// A node index inside a [`CuDFAstExpression`] tree.
@@ -181,15 +181,99 @@ impl CuDFAstExpression {
     ///
     /// Returns an error if cuDF cannot add the scalar as an AST literal.
     pub fn literal(&mut self, scalar: CuDFScalar) -> Result<CuDFAstNode, CuDFError> {
+        let dtype = scalar.inner().data_type()?.id();
+        let tree = self.inner.pin_mut();
+        let inner = scalar.inner();
+        // SAFETY: the selected wrapper matches the scalar type id read from the
+        // same cuDF scalar, and `self.literals` retains its allocation for the tree.
+        // The C++ wrapper validates the type again before casting.
+        let node = unsafe {
+            match dtype {
+                x if x == TypeId::Int8 as i32 => {
+                    ffi::ast_expression_tree_add_literal_int8(tree, inner)
+                }
+                x if x == TypeId::Int16 as i32 => {
+                    ffi::ast_expression_tree_add_literal_int16(tree, inner)
+                }
+                x if x == TypeId::Int32 as i32 => {
+                    ffi::ast_expression_tree_add_literal_int32(tree, inner)
+                }
+                x if x == TypeId::Int64 as i32 => {
+                    ffi::ast_expression_tree_add_literal_int64(tree, inner)
+                }
+                x if x == TypeId::Uint8 as i32 => {
+                    ffi::ast_expression_tree_add_literal_uint8(tree, inner)
+                }
+                x if x == TypeId::Uint16 as i32 => {
+                    ffi::ast_expression_tree_add_literal_uint16(tree, inner)
+                }
+                x if x == TypeId::Uint32 as i32 => {
+                    ffi::ast_expression_tree_add_literal_uint32(tree, inner)
+                }
+                x if x == TypeId::Uint64 as i32 => {
+                    ffi::ast_expression_tree_add_literal_uint64(tree, inner)
+                }
+                x if x == TypeId::Float32 as i32 => {
+                    ffi::ast_expression_tree_add_literal_float32(tree, inner)
+                }
+                x if x == TypeId::Float64 as i32 => {
+                    ffi::ast_expression_tree_add_literal_float64(tree, inner)
+                }
+                x if x == TypeId::Bool8 as i32 => {
+                    ffi::ast_expression_tree_add_literal_bool8(tree, inner)
+                }
+                x if x == TypeId::String as i32 => {
+                    ffi::ast_expression_tree_add_literal_string(tree, inner)
+                }
+                x if x == TypeId::TimestampDays as i32 => {
+                    ffi::ast_expression_tree_add_literal_timestamp_days(tree, inner)
+                }
+                x if x == TypeId::TimestampSeconds as i32 => {
+                    ffi::ast_expression_tree_add_literal_timestamp_seconds(tree, inner)
+                }
+                x if x == TypeId::TimestampMilliseconds as i32 => {
+                    ffi::ast_expression_tree_add_literal_timestamp_milliseconds(tree, inner)
+                }
+                x if x == TypeId::TimestampMicroseconds as i32 => {
+                    ffi::ast_expression_tree_add_literal_timestamp_microseconds(tree, inner)
+                }
+                x if x == TypeId::TimestampNanoseconds as i32 => {
+                    ffi::ast_expression_tree_add_literal_timestamp_nanoseconds(tree, inner)
+                }
+                x if x == TypeId::DurationDays as i32 => {
+                    ffi::ast_expression_tree_add_literal_duration_days(tree, inner)
+                }
+                x if x == TypeId::DurationSeconds as i32 => {
+                    ffi::ast_expression_tree_add_literal_duration_seconds(tree, inner)
+                }
+                x if x == TypeId::DurationMilliseconds as i32 => {
+                    ffi::ast_expression_tree_add_literal_duration_milliseconds(tree, inner)
+                }
+                x if x == TypeId::DurationMicroseconds as i32 => {
+                    ffi::ast_expression_tree_add_literal_duration_microseconds(tree, inner)
+                }
+                x if x == TypeId::DurationNanoseconds as i32 => {
+                    ffi::ast_expression_tree_add_literal_duration_nanoseconds(tree, inner)
+                }
+                x if x == TypeId::Decimal32 as i32 => {
+                    ffi::ast_expression_tree_add_literal_decimal32(tree, inner)
+                }
+                x if x == TypeId::Decimal64 as i32 => {
+                    ffi::ast_expression_tree_add_literal_decimal64(tree, inner)
+                }
+                x if x == TypeId::Decimal128 as i32 => {
+                    ffi::ast_expression_tree_add_literal_decimal128(tree, inner)
+                }
+                _ => {
+                    return Err(ArrowError::NotYetImplemented(format!(
+                        "cuDF AST literals do not support type id {dtype}"
+                    ))
+                    .into())
+                }
+            }
+        }?;
         self.literals.push(scalar);
-        let scalar = self
-            .literals
-            .last()
-            .expect("literal scalar was just inserted");
-        Ok(ffi::ast_expression_tree_add_literal(
-            self.inner.pin_mut(),
-            scalar.inner(),
-        )?)
+        Ok(node)
     }
 
     /// Add a unary operation node.

@@ -83,12 +83,12 @@ namespace libcudf_bridge {
     struct Scalar;
 
     // Helper function to create Column from unique_ptr<cudf::column>
-    Column column_from_unique_ptr(std::unique_ptr<cudf::column> col);
+    [[nodiscard]] Column column_from_unique_ptr(std::unique_ptr<cudf::column> col);
 
     // Mechanical factory for cudf::column_view's copy constructor.
-    std::unique_ptr<ColumnView> column_view_clone(const ColumnView& view);
+    [[nodiscard]] std::unique_ptr<ColumnView> column_view_clone(const ColumnView& view);
 
-    std::unique_ptr<ColumnView> column_view_create(
+    [[nodiscard]] std::unique_ptr<ColumnView> column_view_create(
         const DataType& type,
         int32_t size,
         uintptr_t data,
@@ -98,14 +98,14 @@ namespace libcudf_bridge {
         rust::Slice<const ColumnView *const> children);
 
     // Extract a scalar from a column at the specified index
-    std::unique_ptr<Scalar> get_element(
+    [[nodiscard]] std::unique_ptr<Scalar> get_element(
         const ColumnView &column,
         int32_t index,
         const CudaStreamView &stream,
         const DeviceAsyncResourceRef &mr);
 
     // Cast a column to a different data type
-    std::unique_ptr<Column> cast(
+    [[nodiscard]] std::unique_ptr<Column> cast(
         const ColumnView &input,
         const DataType &target_type,
         const CudaStreamView &stream,

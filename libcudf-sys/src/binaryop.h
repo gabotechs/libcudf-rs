@@ -11,8 +11,7 @@
 
 namespace libcudf_bridge {
 
-    // Binary operations - direct cuDF mappings
-    std::unique_ptr<Column> binary_operation_col_col(
+    [[nodiscard]] std::unique_ptr<Column> binary_operation(
         const ColumnView &lhs,
         const ColumnView &rhs,
         int32_t op,
@@ -20,7 +19,7 @@ namespace libcudf_bridge {
         const CudaStreamView &stream,
         const DeviceAsyncResourceRef &mr);
 
-    std::unique_ptr<Column> binary_operation_col_scalar(
+    [[nodiscard]] std::unique_ptr<Column> binary_operation(
         const ColumnView &lhs,
         const Scalar &rhs,
         int32_t op,
@@ -28,10 +27,18 @@ namespace libcudf_bridge {
         const CudaStreamView &stream,
         const DeviceAsyncResourceRef &mr);
 
-    std::unique_ptr<Column> binary_operation_scalar_col(
+    [[nodiscard]] std::unique_ptr<Column> binary_operation(
         const Scalar &lhs,
         const ColumnView &rhs,
         int32_t op,
+        const DataType &output_type,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr);
+
+    [[nodiscard]] std::unique_ptr<Column> binary_operation(
+        const ColumnView &lhs,
+        const ColumnView &rhs,
+        rust::Str ptx,
         const DataType &output_type,
         const CudaStreamView &stream,
         const DeviceAsyncResourceRef &mr);

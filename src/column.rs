@@ -105,7 +105,7 @@ impl CuDFColumn {
         let mr = ffi::get_current_device_resource_ref();
         Self::try_from_inner(ffi::make_column_from_scalar(
             scalar.inner(),
-            len,
+            crate::errors::usize_to_cudf_size(len, "column length")?,
             stream_ref(&stream)?,
             resource_ref(&mr)?,
         )?)
@@ -132,7 +132,7 @@ impl CuDFColumn {
             .collect::<Result<Vec<_>, _>>()?;
         let stream = ffi::get_default_stream();
         let mr = ffi::get_current_device_resource_ref();
-        Self::try_from_inner(libcudf_sys::ffi::concat_column_views(
+        Self::try_from_inner(libcudf_sys::ffi::concatenate_columns(
             &inner_views,
             stream_ref(&stream)?,
             resource_ref(&mr)?,

@@ -5,6 +5,9 @@
 #include <cudf/column/column_view.hpp>
 #include <cudf/types.hpp>
 
+#include <stdexcept>
+#include <string>
+
 namespace libcudf_bridge {
     static_assert(static_cast<int32_t>(cudf::binary_operator::ADD) == 0);
     static_assert(static_cast<int32_t>(cudf::binary_operator::SUB) == 1);
@@ -42,8 +45,27 @@ namespace libcudf_bridge {
     static_assert(static_cast<int32_t>(cudf::binary_operator::NULL_LOGICAL_OR) == 33);
     static_assert(static_cast<int32_t>(cudf::binary_operator::INVALID_BINARY) == 34);
 
-    // Binary operation: column op column
-    std::unique_ptr<Column> binary_operation_col_col(
+    namespace {
+        const cudf::column_view& require_column_view(const ColumnView& column) {
+            if (!column.inner) {
+                throw std::invalid_argument("Cannot apply a binary operation to a null column view");
+            }
+            return *column.inner;
+        }
+
+        const cudf::scalar& require_scalar(const Scalar& scalar) {
+            if (!scalar.inner) {
+                throw std::invalid_argument("Cannot apply a binary operation to a null scalar");
+            }
+            return *scalar.inner;
+        }
+
+        std::unique_ptr<Column> wrap(std::unique_ptr<cudf::column> column) {
+            return std::make_unique<Column>(column_from_unique_ptr(std::move(column)));
+        }
+    } // namespace
+
+    std::unique_ptr<Column> binary_operation(
         const ColumnView &lhs,
         const ColumnView &rhs,
         int32_t op,
@@ -52,20 +74,16 @@ namespace libcudf_bridge {
         const DeviceAsyncResourceRef &mr) {
         const auto binary_op = static_cast<cudf::binary_operator>(op);
 
-        auto result_col = cudf::binary_operation(
-            *lhs.inner,
-            *rhs.inner,
+        return wrap(cudf::binary_operation(
+            require_column_view(lhs),
+            require_column_view(rhs),
             binary_op,
             output_type.inner,
             stream.inner,
-            mr.inner
-        );
-
-        return std::make_unique<Column>(column_from_unique_ptr(std::move(result_col)));
+            mr.inner));
     }
 
-    // Binary operation: column op scalar
-    std::unique_ptr<Column> binary_operation_col_scalar(
+    std::unique_ptr<Column> binary_operation(
         const ColumnView &lhs,
         const Scalar &rhs,
         int32_t op,
@@ -74,20 +92,16 @@ namespace libcudf_bridge {
         const DeviceAsyncResourceRef &mr) {
         const auto binary_op = static_cast<cudf::binary_operator>(op);
 
-        auto result_col = cudf::binary_operation(
-            *lhs.inner,
-            *rhs.inner,
+        return wrap(cudf::binary_operation(
+            require_column_view(lhs),
+            require_scalar(rhs),
             binary_op,
             output_type.inner,
             stream.inner,
-            mr.inner
-        );
-
-        return std::make_unique<Column>(column_from_unique_ptr(std::move(result_col)));
+            mr.inner));
     }
 
-    // Binary operation: scalar op column
-    std::unique_ptr<Column> binary_operation_scalar_col(
+    std::unique_ptr<Column> binary_operation(
         const Scalar &lhs,
         const ColumnView &rhs,
         int32_t op,
@@ -96,15 +110,28 @@ namespace libcudf_bridge {
         const DeviceAsyncResourceRef &mr) {
         const auto binary_op = static_cast<cudf::binary_operator>(op);
 
-        auto result_col = cudf::binary_operation(
-            *lhs.inner,
-            *rhs.inner,
+        return wrap(cudf::binary_operation(
+            require_scalar(lhs),
+            require_column_view(rhs),
             binary_op,
             output_type.inner,
             stream.inner,
-            mr.inner
-        );
+            mr.inner));
+    }
 
-        return std::make_unique<Column>(column_from_unique_ptr(std::move(result_col)));
+    std::unique_ptr<Column> binary_operation(
+        const ColumnView &lhs,
+        const ColumnView &rhs,
+        const rust::Str ptx,
+        const DataType &output_type,
+        const CudaStreamView &stream,
+        const DeviceAsyncResourceRef &mr) {
+        return wrap(cudf::binary_operation(
+            require_column_view(lhs),
+            require_column_view(rhs),
+            std::string(ptx.data(), ptx.size()),
+            output_type.inner,
+            stream.inner,
+            mr.inner));
     }
 } // namespace libcudf_bridge

@@ -1,7 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "ast.h"
@@ -15,6 +19,56 @@
 
 namespace libcudf_bridge {
     struct TableWithMetadata;
+
+    struct ColumnNameInfo {
+        cudf::io::column_name_info inner;
+
+        explicit ColumnNameInfo(cudf::io::column_name_info info);
+        ~ColumnNameInfo();
+
+        [[nodiscard]] rust::String name() const;
+        [[nodiscard]] bool has_is_nullable() const;
+        [[nodiscard]] bool is_nullable() const;
+        [[nodiscard]] bool has_is_binary() const;
+        [[nodiscard]] bool is_binary() const;
+        [[nodiscard]] bool has_type_length() const;
+        [[nodiscard]] int32_t type_length() const;
+        [[nodiscard]] size_t children_len() const;
+        [[nodiscard]] std::unique_ptr<ColumnNameInfo> child(size_t index) const;
+    };
+
+    struct KeyValuePairs {
+        std::vector<std::pair<std::string, std::string>> inner;
+
+        explicit KeyValuePairs(const std::map<std::string, std::string>& values);
+        explicit KeyValuePairs(const std::unordered_map<std::string, std::string>& values);
+        ~KeyValuePairs();
+
+        [[nodiscard]] size_t len() const;
+        [[nodiscard]] bool is_empty() const;
+        [[nodiscard]] rust::String key(size_t index) const;
+        [[nodiscard]] rust::String value(size_t index) const;
+    };
+
+    struct TableMetadata {
+        cudf::io::table_metadata inner;
+
+        explicit TableMetadata(cudf::io::table_metadata metadata);
+        ~TableMetadata();
+
+        [[nodiscard]] size_t schema_info_len() const;
+        [[nodiscard]] std::unique_ptr<ColumnNameInfo> schema_info(size_t index) const;
+        [[nodiscard]] size_t num_rows_per_source_len() const;
+        [[nodiscard]] size_t num_rows_per_source(size_t index) const;
+        [[nodiscard]] std::unique_ptr<KeyValuePairs> user_data() const;
+        [[nodiscard]] size_t per_file_user_data_len() const;
+        [[nodiscard]] std::unique_ptr<KeyValuePairs> per_file_user_data(size_t index) const;
+        [[nodiscard]] int32_t num_input_row_groups() const;
+        [[nodiscard]] bool has_num_row_groups_after_stats_filter() const;
+        [[nodiscard]] int32_t num_row_groups_after_stats_filter() const;
+        [[nodiscard]] bool has_num_row_groups_after_bloom_filter() const;
+        [[nodiscard]] int32_t num_row_groups_after_bloom_filter() const;
+    };
 
     // Opaque wrapper for cudf::io::source_info.
     struct SourceInfo {
@@ -96,7 +150,7 @@ namespace libcudf_bridge {
 
         [[nodiscard]] bool has_next() const;
 
-        std::unique_ptr<TableWithMetadata> read_chunk() const;
+        [[nodiscard]] std::unique_ptr<TableWithMetadata> read_chunk() const;
     };
 
     // Opaque wrapper for cudf::io::parquet_writer_options.
@@ -113,22 +167,14 @@ namespace libcudf_bridge {
     // Opaque wrapper for cudf::io::table_with_metadata.
     struct TableWithMetadata {
         cudf::io::table_with_metadata inner;
+        bool metadata_released{false};
 
         explicit TableWithMetadata(cudf::io::table_with_metadata result);
 
         ~TableWithMetadata();
 
-        std::unique_ptr<Table> release_table();
-
-        [[nodiscard]] size_t num_rows_per_source_count() const;
-
-        [[nodiscard]] size_t num_rows_per_source(size_t index) const;
-
-        [[nodiscard]] int32_t num_input_row_groups() const;
-
-        [[nodiscard]] size_t schema_info_count() const;
-
-        [[nodiscard]] rust::String schema_info_name(size_t index) const;
+        [[nodiscard]] std::unique_ptr<Table> release_table();
+        [[nodiscard]] std::unique_ptr<TableMetadata> release_metadata();
     };
 
     // Opaque owning wrapper for the file metadata byte vector returned by write_parquet.
@@ -142,33 +188,33 @@ namespace libcudf_bridge {
         [[nodiscard]] size_t size() const;
     };
 
-    std::unique_ptr<SourceInfo> source_info_from_file_path(rust::Str file_path);
+    [[nodiscard]] std::unique_ptr<SourceInfo> source_info_from_file_path(rust::Str file_path);
 
-    std::unique_ptr<SourceInfo> source_info_from_file_paths(rust::Vec<rust::String> file_paths);
+    [[nodiscard]] std::unique_ptr<SourceInfo> source_info_from_file_paths(rust::Vec<rust::String> file_paths);
 
-    std::unique_ptr<SinkInfo> sink_info_from_file_path(rust::Str file_path);
+    [[nodiscard]] std::unique_ptr<SinkInfo> sink_info_from_file_path(rust::Str file_path);
 
-    std::unique_ptr<SinkInfo> sink_info_from_file_paths(rust::Vec<rust::String> file_paths);
+    [[nodiscard]] std::unique_ptr<SinkInfo> sink_info_from_file_paths(rust::Vec<rust::String> file_paths);
 
-    std::unique_ptr<ParquetReaderOptions> parquet_reader_options_create(const SourceInfo& source);
+    [[nodiscard]] std::unique_ptr<ParquetReaderOptions> parquet_reader_options_create(const SourceInfo& source);
 
-    std::unique_ptr<ParquetWriterOptions> parquet_writer_options_create(
+    [[nodiscard]] std::unique_ptr<ParquetWriterOptions> parquet_writer_options_create(
         const SinkInfo& sink,
         const TableView& table);
 
-    std::unique_ptr<TableWithMetadata> read_parquet(
+    [[nodiscard]] std::unique_ptr<TableWithMetadata> read_parquet(
         const ParquetReaderOptions& options,
         const CudaStreamView& stream,
         const DeviceAsyncResourceRef& mr);
 
-    std::unique_ptr<ChunkedParquetReader> chunked_parquet_reader_create(
+    [[nodiscard]] std::unique_ptr<ChunkedParquetReader> chunked_parquet_reader_create(
         size_t chunk_read_limit,
         size_t pass_read_limit,
         const ParquetReaderOptions& options,
         const CudaStreamView& stream,
         const DeviceAsyncResourceRef& mr);
 
-    std::unique_ptr<HostByteVector> write_parquet(
+    [[nodiscard]] std::unique_ptr<HostByteVector> write_parquet(
         const ParquetWriterOptions& options,
         const CudaStreamView& stream);
 } // namespace libcudf_bridge

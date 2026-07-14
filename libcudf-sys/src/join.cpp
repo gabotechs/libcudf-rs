@@ -10,71 +10,71 @@
 #include <type_traits>
 
 namespace libcudf_bridge {
-namespace {
-static_assert(std::is_same_v<cudf::size_type, int32_t>);
-static_assert(static_cast<int32_t>(cudf::JoinNoMatch) == std::numeric_limits<int32_t>::min());
-static_assert(static_cast<int32_t>(cudf::join_kind::INNER_JOIN) == 0);
-static_assert(static_cast<int32_t>(cudf::join_kind::LEFT_JOIN) == 1);
-static_assert(static_cast<int32_t>(cudf::join_kind::FULL_JOIN) == 2);
-static_assert(static_cast<int32_t>(cudf::join_kind::LEFT_SEMI_JOIN) == 3);
-static_assert(static_cast<int32_t>(cudf::join_kind::LEFT_ANTI_JOIN) == 4);
-static_assert(static_cast<int32_t>(cudf::null_equality::EQUAL) == 0);
-static_assert(static_cast<int32_t>(cudf::null_equality::UNEQUAL) == 1);
-static_assert(static_cast<int32_t>(cudf::set_as_build_table::LEFT) == 0);
-static_assert(static_cast<int32_t>(cudf::set_as_build_table::RIGHT) == 1);
+    namespace {
+        static_assert(std::is_same_v<cudf::size_type, int32_t>);
+        static_assert(static_cast<int32_t>(cudf::JoinNoMatch) == std::numeric_limits<int32_t>::min());
+        static_assert(static_cast<int32_t>(cudf::join_kind::INNER_JOIN) == 0);
+        static_assert(static_cast<int32_t>(cudf::join_kind::LEFT_JOIN) == 1);
+        static_assert(static_cast<int32_t>(cudf::join_kind::FULL_JOIN) == 2);
+        static_assert(static_cast<int32_t>(cudf::join_kind::LEFT_SEMI_JOIN) == 3);
+        static_assert(static_cast<int32_t>(cudf::join_kind::LEFT_ANTI_JOIN) == 4);
+        static_assert(static_cast<int32_t>(cudf::null_equality::EQUAL) == 0);
+        static_assert(static_cast<int32_t>(cudf::null_equality::UNEQUAL) == 1);
+        static_assert(static_cast<int32_t>(cudf::set_as_build_table::LEFT) == 0);
+        static_assert(static_cast<int32_t>(cudf::set_as_build_table::RIGHT) == 1);
 
-std::unique_ptr<DeviceIndexVector> make_device_index_vector(
-    std::unique_ptr<rmm::device_uvector<cudf::size_type>> vec)
-{
-    auto result = std::make_unique<DeviceIndexVector>();
-    result->inner = std::move(vec);
-    return result;
-}
+        std::unique_ptr<DeviceIndexVector> make_device_index_vector(
+            std::unique_ptr<rmm::device_uvector<cudf::size_type>> vec)
+        {
+            auto result = std::make_unique<DeviceIndexVector>();
+            result->inner = std::move(vec);
+            return result;
+        }
 
-std::unique_ptr<JoinIndices> make_join_indices(
-    std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_idx,
-    std::unique_ptr<rmm::device_uvector<cudf::size_type>> right_idx)
-{
-    auto result = std::make_unique<JoinIndices>();
-    result->left = make_device_index_vector(std::move(left_idx));
-    result->right = make_device_index_vector(std::move(right_idx));
-    return result;
-}
+        std::unique_ptr<JoinIndices> make_join_indices(
+            std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_idx,
+            std::unique_ptr<rmm::device_uvector<cudf::size_type>> right_idx)
+        {
+            auto result = std::make_unique<JoinIndices>();
+            result->left = make_device_index_vector(std::move(left_idx));
+            result->right = make_device_index_vector(std::move(right_idx));
+            return result;
+        }
 
-std::unique_ptr<HashJoinIndices> make_hash_join_indices(
-    std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_idx,
-    std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_idx)
-{
-    auto result = std::make_unique<HashJoinIndices>();
-    result->probe = make_device_index_vector(std::move(probe_idx));
-    result->build = make_device_index_vector(std::move(build_idx));
-    return result;
-}
+        std::unique_ptr<HashJoinIndices> make_hash_join_indices(
+            std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_idx,
+            std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_idx)
+        {
+            auto result = std::make_unique<HashJoinIndices>();
+            result->probe = make_device_index_vector(std::move(probe_idx));
+            result->build = make_device_index_vector(std::move(build_idx));
+            return result;
+        }
 
-cudf::device_span<cudf::size_type const> index_span(const DeviceIndexVector& indices)
-{
-    if (!indices.inner) {
-        throw std::runtime_error("Cannot use null device vector as join indices");
-    }
-    return cudf::device_span<cudf::size_type const>(indices.inner->data(), indices.inner->size());
-}
+        cudf::device_span<cudf::size_type const> index_span(const DeviceIndexVector& indices)
+        {
+            if (!indices.inner) {
+                throw std::runtime_error("Cannot use null device vector as join indices");
+            }
+            return cudf::device_span<cudf::size_type const>(indices.inner->data(), indices.inner->size());
+        }
 
-cudf::hash_join const& require_hash_join(const HashJoin& join)
-{
-    if (!join.inner) {
-        throw std::runtime_error("Cannot use null hash join");
-    }
-    return *join.inner;
-}
+        cudf::hash_join const& require_hash_join(const HashJoin& join)
+        {
+            if (!join.inner) {
+                throw std::runtime_error("Cannot use null hash join");
+            }
+            return *join.inner;
+        }
 
-cudf::filtered_join const& require_filtered_join(const FilteredJoin& join)
-{
-    if (!join.inner) {
-        throw std::runtime_error("Cannot use null filtered join");
-    }
-    return *join.inner;
-}
-} // namespace
+        cudf::filtered_join const& require_filtered_join(const FilteredJoin& join)
+        {
+            if (!join.inner) {
+                throw std::runtime_error("Cannot use null filtered join");
+            }
+            return *join.inner;
+        }
+    } // namespace
 
 DeviceIndexVector::DeviceIndexVector() = default;
 

@@ -25,6 +25,7 @@ const LIBCUDF_WHEEL: &str = "26.2.1";
 const LIBRMM_WHEEL: &str = "26.2.0";
 const LIBKVIKIO_WHEEL: &str = "26.2.0";
 const RAPIDS_LOGGER_WHEEL: &str = "0.2.0";
+const LIBNVJITLINK_WHEEL: &str = "12.9.86";
 const LIBNVCOMP_WHEEL: &str = "5.1.0.21";
 const NANOARROW_COMMIT: &str = "4bf5a9322626e95e3717e43de7616c0a256179eb";
 
@@ -112,6 +113,13 @@ fn download_pypi_wheels() {
     let rapids_logger_wheel = std::thread::spawn(move || {
         download_wheel_from_pypi("rapids_logger", "rapids-logger", RAPIDS_LOGGER_WHEEL)
     });
+    let libnvjitlink_wheel = std::thread::spawn(move || {
+        download_wheel_from_pypi(
+            "nvidia_nvjitlink",
+            "nvidia-nvjitlink-cu12",
+            LIBNVJITLINK_WHEEL,
+        )
+    });
     let libnvcomp_wheel = std::thread::spawn(move || {
         download_wheel_from_pypi("nvidia_libnvcomp", "nvidia-libnvcomp-cu12", LIBNVCOMP_WHEEL)
     });
@@ -120,13 +128,15 @@ fn download_pypi_wheels() {
     join_thread!(librmm_wheel);
     join_thread!(libkvikio_wheel);
     join_thread!(rapids_logger_wheel);
+    join_thread!(libnvjitlink_wheel);
     join_thread!(libnvcomp_wheel);
+
+    stage_wheel_shared_libraries();
 }
 
 fn download_wheel_from_pypi(lib_name: &str, package_name: &str, version: &str) {
     let marker = OUT_DIR.join(format!(".{package_name}-{version}.installed"));
     if marker.exists() {
-        copy_wheel_shared_libraries(lib_name);
         return;
     }
 
@@ -168,7 +178,6 @@ fn download_wheel(lib_name: &str, package_name: &str, version: &str, wheel_url: 
     if lib_dir.join(format!("{lib_name}.so")).exists()
         || lib_dir.join(format!("lib{lib_name}.so")).exists()
     {
-        copy_wheel_shared_libraries(lib_name);
         return;
     }
     let wheel_file = wheel_url.split('/').next_back().unwrap();
@@ -213,10 +222,6 @@ fn download_wheel(lib_name: &str, package_name: &str, version: &str, wheel_url: 
     }
 
     let _ = fs::remove_file(&wheel_path);
-
-    // Copy all .so files into OUT_DIR so link and test runtime lookup can find
-    // transitive dependencies regardless of each wheel's internal layout.
-    copy_wheel_shared_libraries(lib_name);
 }
 
 fn download_cudf_headers() -> PathBuf {
@@ -327,24 +332,24 @@ fn setup_rerun_triggers(manifest_dir: &Path) {
 
 // Helper functions
 
-fn copy_wheel_shared_libraries(lib_name: &str) {
-    copy_so_files_to_lib_dir_recursive(&OUT_DIR.join(lib_name), &OUT_DIR);
-    copy_so_files_to_lib_dir_recursive(&OUT_DIR.join("nvidia"), &OUT_DIR);
+fn stage_wheel_shared_libraries() {
+    for lib_name in ["libcudf", "librmm", "libkvikio", "rapids_logger"] {
+        copy_so_files_to_lib_dir_recursive(&OUT_DIR.join(lib_name), &OUT_DIR)
+            .unwrap_or_else(|error| panic!("Failed to copy {lib_name} shared libraries: {error}"));
+    }
+    copy_so_files_to_lib_dir_recursive(&OUT_DIR.join("nvidia"), &OUT_DIR)
+        .unwrap_or_else(|error| panic!("Failed to copy NVIDIA shared libraries: {error}"));
 }
 
-fn copy_so_files_to_lib_dir_recursive(src_dir: &Path, dest_dir: &Path) {
+fn copy_so_files_to_lib_dir_recursive(src_dir: &Path, dest_dir: &Path) -> io::Result<()> {
     if !src_dir.exists() {
-        return;
+        return Ok(());
     }
 
-    let Ok(entries) = fs::read_dir(src_dir) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
+    for entry in fs::read_dir(src_dir)? {
+        let path = entry?.path();
         if path.is_dir() {
-            copy_so_files_to_lib_dir_recursive(&path, dest_dir);
+            copy_so_files_to_lib_dir_recursive(&path, dest_dir)?;
             continue;
         }
 
@@ -353,11 +358,12 @@ fn copy_so_files_to_lib_dir_recursive(src_dir: &Path, dest_dir: &Path) {
             if filename_str.ends_with(".so") || filename_str.contains(".so.") {
                 let dest = dest_dir.join(filename);
                 if path != dest {
-                    let _ = fs::copy(&path, &dest);
+                    fs::copy(&path, &dest)?;
                 }
             }
         }
     }
+    Ok(())
 }
 
 fn download_tarball(shared_dir: &Path, name: &str, url: &str, extracted_name: &str) -> PathBuf {

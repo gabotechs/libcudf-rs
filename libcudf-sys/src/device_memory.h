@@ -20,7 +20,7 @@ namespace libcudf_bridge {
     };
 
     /// Construct an RMM CUDA memory resource.
-    std::unique_ptr<CudaMemoryResource> make_cuda_memory_resource();
+    [[nodiscard]] std::unique_ptr<CudaMemoryResource> make_cuda_memory_resource();
 
     /// Mechanical wrapper around the pair returned by rmm::available_device_memory.
     struct AvailableDeviceMemory {
@@ -52,19 +52,19 @@ namespace libcudf_bridge {
 
     /// Construct an RMM pool memory resource. Borrows the upstream resource for
     /// the pool's lifetime.
-    std::unique_ptr<PoolMemoryResource> make_pool_memory_resource(
+    [[nodiscard]] std::unique_ptr<PoolMemoryResource> make_pool_memory_resource(
         const CudaMemoryResource& upstream,
         std::size_t initial_size);
 
     /// Construct an RMM pool memory resource with an explicit maximum size.
-    std::unique_ptr<PoolMemoryResource> make_pool_memory_resource_with_maximum(
+    [[nodiscard]] std::unique_ptr<PoolMemoryResource> make_pool_memory_resource_with_maximum(
         const CudaMemoryResource& upstream,
         std::size_t initial_size,
         std::size_t maximum_size);
 
-    std::unique_ptr<DeviceAsyncResourceRef> make_device_async_resource_ref(
+    [[nodiscard]] std::unique_ptr<DeviceAsyncResourceRef> make_device_async_resource_ref(
         const PoolMemoryResource& resource);
 
     /// Direct wrapper for rmm::available_device_memory.
-    std::unique_ptr<AvailableDeviceMemory> available_device_memory();
+    [[nodiscard]] std::unique_ptr<AvailableDeviceMemory> available_device_memory();
 } // namespace libcudf_bridge

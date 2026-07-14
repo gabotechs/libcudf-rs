@@ -31,3 +31,12 @@ pub(crate) fn cudf_size_to_usize(value: i32, name: &'static str) -> Result<usize
             .into()
     })
 }
+
+pub(crate) fn usize_to_cudf_size(value: usize, name: &'static str) -> Result<i32> {
+    i32::try_from(value).map_err(|_| {
+        arrow::error::ArrowError::InvalidArgumentError(format!(
+            "{name} {value} exceeds cudf::size_type"
+        ))
+        .into()
+    })
+}
