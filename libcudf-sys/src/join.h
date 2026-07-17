@@ -36,9 +36,9 @@ namespace libcudf_bridge {
 
         ~JoinIndices();
 
-        std::unique_ptr<DeviceIndexVector> release_left();
+        [[nodiscard]] std::unique_ptr<DeviceIndexVector> release_left();
 
-        std::unique_ptr<DeviceIndexVector> release_right();
+        [[nodiscard]] std::unique_ptr<DeviceIndexVector> release_right();
     };
 
     struct HashJoinIndices {
@@ -49,9 +49,9 @@ namespace libcudf_bridge {
 
         ~HashJoinIndices();
 
-        std::unique_ptr<DeviceIndexVector> release_probe();
+        [[nodiscard]] std::unique_ptr<DeviceIndexVector> release_probe();
 
-        std::unique_ptr<DeviceIndexVector> release_build();
+        [[nodiscard]] std::unique_ptr<DeviceIndexVector> release_build();
     };
 
     struct HashJoin {
@@ -70,47 +70,47 @@ namespace libcudf_bridge {
         ~FilteredJoin();
     };
 
-    int32_t join_no_match();
+    [[nodiscard]] int32_t join_no_match();
 
-    std::unique_ptr<HashJoin> hash_join_create(
+    [[nodiscard]] std::unique_ptr<HashJoin> hash_join_create(
         const TableView& build_keys,
         int32_t null_equality,
         const CudaStreamView& stream);
 
-    std::unique_ptr<HashJoinIndices> hash_join_inner_join_indices(
+    [[nodiscard]] std::unique_ptr<HashJoinIndices> hash_join_inner_join_indices(
         const HashJoin& join,
         const TableView& probe_keys,
         const CudaStreamView& stream,
         const DeviceAsyncResourceRef& mr);
 
-    std::unique_ptr<HashJoinIndices> hash_join_left_join_indices(
+    [[nodiscard]] std::unique_ptr<HashJoinIndices> hash_join_left_join_indices(
         const HashJoin& join,
         const TableView& probe_keys,
         const CudaStreamView& stream,
         const DeviceAsyncResourceRef& mr);
 
-    std::unique_ptr<JoinIndices> inner_join_indices(
+    [[nodiscard]] std::unique_ptr<JoinIndices> inner_join_indices(
         const TableView& left_keys,
         const TableView& right_keys,
         int32_t null_equality,
         const CudaStreamView& stream,
         const DeviceAsyncResourceRef& mr);
 
-    std::unique_ptr<JoinIndices> left_join_indices(
+    [[nodiscard]] std::unique_ptr<JoinIndices> left_join_indices(
         const TableView& left_keys,
         const TableView& right_keys,
         int32_t null_equality,
         const CudaStreamView& stream,
         const DeviceAsyncResourceRef& mr);
 
-    std::unique_ptr<JoinIndices> full_join_indices(
+    [[nodiscard]] std::unique_ptr<JoinIndices> full_join_indices(
         const TableView& left_keys,
         const TableView& right_keys,
         int32_t null_equality,
         const CudaStreamView& stream,
         const DeviceAsyncResourceRef& mr);
 
-    std::unique_ptr<JoinIndices> filter_join_indices(
+    [[nodiscard]] std::unique_ptr<JoinIndices> filter_join_indices(
         const TableView& left,
         const TableView& right,
         const DeviceIndexVector& left_indices,
@@ -120,25 +120,25 @@ namespace libcudf_bridge {
         const CudaStreamView& stream,
         const DeviceAsyncResourceRef& mr);
 
-    std::unique_ptr<FilteredJoin> filtered_join_create(
+    [[nodiscard]] std::unique_ptr<FilteredJoin> filtered_join_create(
         const TableView& build_keys,
         int32_t null_equality,
         int32_t set_as_build_table,
         const CudaStreamView& stream);
 
-    std::unique_ptr<DeviceIndexVector> filtered_join_semi_join(
+    [[nodiscard]] std::unique_ptr<DeviceIndexVector> filtered_join_semi_join(
         const FilteredJoin& join,
         const TableView& probe_keys,
         const CudaStreamView& stream,
         const DeviceAsyncResourceRef& mr);
 
-    std::unique_ptr<DeviceIndexVector> filtered_join_anti_join(
+    [[nodiscard]] std::unique_ptr<DeviceIndexVector> filtered_join_anti_join(
         const FilteredJoin& join,
         const TableView& probe_keys,
         const CudaStreamView& stream,
         const DeviceAsyncResourceRef& mr);
 
-    std::unique_ptr<Table> cross_join(
+    [[nodiscard]] std::unique_ptr<Table> cross_join(
         const TableView& left,
         const TableView& right,
         const CudaStreamView& stream,

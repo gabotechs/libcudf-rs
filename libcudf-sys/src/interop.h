@@ -13,13 +13,13 @@
 #include <cudf/interop.hpp>
 
 namespace libcudf_bridge {
-    std::unique_ptr<Table> from_arrow_host(
+    [[nodiscard]] std::unique_ptr<Table> from_arrow_host(
         std::uint8_t const* schema_ptr,
         std::uint8_t const* device_array_ptr,
         const CudaStreamView& stream,
         const DeviceAsyncResourceRef& mr);
 
-    std::unique_ptr<Column> from_arrow_column(
+    [[nodiscard]] std::unique_ptr<Column> from_arrow_column(
         std::uint8_t const* schema_ptr,
         std::uint8_t const* array_ptr,
         const CudaStreamView& stream,
@@ -58,13 +58,13 @@ namespace libcudf_bridge {
 
     // cxx cannot represent recursive column_metadata values or optional fields
     // directly, so these factories and accessors mechanically bridge them.
-    std::unique_ptr<ColumnMetadata> make_column_metadata();
-    std::unique_ptr<ColumnMetadata> make_column_metadata_with_name(rust::Str name);
-    std::unique_ptr<ColumnMetadataVector> make_column_metadata_vector();
+    [[nodiscard]] std::unique_ptr<ColumnMetadata> make_column_metadata();
+    [[nodiscard]] std::unique_ptr<ColumnMetadata> make_column_metadata_with_name(rust::Str name);
+    [[nodiscard]] std::unique_ptr<ColumnMetadataVector> make_column_metadata_vector();
 
-    std::unique_ptr<ColumnMetadata> get_column_metadata(const ColumnView& input);
+    [[nodiscard]] std::unique_ptr<ColumnMetadata> get_column_metadata(const ColumnView& input);
 
-    std::unique_ptr<ColumnMetadataVector> get_table_metadata(const TableView& input);
+    [[nodiscard]] std::unique_ptr<ColumnMetadataVector> get_table_metadata(const TableView& input);
 
     void to_arrow_schema(
         const TableView& input,

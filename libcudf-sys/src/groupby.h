@@ -81,14 +81,14 @@ namespace libcudf_bridge {
     };
 
     // GroupBy operations - direct cuDF mappings
-    std::unique_ptr<GroupBy> groupby_create(
+    [[nodiscard]] std::unique_ptr<GroupBy> groupby_create(
         const TableView &keys,
         int32_t null_handling,
         int32_t keys_are_sorted,
         rust::Slice<const int32_t> column_order,
         rust::Slice<const int32_t> null_precedence);
 
-    std::unique_ptr<AggregationRequest> aggregation_request_create(const ColumnView &values);
+    [[nodiscard]] std::unique_ptr<AggregationRequest> aggregation_request_create(const ColumnView &values);
 
-    std::unique_ptr<AggregationRequests> aggregation_requests_create();
+    [[nodiscard]] std::unique_ptr<AggregationRequests> aggregation_requests_create();
 } // namespace libcudf_bridge

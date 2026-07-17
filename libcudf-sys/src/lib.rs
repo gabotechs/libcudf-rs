@@ -30,7 +30,11 @@ pub mod ffi {
         include!("libcudf-sys/src/aggregation.h");
         include!("libcudf-sys/src/groupby.h");
         include!("libcudf-sys/src/io.h");
-        include!("libcudf-sys/src/operations.h");
+        include!("libcudf-sys/src/concatenate.h");
+        include!("libcudf-sys/src/copying.h");
+        include!("libcudf-sys/src/filling.h");
+        include!("libcudf-sys/src/stream_compaction.h");
+        include!("libcudf-sys/src/version.h");
         include!("libcudf-sys/src/binaryop.h");
         include!("libcudf-sys/src/sorting.h");
         include!("libcudf-sys/src/join.h");
@@ -68,6 +72,38 @@ pub mod ffi {
         /// A column_view is a non-owning, immutable view of device data as a column of elements,
         /// some of which may be null as indicated by a bitmask.
         type ColumnView;
+
+        /// Owning bridge container for `std::vector<cudf::column_view>`.
+        type ColumnViews;
+
+        /// Return the number of column views.
+        fn len(self: &ColumnViews) -> usize;
+
+        /// Return whether the container has no column views.
+        fn is_empty(self: &ColumnViews) -> bool;
+
+        /// Copy one non-owning column view from the container.
+        ///
+        /// # Safety
+        ///
+        /// The result must not outlive the data owner from which the views were sliced.
+        unsafe fn get(self: &ColumnViews, index: usize) -> Result<UniquePtr<ColumnView>>;
+
+        /// Owning bridge container for `std::vector<cudf::table_view>`.
+        type TableViews;
+
+        /// Return the number of table views.
+        fn len(self: &TableViews) -> usize;
+
+        /// Return whether the container has no table views.
+        fn is_empty(self: &TableViews) -> bool;
+
+        /// Copy one non-owning table view from the container.
+        ///
+        /// # Safety
+        ///
+        /// The result must not outlive the data owner from which the views were sliced.
+        unsafe fn get(self: &TableViews, index: usize) -> Result<UniquePtr<TableView>>;
 
         /// cuDF data type with type_id and optional scale
         ///
@@ -175,6 +211,15 @@ pub mod ffi {
         /// cuDF table and metadata returned by I/O readers.
         type TableWithMetadata;
 
+        /// Recursive Parquet schema information for one column.
+        type ColumnNameInfo;
+
+        /// Parquet metadata key/value entries.
+        type KeyValuePairs;
+
+        /// Complete metadata returned by a cuDF I/O reader.
+        type TableMetadata;
+
         /// Host byte vector returned by Parquet writers for file metadata.
         type HostByteVector;
 
@@ -245,8 +290,228 @@ pub mod ffi {
             column_name: &str,
         ) -> Result<usize>;
 
-        /// Add a scalar literal expression to an AST tree.
-        fn ast_expression_tree_add_literal(
+        /// Add an INT8 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_int8(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add an INT16 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_int16(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add an INT32 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_int32(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add an INT64 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_int64(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a UINT8 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_uint8(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a UINT16 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_uint16(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a UINT32 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_uint32(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a UINT64 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_uint64(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a FLOAT32 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_float32(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a FLOAT64 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_float64(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a BOOL8 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_bool8(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a STRING scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_string(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a day timestamp scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_timestamp_days(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a second timestamp scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_timestamp_seconds(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a millisecond timestamp scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_timestamp_milliseconds(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a microsecond timestamp scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_timestamp_microseconds(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a nanosecond timestamp scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_timestamp_nanoseconds(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a day duration scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_duration_days(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a second duration scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_duration_seconds(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a millisecond duration scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_duration_milliseconds(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a microsecond duration scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_duration_microseconds(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a nanosecond duration scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_duration_nanoseconds(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a DECIMAL32 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_decimal32(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a DECIMAL64 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_decimal64(
+            tree: Pin<&mut AstExpressionTree>,
+            scalar: &Scalar,
+        ) -> Result<usize>;
+        /// Add a DECIMAL128 scalar literal expression to an AST tree.
+        ///
+        /// # Safety
+        ///
+        /// The scalar's underlying cuDF allocation must outlive `tree`.
+        unsafe fn ast_expression_tree_add_literal_decimal128(
             tree: Pin<&mut AstExpressionTree>,
             scalar: &Scalar,
         ) -> Result<usize>;
@@ -575,15 +840,17 @@ pub mod ffi {
             columns: &[*mut Column],
         ) -> Result<UniquePtr<Table>>;
 
-        /// Create a table from vertically concatenating TableView together
-        fn concat_table_views(
+        /// Concatenate table views vertically.
+        #[rust_name = "concatenate_tables"]
+        fn concatenate(
             views: &[UniquePtr<TableView>],
             stream: &CudaStreamView,
             mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
-        /// Create a table from vertically concatenating ColumnView together
-        fn concat_column_views(
+        /// Concatenate column views vertically.
+        #[rust_name = "concatenate_columns"]
+        fn concatenate(
             views: &[UniquePtr<ColumnView>],
             stream: &CudaStreamView,
             mr: &DeviceAsyncResourceRef,
@@ -592,14 +859,24 @@ pub mod ffi {
         /// Create a column by repeating a scalar value.
         fn make_column_from_scalar(
             scalar: &Scalar,
-            size: usize,
+            size: i32,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        ) -> Result<UniquePtr<Column>>;
+
+        /// Fill a column with a sequence starting at `init` and stepping by one.
+        #[rust_name = "sequence_from"]
+        fn sequence(
+            size: i32,
+            init: &Scalar,
             stream: &CudaStreamView,
             mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Column>>;
 
         /// Fill a column with a sequence starting at `init` and stepping by `step`.
+        #[rust_name = "sequence_with_step"]
         fn sequence(
-            size: usize,
+            size: i32,
             init: &Scalar,
             step: &Scalar,
             stream: &CudaStreamView,
@@ -638,7 +915,7 @@ pub mod ffi {
         fn parquet_writer_options_create(
             sink: &SinkInfo,
             table: &TableView,
-        ) -> UniquePtr<ParquetWriterOptions>;
+        ) -> Result<UniquePtr<ParquetWriterOptions>>;
 
         /// Set the source on `cudf::io::parquet_reader_options`.
         fn set_source(self: Pin<&mut ParquetReaderOptions>, source: &SourceInfo);
@@ -692,22 +969,88 @@ pub mod ffi {
         fn set_timestamp_type(self: Pin<&mut ParquetReaderOptions>, typ: &DataType);
 
         /// Take ownership of the table from `cudf::io::table_with_metadata`.
-        fn release_table(self: Pin<&mut TableWithMetadata>) -> UniquePtr<Table>;
+        fn release_table(self: Pin<&mut TableWithMetadata>) -> Result<UniquePtr<Table>>;
 
-        /// Return the number of per-source row counts in the metadata.
-        fn num_rows_per_source_count(self: &TableWithMetadata) -> usize;
+        /// Take ownership of all metadata from `cudf::io::table_with_metadata`.
+        fn release_metadata(self: Pin<&mut TableWithMetadata>) -> Result<UniquePtr<TableMetadata>>;
 
-        /// Return the row count for one input source.
-        fn num_rows_per_source(self: &TableWithMetadata, index: usize) -> usize;
+        /// Return the number of schema entries.
+        fn schema_info_len(self: &TableMetadata) -> usize;
+
+        /// Return one recursive schema entry by value.
+        fn schema_info(self: &TableMetadata, index: usize) -> Result<UniquePtr<ColumnNameInfo>>;
+
+        /// Return the number of per-source row counts.
+        fn num_rows_per_source_len(self: &TableMetadata) -> usize;
+
+        /// Return one per-source row count.
+        fn num_rows_per_source(self: &TableMetadata, index: usize) -> Result<usize>;
+
+        /// Return the first input file's user metadata.
+        fn user_data(self: &TableMetadata) -> UniquePtr<KeyValuePairs>;
+
+        /// Return the number of per-file user metadata maps.
+        fn per_file_user_data_len(self: &TableMetadata) -> usize;
+
+        /// Return one input file's user metadata.
+        fn per_file_user_data(
+            self: &TableMetadata,
+            index: usize,
+        ) -> Result<UniquePtr<KeyValuePairs>>;
 
         /// Return the total number of input row groups.
-        fn num_input_row_groups(self: &TableWithMetadata) -> i32;
+        fn num_input_row_groups(self: &TableMetadata) -> i32;
 
-        /// Return the number of entries in `table_metadata::schema_info`.
-        fn schema_info_count(self: &TableWithMetadata) -> usize;
+        /// Return whether the post-statistics-filter row-group count is present.
+        fn has_num_row_groups_after_stats_filter(self: &TableMetadata) -> bool;
 
-        /// Return `table_metadata::schema_info[index].name`.
-        fn schema_info_name(self: &TableWithMetadata, index: usize) -> String;
+        /// Return the post-statistics-filter row-group count.
+        fn num_row_groups_after_stats_filter(self: &TableMetadata) -> Result<i32>;
+
+        /// Return whether the post-bloom-filter row-group count is present.
+        fn has_num_row_groups_after_bloom_filter(self: &TableMetadata) -> bool;
+
+        /// Return the post-bloom-filter row-group count.
+        fn num_row_groups_after_bloom_filter(self: &TableMetadata) -> Result<i32>;
+
+        /// Return the column name.
+        fn name(self: &ColumnNameInfo) -> String;
+
+        /// Return whether nullability metadata is present.
+        fn has_is_nullable(self: &ColumnNameInfo) -> bool;
+
+        /// Return the column nullability metadata.
+        fn is_nullable(self: &ColumnNameInfo) -> Result<bool>;
+
+        /// Return whether binary-encoding metadata is present.
+        fn has_is_binary(self: &ColumnNameInfo) -> bool;
+
+        /// Return the binary-encoding metadata.
+        fn is_binary(self: &ColumnNameInfo) -> Result<bool>;
+
+        /// Return whether fixed-width byte-length metadata is present.
+        fn has_type_length(self: &ColumnNameInfo) -> bool;
+
+        /// Return the fixed-width byte length.
+        fn type_length(self: &ColumnNameInfo) -> Result<i32>;
+
+        /// Return the number of recursive child schema entries.
+        fn children_len(self: &ColumnNameInfo) -> usize;
+
+        /// Return one recursive child schema entry by value.
+        fn child(self: &ColumnNameInfo, index: usize) -> Result<UniquePtr<ColumnNameInfo>>;
+
+        /// Return the number of metadata entries.
+        fn len(self: &KeyValuePairs) -> usize;
+
+        /// Return whether there are no metadata entries.
+        fn is_empty(self: &KeyValuePairs) -> bool;
+
+        /// Return one metadata key.
+        fn key(self: &KeyValuePairs, index: usize) -> Result<String>;
+
+        /// Return one metadata value.
+        fn value(self: &KeyValuePairs, index: usize) -> Result<String>;
 
         /// Read Parquet using explicit reader options, CUDA stream, and device resource.
         fn read_parquet(
@@ -726,13 +1069,13 @@ pub mod ffi {
         ) -> Result<UniquePtr<ChunkedParquetReader>>;
 
         /// Return whether a chunked Parquet reader has unread rows.
-        fn has_next(self: &ChunkedParquetReader) -> bool;
+        fn has_next(self: &ChunkedParquetReader) -> Result<bool>;
 
         /// Read the next chunk from a chunked Parquet reader.
         fn read_chunk(self: &ChunkedParquetReader) -> Result<UniquePtr<TableWithMetadata>>;
 
         /// Return the size of the returned host byte vector.
-        fn size(self: &HostByteVector) -> usize;
+        fn size(self: &HostByteVector) -> Result<usize>;
 
         /// Write Parquet using explicit writer options and CUDA stream.
         fn write_parquet(
@@ -761,21 +1104,24 @@ pub mod ffi {
         fn gather(
             source_table: &TableView,
             gather_map: &ColumnView,
-            stream: &CudaStreamView,
-            mr: &DeviceAsyncResourceRef,
-        ) -> Result<UniquePtr<Table>>;
-
-        /// Gather rows from a table using an explicit out-of-bounds policy.
-        fn gather_with_policy(
-            source_table: &TableView,
-            gather_map: &ColumnView,
             out_of_bounds_policy: i32,
             stream: &CudaStreamView,
             mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
+        /// Scatter table rows into a copy of a target table.
+        #[rust_name = "scatter_table"]
+        fn scatter(
+            source: &TableView,
+            indices: &ColumnView,
+            target: &TableView,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        ) -> Result<UniquePtr<Table>>;
+
         /// Scatter scalar rows into a copy of a target table.
-        fn scatter_scalars(
+        #[rust_name = "scatter_scalars"]
+        fn scatter(
             source: &[*const Scalar],
             indices: &ColumnView,
             target: &TableView,
@@ -794,15 +1140,29 @@ pub mod ffi {
             mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<Table>>;
 
-        /// Create a sliced view of a column
+        /// Slice a column view at each `[begin, end)` pair in `indices`.
         ///
-        /// Returns a new column view that is a slice of the input column from `offset` to `offset + length`.
-        fn slice_column(
+        /// # Safety
+        ///
+        /// Every returned view borrows from `column`'s underlying data owner.
+        #[rust_name = "slice_column"]
+        unsafe fn slice(
             column: &ColumnView,
-            offset: usize,
-            length: usize,
+            indices: &[i32],
             stream: &CudaStreamView,
-        ) -> Result<UniquePtr<ColumnView>>;
+        ) -> Result<UniquePtr<ColumnViews>>;
+
+        /// Slice a table view at each `[begin, end)` pair in `indices`.
+        ///
+        /// # Safety
+        ///
+        /// Every returned view borrows from `table`'s underlying data owners.
+        #[rust_name = "slice_table"]
+        unsafe fn slice(
+            table: &TableView,
+            indices: &[i32],
+            stream: &CudaStreamView,
+        ) -> Result<UniquePtr<TableViews>>;
 
         // Binary operations - direct cuDF mappings
 
@@ -810,7 +1170,8 @@ pub mod ffi {
         ///
         /// Returns a new column containing the result of `op(lhs[i], rhs[i])` for all elements.
         /// The output type must be specified explicitly.
-        fn binary_operation_col_col(
+        #[rust_name = "binary_operation_column_column"]
+        fn binary_operation(
             lhs: &ColumnView,
             rhs: &ColumnView,
             op: i32,
@@ -823,7 +1184,8 @@ pub mod ffi {
         ///
         /// Returns a new column containing the result of `op(lhs[i], rhs)` for all elements.
         /// The output type must be specified explicitly.
-        fn binary_operation_col_scalar(
+        #[rust_name = "binary_operation_column_scalar"]
+        fn binary_operation(
             lhs: &ColumnView,
             rhs: &Scalar,
             op: i32,
@@ -836,10 +1198,22 @@ pub mod ffi {
         ///
         /// Returns a new column containing the result of `op(lhs, rhs[i])` for all elements.
         /// The output type must be specified explicitly.
-        fn binary_operation_scalar_col(
+        #[rust_name = "binary_operation_scalar_column"]
+        fn binary_operation(
             lhs: &Scalar,
             rhs: &ColumnView,
             op: i32,
+            output_type: &DataType,
+            stream: &CudaStreamView,
+            mr: &DeviceAsyncResourceRef,
+        ) -> Result<UniquePtr<Column>>;
+
+        /// Perform a PTX-defined binary operation between two columns.
+        #[rust_name = "binary_operation_ptx"]
+        fn binary_operation(
+            lhs: &ColumnView,
+            rhs: &ColumnView,
+            ptx: &str,
             output_type: &DataType,
             stream: &CudaStreamView,
             mr: &DeviceAsyncResourceRef,
@@ -850,7 +1224,7 @@ pub mod ffi {
         /// Sort a table in lexicographic order
         ///
         /// Sorts the rows of the table according to the specified column orders and null precedence.
-        fn sort_table(
+        fn sort(
             input: &TableView,
             column_order: &[i32],
             null_precedence: &[i32],
@@ -860,8 +1234,8 @@ pub mod ffi {
 
         /// Stable sort a table in lexicographic order
         ///
-        /// Like sort_table but guarantees that equivalent elements preserve their original order.
-        fn stable_sort_table(
+        /// Like `sort` but guarantees that equivalent elements preserve their original order.
+        fn stable_sort(
             input: &TableView,
             column_order: &[i32],
             null_precedence: &[i32],
@@ -1099,7 +1473,8 @@ pub mod ffi {
         ) -> Result<UniquePtr<Scalar>>;
 
         /// Computes a reduction with an initial scalar value.
-        fn reduce_with_init(
+        #[rust_name = "reduce_with_init"]
+        fn reduce(
             col: &ColumnView,
             agg: &ReduceAggregation,
             output_type: &DataType,
@@ -2092,12 +2467,35 @@ mod tests {
             mr.as_ref().expect("device resource should not be null"),
         )?;
 
-        assert_eq!(result.num_rows_per_source_count(), 2);
-        assert!(result.num_rows_per_source(0) > 0);
-        assert!(result.num_rows_per_source(1) > 0);
-        assert!(result.num_input_row_groups() > 0);
+        let metadata = result.pin_mut().release_metadata()?;
+        assert!(result.pin_mut().release_metadata().is_err());
+        assert_eq!(metadata.num_rows_per_source_len(), 2);
+        assert!(metadata.num_rows_per_source(0)? > 0);
+        assert!(metadata.num_rows_per_source(1)? > 0);
+        assert!(metadata.num_input_row_groups() > 0);
+        assert!(!metadata.user_data().is_null());
+        assert_eq!(metadata.per_file_user_data_len(), 2);
+        assert!(metadata.schema_info_len() > 0);
+        let first_column = metadata.schema_info(0)?;
+        assert!(!first_column.name().is_empty());
+        if first_column.has_is_nullable() {
+            let _ = first_column.is_nullable()?;
+        }
+        if first_column.has_is_binary() {
+            let _ = first_column.is_binary()?;
+        }
+        if first_column.has_type_length() {
+            let _ = first_column.type_length()?;
+        }
+        if metadata.has_num_row_groups_after_stats_filter() {
+            let _ = metadata.num_row_groups_after_stats_filter()?;
+        }
+        if metadata.has_num_row_groups_after_bloom_filter() {
+            let _ = metadata.num_row_groups_after_bloom_filter()?;
+        }
 
-        let table = result.pin_mut().release_table();
+        let table = result.pin_mut().release_table()?;
+        assert!(result.pin_mut().release_table().is_err());
         assert!(table.num_rows()? > 0);
 
         Ok(())
@@ -2119,7 +2517,7 @@ mod tests {
         let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
 
-        let sorted_table = ffi::sort_table(
+        let sorted_table = ffi::sort(
             &table_view,
             &column_order,
             &null_precedence,
@@ -2149,7 +2547,7 @@ mod tests {
         let column_order: Vec<i32> = vec![Order::Descending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::After as i32; num_cols];
 
-        let sorted_table = ffi::sort_table(
+        let sorted_table = ffi::sort(
             &table_view,
             &column_order,
             &null_precedence,
@@ -2179,7 +2577,7 @@ mod tests {
         let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
 
-        let sorted_table = ffi::stable_sort_table(
+        let sorted_table = ffi::stable_sort(
             &table_view,
             &column_order,
             &null_precedence,
@@ -2241,7 +2639,7 @@ mod tests {
         let column_order: Vec<i32> = vec![Order::Ascending as i32; num_cols];
         let null_precedence: Vec<i32> = vec![NullOrder::Before as i32; num_cols];
 
-        let sorted_table = ffi::sort_table(
+        let sorted_table = ffi::sort(
             &table_view,
             &column_order,
             &null_precedence,
@@ -2336,7 +2734,7 @@ mod tests {
         let col2 = table_view.column(2)?;
 
         let output_type = ffi::new_data_type(TypeId::Float64 as i32);
-        let result = ffi::binary_operation_col_col(
+        let result = ffi::binary_operation_column_column(
             &col1,
             &col2,
             BinaryOperator::Add as i32,
@@ -2370,7 +2768,7 @@ mod tests {
         let col2 = table_view.column(2)?;
 
         let output_type = ffi::new_data_type(TypeId::Float64 as i32);
-        let result = ffi::binary_operation_col_col(
+        let result = ffi::binary_operation_column_column(
             &col1,
             &col2,
             BinaryOperator::Mul as i32,
@@ -2385,6 +2783,60 @@ mod tests {
             DataType::Float64
         )?);
 
+        Ok(())
+    }
+
+    #[test]
+    fn binary_operation_accepts_ptx_udf_overload() -> Result<(), Box<dyn std::error::Error>> {
+        let table = table_from_i32_columns(&[("lhs", vec![1, 2, 3]), ("rhs", vec![10, 20, 30])])?;
+        let table_view = unsafe { table.view() }?;
+        let lhs = table_view.column(0)?;
+        let rhs = table_view.column(1)?;
+        let output_type = ffi::new_data_type(TypeId::Int64 as i32);
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
+        // cuDF exposes a binary_operation overload that takes a PTX device
+        // function instead of a binary_operator enum. The inline PTX below is
+        // only a parity fixture for that overload; it computes lhs^3 + rhs.
+        let ptx = r#"
+.version 6.4
+.target sm_70
+.address_size 64
+
+.visible .func (.param .b32 result) add_cube(
+    .param .b64 output,
+    .param .b32 lhs,
+    .param .b32 rhs
+)
+{
+    .reg .b32 %r<3>;
+    .reg .b64 %rd<7>;
+    ld.param.u64 %rd1, [output];
+    ld.param.s32 %r1, [lhs];
+    cvt.s64.s32 %rd2, %r1;
+    mul.wide.s32 %rd3, %r1, %r1;
+    mul.lo.s64 %rd4, %rd3, %rd2;
+    ld.param.s32 %r2, [rhs];
+    cvt.s64.s32 %rd5, %r2;
+    add.s64 %rd6, %rd4, %rd5;
+    st.u64 [%rd1], %rd6;
+    mov.u32 %r2, 0;
+    st.param.b32 [result], %r2;
+    ret;
+}
+"#;
+
+        let result =
+            ffi::binary_operation_ptx(&lhs, &rhs, ptx, &output_type, stream_view, resource_ref)?;
+        assert_snapshot!(pretty_column(&*unsafe { result.view() }?, DataType::Int64)?, @r"
+        +------+
+        | test |
+        +------+
+        | 11   |
+        | 28   |
+        | 57   |
+        +------+
+        ");
         Ok(())
     }
 
@@ -2435,6 +2887,100 @@ mod tests {
                 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
             ]
         );
+    }
+
+    #[test]
+    fn operation_policy_enums_match_cudf() -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!([Order::Ascending as i32, Order::Descending as i32], [0, 1]);
+        assert_eq!([NullOrder::After as i32, NullOrder::Before as i32], [0, 1]);
+        assert_eq!(
+            [
+                OutOfBoundsPolicy::Nullify as i32,
+                OutOfBoundsPolicy::DontCheck as i32,
+            ],
+            [0, 1]
+        );
+        assert_eq!(
+            [NullEquality::Equal as i32, NullEquality::Unequal as i32],
+            [0, 1]
+        );
+        assert_eq!(
+            [NanEquality::AllEqual as i32, NanEquality::Unequal as i32],
+            [0, 1]
+        );
+        assert_eq!(
+            [
+                DuplicateKeepOption::KeepAny as i32,
+                DuplicateKeepOption::KeepFirst as i32,
+                DuplicateKeepOption::KeepLast as i32,
+                DuplicateKeepOption::KeepNone as i32,
+            ],
+            [0, 1, 2, 3]
+        );
+        assert_eq!(
+            [
+                AstTableReference::Left as i32,
+                AstTableReference::Right as i32,
+                AstTableReference::Output as i32,
+            ],
+            [0, 1, 2]
+        );
+        assert_eq!(
+            [
+                AstOperator::Add as i32,
+                AstOperator::Sub as i32,
+                AstOperator::Mul as i32,
+                AstOperator::Div as i32,
+                AstOperator::TrueDiv as i32,
+                AstOperator::FloorDiv as i32,
+                AstOperator::Mod as i32,
+                AstOperator::PyMod as i32,
+                AstOperator::Pow as i32,
+                AstOperator::Equal as i32,
+                AstOperator::NullEqual as i32,
+                AstOperator::NotEqual as i32,
+                AstOperator::Less as i32,
+                AstOperator::Greater as i32,
+                AstOperator::LessEqual as i32,
+                AstOperator::GreaterEqual as i32,
+                AstOperator::BitwiseAnd as i32,
+                AstOperator::BitwiseOr as i32,
+                AstOperator::BitwiseXor as i32,
+                AstOperator::LogicalAnd as i32,
+                AstOperator::NullLogicalAnd as i32,
+                AstOperator::LogicalOr as i32,
+                AstOperator::NullLogicalOr as i32,
+                AstOperator::Identity as i32,
+                AstOperator::IsNull as i32,
+                AstOperator::Sin as i32,
+                AstOperator::Cos as i32,
+                AstOperator::Tan as i32,
+                AstOperator::ArcSin as i32,
+                AstOperator::ArcCos as i32,
+                AstOperator::ArcTan as i32,
+                AstOperator::Sinh as i32,
+                AstOperator::Cosh as i32,
+                AstOperator::Tanh as i32,
+                AstOperator::ArcSinh as i32,
+                AstOperator::ArcCosh as i32,
+                AstOperator::ArcTanh as i32,
+                AstOperator::Exp as i32,
+                AstOperator::Log as i32,
+                AstOperator::Sqrt as i32,
+                AstOperator::Cbrt as i32,
+                AstOperator::Ceil as i32,
+                AstOperator::Floor as i32,
+                AstOperator::Abs as i32,
+                AstOperator::Rint as i32,
+                AstOperator::BitInvert as i32,
+                AstOperator::Not as i32,
+                AstOperator::CastToInt64 as i32,
+                AstOperator::CastToUint64 as i32,
+                AstOperator::CastToFloat64 as i32,
+            ],
+            std::array::from_fn(|value| value as i32)
+        );
+        Ok(())
     }
 
     #[test]
@@ -2673,7 +3219,7 @@ mod tests {
         let max_temp = table_view.column(2)?;
 
         let output_type = ffi::new_data_type(TypeId::Bool8 as i32);
-        let boolean_mask = ffi::binary_operation_col_col(
+        let boolean_mask = ffi::binary_operation_column_column(
             &min_temp,
             &max_temp,
             BinaryOperator::Less as i32,
@@ -2693,6 +3239,76 @@ mod tests {
         let filtered_col = filtered_view.column(1)?;
         assert_snapshot!(pretty_column(&filtered_col, DataType::Float64)?);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_sequence_overloads() -> Result<(), Box<dyn std::error::Error>> {
+        let values = table_from_i32_columns(&[("values", vec![5, 2])])?;
+        let values_view = unsafe { values.view() }?;
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
+        let init = ffi::get_element(&*values_view.column(0)?, 0, stream_view, resource_ref)?;
+        let step = ffi::get_element(&*values_view.column(0)?, 1, stream_view, resource_ref)?;
+
+        let implicit = ffi::sequence_from(3, &init, stream_view, resource_ref)?;
+        let explicit = ffi::sequence_with_step(3, &init, &step, stream_view, resource_ref)?;
+
+        assert_snapshot!(pretty_column(&*unsafe { implicit.view() }?, DataType::Int32)?, @r"
+        +------+
+        | test |
+        +------+
+        | 5    |
+        | 6    |
+        | 7    |
+        +------+
+        ");
+        assert_snapshot!(pretty_column(&*unsafe { explicit.view() }?, DataType::Int32)?, @r"
+        +------+
+        | test |
+        +------+
+        | 5    |
+        | 7    |
+        | 9    |
+        +------+
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn test_scatter_overloads() -> Result<(), Box<dyn std::error::Error>> {
+        let target = table_from_i32_columns(&[("a", vec![0, 0, 0]), ("b", vec![0, 0, 0])])?;
+        let source = table_from_i32_columns(&[("a", vec![7]), ("b", vec![8])])?;
+        let indices = table_from_i32_columns(&[("indices", vec![1])])?;
+        let target_view = unsafe { target.view() }?;
+        let source_view = unsafe { source.view() }?;
+        let indices_view = unsafe { indices.view() }?.column(0)?;
+        let (stream, resource) = default_stream_and_resource();
+        let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
+
+        let from_table = ffi::scatter_table(
+            &source_view,
+            &indices_view,
+            &target_view,
+            stream_view,
+            resource_ref,
+        )?;
+
+        let first = ffi::get_element(&*source_view.column(0)?, 0, stream_view, resource_ref)?;
+        let second = ffi::get_element(&*source_view.column(1)?, 0, stream_view, resource_ref)?;
+        let scalars = [first.as_ptr(), second.as_ptr()];
+        let from_scalars = ffi::scatter_scalars(
+            &scalars,
+            &indices_view,
+            &target_view,
+            stream_view,
+            resource_ref,
+        )?;
+
+        assert_eq!(
+            format!("{}", pretty_table(&*unsafe { from_table.view() }?)?),
+            format!("{}", pretty_table(&*unsafe { from_scalars.view() }?)?)
+        );
         Ok(())
     }
 
@@ -2810,9 +3426,14 @@ mod tests {
         let original_size = original_col.size()?;
         assert!(original_size > 10, "Need at least 10 rows for testing");
 
-        let sliced_col = ffi::slice_column(&original_col, 5, 5, stream_view)?;
+        let sliced_views =
+            unsafe { ffi::slice_column(&original_col, &[5, 10, 10, 12], stream_view) }?;
+        assert_eq!(sliced_views.len(), 2);
+        let sliced_col = unsafe { sliced_views.get(0) }?;
+        let second_slice = unsafe { sliced_views.get(1) }?;
 
         assert_eq!(sliced_col.size()?, 5);
+        assert_eq!(second_slice.size()?, 2);
 
         let original_dtype = original_col.data_type()?;
         let sliced_dtype = sliced_col.data_type()?;
@@ -2834,6 +3455,20 @@ mod tests {
     }
 
     #[test]
+    fn test_slice_table_preserves_all_intervals() -> Result<(), Box<dyn std::error::Error>> {
+        let table = table_from_i32_columns(&[("a", vec![1, 2, 3, 4, 5])])?;
+        let table_view = unsafe { table.view() }?;
+        let stream = ffi::get_default_stream();
+        let stream_view = expect_stream(&stream);
+
+        let slices = unsafe { ffi::slice_table(&table_view, &[0, 2, 2, 5], stream_view) }?;
+        assert_eq!(slices.len(), 2);
+        assert_eq!(unsafe { slices.get(0) }?.num_rows()?, 2);
+        assert_eq!(unsafe { slices.get(1) }?.num_rows()?, 3);
+        Ok(())
+    }
+
+    #[test]
     fn test_slice_column_from_start() -> Result<(), Box<dyn std::error::Error>> {
         let (stream, resource) = default_stream_and_resource();
         let (stream_view, resource_ref) = expect_stream_and_resource(&stream, &resource);
@@ -2845,7 +3480,9 @@ mod tests {
         let table_view = unsafe { table.view() }?;
         let original_col = table_view.column(2)?;
 
-        let sliced_col = ffi::slice_column(&original_col, 0, 10, stream_view)?;
+        let sliced_views = unsafe { ffi::slice_column(&original_col, &[0, 10], stream_view) }?;
+        assert_eq!(sliced_views.len(), 1);
+        let sliced_col = unsafe { sliced_views.get(0) }?;
 
         assert_eq!(sliced_col.size()?, 10);
         assert_snapshot!(pretty_column(&sliced_col, DataType::Float64)?, @r"
@@ -3174,7 +3811,7 @@ mod tests {
             stream,
             mr,
         )?;
-        Ok(result.pin_mut().release_table())
+        Ok(result.pin_mut().release_table()?)
     }
 
     fn pretty_table(

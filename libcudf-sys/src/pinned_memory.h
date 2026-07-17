@@ -15,12 +15,12 @@ namespace libcudf_bridge {
         explicit PinnedMrOptions(std::size_t pool_size);
     };
 
-    std::unique_ptr<PinnedMrOptions> make_pinned_mr_options();
+    [[nodiscard]] std::unique_ptr<PinnedMrOptions> make_pinned_mr_options();
 
-    std::unique_ptr<PinnedMrOptions> make_pinned_mr_options_with_pool_size(
+    [[nodiscard]] std::unique_ptr<PinnedMrOptions> make_pinned_mr_options_with_pool_size(
         std::size_t pool_size);
 
-    bool config_default_pinned_memory_resource(const PinnedMrOptions& options);
+    [[nodiscard]] bool config_default_pinned_memory_resource(const PinnedMrOptions& options);
 
     void set_allocate_host_as_pinned_threshold(std::size_t threshold_bytes);
 }  // namespace libcudf_bridge

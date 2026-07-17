@@ -11,41 +11,41 @@
 namespace libcudf_bridge {
 
     // Sorting operations - direct cuDF mappings
-    std::unique_ptr<Table> sort_table(
+    [[nodiscard]] std::unique_ptr<Table> sort(
         const TableView &input,
         rust::Slice<const int32_t> column_order,
         rust::Slice<const int32_t> null_precedence,
         const CudaStreamView &stream,
         const DeviceAsyncResourceRef &mr);
 
-    std::unique_ptr<Table> stable_sort_table(
+    [[nodiscard]] std::unique_ptr<Table> stable_sort(
         const TableView &input,
         rust::Slice<const int32_t> column_order,
         rust::Slice<const int32_t> null_precedence,
         const CudaStreamView &stream,
         const DeviceAsyncResourceRef &mr);
 
-    std::unique_ptr<Column> sorted_order(
+    [[nodiscard]] std::unique_ptr<Column> sorted_order(
         const TableView &input,
         rust::Slice<const int32_t> column_order,
         rust::Slice<const int32_t> null_precedence,
         const CudaStreamView &stream,
         const DeviceAsyncResourceRef &mr);
 
-    std::unique_ptr<Column> stable_sorted_order(
+    [[nodiscard]] std::unique_ptr<Column> stable_sorted_order(
         const TableView &input,
         rust::Slice<const int32_t> column_order,
         rust::Slice<const int32_t> null_precedence,
         const CudaStreamView &stream,
         const DeviceAsyncResourceRef &mr);
 
-    bool is_sorted(
+    [[nodiscard]] bool is_sorted(
         const TableView &input,
         rust::Slice<const int32_t> column_order,
         rust::Slice<const int32_t> null_precedence,
         const CudaStreamView &stream);
 
-    std::unique_ptr<Table> sort_by_key(
+    [[nodiscard]] std::unique_ptr<Table> sort_by_key(
         const TableView &values,
         const TableView &keys,
         rust::Slice<const int32_t> column_order,
@@ -53,7 +53,7 @@ namespace libcudf_bridge {
         const CudaStreamView &stream,
         const DeviceAsyncResourceRef &mr);
 
-    std::unique_ptr<Table> stable_sort_by_key(
+    [[nodiscard]] std::unique_ptr<Table> stable_sort_by_key(
         const TableView &values,
         const TableView &keys,
         rust::Slice<const int32_t> column_order,

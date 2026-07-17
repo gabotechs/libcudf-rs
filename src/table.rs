@@ -238,8 +238,13 @@ impl CuDFTable {
             .collect::<Result<Vec<_>, _>>()?;
 
         let source = ffi::source_info_from_file_paths(path_strings);
-        let source = source.as_ref().expect("source_info should not be null");
+        let source = source
+            .as_ref()
+            .ok_or(CuDFError::NullHandle("Parquet source info"))?;
         let mut options = ffi::parquet_reader_options_create(source);
+        if options.is_null() {
+            return Err(CuDFError::NullHandle("Parquet reader options"));
+        }
         Self::set_parquet_columns(&mut options, columns);
         Self::set_parquet_row_groups(&mut options, row_groups, paths.len())?;
         Self::set_parquet_filter(&mut options, filter)?;
@@ -301,12 +306,11 @@ impl CuDFTable {
         filter: Option<&CuDFAstExpression>,
     ) -> Result<(), CuDFError> {
         if let Some(filter) = filter {
-            options.pin_mut().set_filter(
-                filter
-                    .inner()
-                    .as_ref()
-                    .expect("ast_expression_tree should not be null"),
-            )?;
+            let filter = filter
+                .inner()
+                .as_ref()
+                .ok_or(CuDFError::NullHandle("AST expression tree"))?;
+            options.pin_mut().set_filter(filter)?;
         }
         Ok(())
     }
@@ -316,24 +320,11 @@ impl CuDFTable {
     ) -> Result<CuDFParquetReadResult, CuDFError> {
         let stream = ffi::get_default_stream();
         let mr = ffi::get_current_device_resource_ref();
-        let mut result = ffi::read_parquet(
-            options
-                .as_ref()
-                .expect("parquet_reader_options should not be null"),
-            stream.as_ref().expect("default stream should not be null"),
-            mr.as_ref().expect("device resource should not be null"),
-        )?;
-        let column_names = (0..result.schema_info_count())
-            .map(|index| result.schema_info_name(index))
-            .collect();
-        let inner = result.pin_mut().release_table();
-        let table = Self::try_from_inner(inner)?;
-        let num_rows = table.num_rows();
-        Ok(CuDFParquetReadResult {
-            table,
-            column_names,
-            num_rows,
-        })
+        let options = options
+            .as_ref()
+            .ok_or(CuDFError::NullHandle("Parquet reader options"))?;
+        let mut result = ffi::read_parquet(options, stream_ref(&stream)?, resource_ref(&mr)?)?;
+        Self::parquet_read_result_from_metadata(&mut result)
     }
 
     fn for_each_parquet_options_chunk<F>(
@@ -352,12 +343,12 @@ impl CuDFTable {
             pass_read_limit,
             options
                 .as_ref()
-                .expect("parquet_reader_options should not be null"),
-            stream.as_ref().expect("default stream should not be null"),
-            mr.as_ref().expect("device resource should not be null"),
+                .ok_or(CuDFError::NullHandle("Parquet reader options"))?,
+            stream_ref(&stream)?,
+            resource_ref(&mr)?,
         )?;
 
-        while reader.has_next() {
+        while reader.has_next()? {
             let mut result = reader.read_chunk()?;
             if !callback(Self::parquet_read_result_from_metadata(&mut result)?)? {
                 break;
@@ -369,10 +360,19 @@ impl CuDFTable {
     fn parquet_read_result_from_metadata(
         result: &mut UniquePtr<ffi::TableWithMetadata>,
     ) -> Result<CuDFParquetReadResult, CuDFError> {
-        let column_names = (0..result.schema_info_count())
-            .map(|index| result.schema_info_name(index))
-            .collect();
-        let inner = result.pin_mut().release_table();
+        let metadata = result.pin_mut().release_metadata()?;
+        let metadata = metadata
+            .as_ref()
+            .ok_or(CuDFError::NullHandle("Parquet table metadata"))?;
+        let mut column_names = Vec::with_capacity(metadata.schema_info_len());
+        for index in 0..metadata.schema_info_len() {
+            let info = metadata.schema_info(index)?;
+            let info = info
+                .as_ref()
+                .ok_or(CuDFError::NullHandle("Parquet column metadata"))?;
+            column_names.push(info.name());
+        }
+        let inner = result.pin_mut().release_table()?;
         let table = Self::try_from_inner(inner)?;
         let num_rows = table.num_rows();
         Ok(CuDFParquetReadResult {
@@ -409,15 +409,15 @@ impl CuDFTable {
         })?;
 
         let sink = ffi::sink_info_from_file_path(path_str);
-        let options = ffi::parquet_writer_options_create(
-            sink.as_ref().expect("sink_info should not be null"),
-            &self.view,
-        );
+        let sink = sink
+            .as_ref()
+            .ok_or(CuDFError::NullHandle("Parquet sink info"))?;
+        let options = ffi::parquet_writer_options_create(sink, &self.view)?;
         let stream = ffi::get_default_stream();
         let _metadata = ffi::write_parquet(
             options
                 .as_ref()
-                .expect("parquet_writer_options should not be null"),
+                .ok_or(CuDFError::NullHandle("Parquet writer options"))?,
             stream_ref(&stream)?,
         )?;
         Ok(())
@@ -594,7 +594,7 @@ impl CuDFTable {
         let stream = ffi::get_default_stream();
         let mr = ffi::get_current_device_resource_ref();
         let inner =
-            ffi::concat_table_views(&inner_views, stream_ref(&stream)?, resource_ref(&mr)?)?;
+            ffi::concatenate_tables(&inner_views, stream_ref(&stream)?, resource_ref(&mr)?)?;
         Self::try_from_inner(inner)
     }
 }

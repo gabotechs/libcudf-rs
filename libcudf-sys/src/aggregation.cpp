@@ -11,6 +11,29 @@
 #include <stdexcept>
 
 namespace libcudf_bridge {
+    namespace {
+        const cudf::column_view& require_column_view(const ColumnView& column) {
+            if (!column.inner) {
+                throw std::invalid_argument("Cannot reduce a null column view");
+            }
+            return *column.inner;
+        }
+
+        const cudf::reduce_aggregation& require_aggregation(const ReduceAggregation& aggregation) {
+            if (!aggregation.inner) {
+                throw std::invalid_argument("Cannot reduce with a null aggregation");
+            }
+            return *aggregation.inner;
+        }
+
+        const cudf::scalar& require_scalar(const Scalar& scalar) {
+            if (!scalar.inner) {
+                throw std::invalid_argument("Cannot reduce with a null initial scalar");
+            }
+            return *scalar.inner;
+        }
+    } // namespace
+
     ReduceAggregation::ReduceAggregation() : inner(nullptr) {
     }
 
@@ -144,11 +167,16 @@ namespace libcudf_bridge {
         const CudaStreamView &stream,
         const DeviceAsyncResourceRef &mr) {
         auto result = std::make_unique<Scalar>();
-        result->inner = cudf::reduce(*col.inner, *agg.inner, output_type.inner, stream.inner, mr.inner);
+        result->inner = cudf::reduce(
+            require_column_view(col),
+            require_aggregation(agg),
+            output_type.inner,
+            stream.inner,
+            mr.inner);
         return result;
     }
 
-    std::unique_ptr<Scalar> reduce_with_init(
+    std::unique_ptr<Scalar> reduce(
         const ColumnView &col,
         const ReduceAggregation &agg,
         const DataType &output_type,
@@ -157,10 +185,10 @@ namespace libcudf_bridge {
         const DeviceAsyncResourceRef &mr) {
         auto result = std::make_unique<Scalar>();
         result->inner = cudf::reduce(
-            *col.inner,
-            *agg.inner,
+            require_column_view(col),
+            require_aggregation(agg),
             output_type.inner,
-            std::cref(*init.inner),
+            std::cref(require_scalar(init)),
             stream.inner,
             mr.inner);
         return result;

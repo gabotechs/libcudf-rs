@@ -35,6 +35,6 @@ namespace libcudf_bridge {
     };
 
     /// Return cuDF's process-global pinned memory resource handle.
-    std::unique_ptr<HostDeviceAsyncResourceRef> get_pinned_memory_resource();
+    [[nodiscard]] std::unique_ptr<HostDeviceAsyncResourceRef> get_pinned_memory_resource();
 
 } // namespace libcudf_bridge

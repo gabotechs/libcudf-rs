@@ -75,42 +75,13 @@ INCLUDES="$INCLUDES -I $CUDA_ROOT/include"
 DEFINES="-DLIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE"
 WARNINGS="-Wno-unused-parameter -Wno-deprecated-declarations"
 
-# Array of C++ source files
-CPP_FILES=(
-    "libcudf-sys/src/aggregation.cpp"
-    "libcudf-sys/src/binaryop.cpp"
-    "libcudf-sys/src/column.cpp"
-    "libcudf-sys/src/data_type.cpp"
-    "libcudf-sys/src/device_memory.cpp"
-    "libcudf-sys/src/groupby.cpp"
-    "libcudf-sys/src/io.cpp"
-    "libcudf-sys/src/join.cpp"
-    "libcudf-sys/src/lib.rs"
-    "libcudf-sys/src/operations.cpp"
-    "libcudf-sys/src/pinned_host.cpp"
-    "libcudf-sys/src/scalar.cpp"
-    "libcudf-sys/src/sorting.cpp"
-    "libcudf-sys/src/stream.cpp"
-    "libcudf-sys/src/table.cpp"
+mapfile -t CPP_FILES < <(
+    find "$PROJECT_ROOT/libcudf-sys/src" -maxdepth 1 -type f -name '*.cpp' \
+        -printf 'libcudf-sys/src/%f\n' | sort
 )
-
-# Array of header files
-HEADER_FILES=(
-    "libcudf-sys/src/aggregation.h"
-    "libcudf-sys/src/binaryop.h"
-    "libcudf-sys/src/column.h"
-    "libcudf-sys/src/data_type.h"
-    "libcudf-sys/src/device_memory.h"
-    "libcudf-sys/src/groupby.h"
-    "libcudf-sys/src/io.h"
-    "libcudf-sys/src/join.h"
-    "libcudf-sys/src/lib.rs"
-    "libcudf-sys/src/operations.h"
-    "libcudf-sys/src/pinned_host.h"
-    "libcudf-sys/src/scalar.h"
-    "libcudf-sys/src/sorting.h"
-    "libcudf-sys/src/stream.h"
-    "libcudf-sys/src/table.h"
+mapfile -t HEADER_FILES < <(
+    find "$PROJECT_ROOT/libcudf-sys/src" -maxdepth 1 -type f -name '*.h' \
+        -printf 'libcudf-sys/src/%f\n' | sort
 )
 
 # Start JSON array

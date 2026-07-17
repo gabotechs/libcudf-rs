@@ -29,36 +29,36 @@ namespace libcudf_bridge {
     };
 
     // Aggregation factory functions - direct cuDF mappings (for reduce)
-    std::unique_ptr<ReduceAggregation> make_sum_aggregation();
-    std::unique_ptr<ReduceAggregation> make_min_aggregation();
-    std::unique_ptr<ReduceAggregation> make_max_aggregation();
-    std::unique_ptr<ReduceAggregation> make_mean_aggregation();
-    std::unique_ptr<ReduceAggregation> make_count_aggregation(int32_t null_handling);
-    std::unique_ptr<ReduceAggregation> make_variance_aggregation(int32_t ddof);
-    std::unique_ptr<ReduceAggregation> make_std_aggregation(int32_t ddof);
-    std::unique_ptr<ReduceAggregation> make_nunique_aggregation(int32_t null_handling);
-    std::unique_ptr<ReduceAggregation> make_median_aggregation();
+    [[nodiscard]] std::unique_ptr<ReduceAggregation> make_sum_aggregation();
+    [[nodiscard]] std::unique_ptr<ReduceAggregation> make_min_aggregation();
+    [[nodiscard]] std::unique_ptr<ReduceAggregation> make_max_aggregation();
+    [[nodiscard]] std::unique_ptr<ReduceAggregation> make_mean_aggregation();
+    [[nodiscard]] std::unique_ptr<ReduceAggregation> make_count_aggregation(int32_t null_handling);
+    [[nodiscard]] std::unique_ptr<ReduceAggregation> make_variance_aggregation(int32_t ddof);
+    [[nodiscard]] std::unique_ptr<ReduceAggregation> make_std_aggregation(int32_t ddof);
+    [[nodiscard]] std::unique_ptr<ReduceAggregation> make_nunique_aggregation(int32_t null_handling);
+    [[nodiscard]] std::unique_ptr<ReduceAggregation> make_median_aggregation();
 
-    // Aggregation factory functions - direct cuDF mappings (for groupby)
-    std::unique_ptr<GroupByAggregation> make_sum_aggregation_groupby();
-    std::unique_ptr<GroupByAggregation> make_min_aggregation_groupby();
-    std::unique_ptr<GroupByAggregation> make_max_aggregation_groupby();
-    std::unique_ptr<GroupByAggregation> make_mean_aggregation_groupby();
-    std::unique_ptr<GroupByAggregation> make_count_aggregation_groupby(int32_t null_handling);
-    std::unique_ptr<GroupByAggregation> make_variance_aggregation_groupby(int32_t ddof);
-    std::unique_ptr<GroupByAggregation> make_std_aggregation_groupby(int32_t ddof);
-    std::unique_ptr<GroupByAggregation> make_nunique_aggregation_groupby(int32_t null_handling);
-    std::unique_ptr<GroupByAggregation> make_median_aggregation_groupby();
+    // cxx cannot distinguish these factory templates by return type.
+    [[nodiscard]] std::unique_ptr<GroupByAggregation> make_sum_aggregation_groupby();
+    [[nodiscard]] std::unique_ptr<GroupByAggregation> make_min_aggregation_groupby();
+    [[nodiscard]] std::unique_ptr<GroupByAggregation> make_max_aggregation_groupby();
+    [[nodiscard]] std::unique_ptr<GroupByAggregation> make_mean_aggregation_groupby();
+    [[nodiscard]] std::unique_ptr<GroupByAggregation> make_count_aggregation_groupby(int32_t null_handling);
+    [[nodiscard]] std::unique_ptr<GroupByAggregation> make_variance_aggregation_groupby(int32_t ddof);
+    [[nodiscard]] std::unique_ptr<GroupByAggregation> make_std_aggregation_groupby(int32_t ddof);
+    [[nodiscard]] std::unique_ptr<GroupByAggregation> make_nunique_aggregation_groupby(int32_t null_handling);
+    [[nodiscard]] std::unique_ptr<GroupByAggregation> make_median_aggregation_groupby();
 
     // Reduction - direct cuDF mapping
-    std::unique_ptr<Scalar> reduce(
+    [[nodiscard]] std::unique_ptr<Scalar> reduce(
         const ColumnView &col,
         const ReduceAggregation &agg,
         const DataType &output_type,
         const CudaStreamView &stream,
         const DeviceAsyncResourceRef &mr);
 
-    std::unique_ptr<Scalar> reduce_with_init(
+    [[nodiscard]] std::unique_ptr<Scalar> reduce(
         const ColumnView &col,
         const ReduceAggregation &agg,
         const DataType &output_type,

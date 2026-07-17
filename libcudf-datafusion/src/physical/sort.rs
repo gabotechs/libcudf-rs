@@ -16,7 +16,7 @@ use delegate::delegate;
 use futures::Stream;
 use futures_util::{ready, StreamExt};
 use libcudf_rs::{
-    gather, slice_column, sort, stable_sorted_order, CuDFTable, CuDFTableView, SortOrder,
+    gather_unchecked, slice_column, sort, stable_sorted_order, CuDFTable, CuDFTableView, SortOrder,
 };
 use std::any::Any;
 use std::fmt::Formatter;
@@ -217,8 +217,10 @@ impl Stream for CuDFTopKStream {
                         slice_column(&indices_view, 0, self.limit).map_err(cudf_to_df)?;
 
                     // Gather the top K rows
-                    let topk_table =
-                        gather(&merged_table, &topk_indices_view).map_err(cudf_to_df)?;
+                    // SAFETY: `topk_indices_view` is a slice of the indices returned by
+                    // `stable_sorted_order` for `merged_table`.
+                    let topk_table = unsafe { gather_unchecked(&merged_table, &topk_indices_view) }
+                        .map_err(cudf_to_df)?;
                     self.result = Some(topk_table.into_view());
                 } else {
                     self.result = Some(merged_table);

@@ -93,38 +93,38 @@ namespace libcudf_bridge {
     };
 
     /// Create a CUDA stream using the default sync-default creation flag.
-    std::unique_ptr<CudaStream> cuda_stream_create();
+    [[nodiscard]] std::unique_ptr<CudaStream> cuda_stream_create();
 
     /// Create a CUDA stream with an explicit raw flag value.
-    std::unique_ptr<CudaStream> cuda_stream_create_with_flags(uint32_t flags);
+    [[nodiscard]] std::unique_ptr<CudaStream> cuda_stream_create_with_flags(uint32_t flags);
 
     /// Return a non-owning view for an owned CUDA stream.
-    std::unique_ptr<CudaStreamView> cuda_stream_view(const CudaStream& stream);
+    [[nodiscard]] std::unique_ptr<CudaStreamView> cuda_stream_view(const CudaStream& stream);
 
     /// Convert an RMM CUDA stream view into an upstream CCCL CUDA stream ref.
-    std::unique_ptr<CudaStreamRef> cuda_stream_ref_from_view(const CudaStreamView& stream);
+    [[nodiscard]] std::unique_ptr<CudaStreamRef> cuda_stream_ref_from_view(const CudaStreamView& stream);
 
     /// Create a CUDA event on a device with explicit upstream event flags.
-    std::unique_ptr<CudaEvent> cuda_event_create_on_device(int32_t device_id, uint32_t flags);
+    [[nodiscard]] std::unique_ptr<CudaEvent> cuda_event_create_on_device(int32_t device_id, uint32_t flags);
 
     /// Get cuDF's current default stream.
-    std::unique_ptr<CudaStreamView> get_default_stream();
+    [[nodiscard]] std::unique_ptr<CudaStreamView> get_default_stream();
 
     /// Check whether cuDF is using the CUDA per-thread default stream.
-    bool is_ptds_enabled();
+    [[nodiscard]] bool is_ptds_enabled();
 
     /// Return the current CUDA device ordinal.
-    int32_t cuda_get_device();
+    [[nodiscard]] int32_t cuda_get_device();
 
     /// Set the current CUDA device ordinal.
     void cuda_set_device(int32_t device_id);
 
     /// Direct wrapper for cudaMemcpy. Pointer values are integer-encoded for cxx.
-    int32_t cuda_memcpy(uintptr_t destination,
-                        uintptr_t source,
-                        size_t count,
-                        int32_t kind);
+    [[nodiscard]] int32_t cuda_memcpy(uintptr_t destination,
+                                      uintptr_t source,
+                                      size_t count,
+                                      int32_t kind);
 
     /// Direct wrapper for cudaGetErrorString.
-    rust::String cuda_get_error_string(int32_t error);
+    [[nodiscard]] rust::String cuda_get_error_string(int32_t error);
 } // namespace libcudf_bridge

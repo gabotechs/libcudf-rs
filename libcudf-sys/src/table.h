@@ -69,12 +69,12 @@ namespace libcudf_bridge {
     };
 
     // Table factory functions
-    std::unique_ptr<Table> create_empty_table();
+    [[nodiscard]] std::unique_ptr<Table> create_empty_table();
 
-    std::unique_ptr<Table> create_table_from_columns_move(rust::Slice<Column *const> columns);
+    [[nodiscard]] std::unique_ptr<Table> create_table_from_columns_move(rust::Slice<Column *const> columns);
 
     // TableView factory functions
-    std::unique_ptr<TableView> table_view_clone(const TableView& view);
+    [[nodiscard]] std::unique_ptr<TableView> table_view_clone(const TableView& view);
 
-    std::unique_ptr<TableView> create_table_view_from_column_views(rust::Slice<const ColumnView *const> column_views);
+    [[nodiscard]] std::unique_ptr<TableView> create_table_view_from_column_views(rust::Slice<const ColumnView *const> column_views);
 } // namespace libcudf_bridge
