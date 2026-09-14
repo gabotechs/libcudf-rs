@@ -3,6 +3,7 @@ use crate::metrics::CuDFBaselineMetrics;
 use crate::planner::CuDFConfig;
 use arrow::array::{Array, RecordBatch, RecordBatchOptions};
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Schema, SchemaRef};
+use datafusion::common::tree_node::TreeNodeRecursion;
 use datafusion::common::{assert_eq_or_internal_err, exec_err, plan_err, ScalarValue};
 use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -14,11 +15,11 @@ use datafusion_physical_plan::stream::{
     RecordBatchReceiverStream, RecordBatchReceiverStreamBuilder,
 };
 use datafusion_physical_plan::{
-    DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties, PlanProperties,
+    DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties, PhysicalExpr,
+    PlanProperties,
 };
 use futures_util::stream::StreamExt;
 use libcudf_rs::{is_cudf_array, pin_record_batch, synchronize_default_stream, CuDFTable};
-use std::any::Any;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
@@ -57,16 +58,19 @@ impl ExecutionPlan for CuDFLoadExec {
         "CuDFLoadExec"
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.input]
+    }
+
+    fn apply_expressions(
+        &self,
+        _f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> datafusion::common::Result<TreeNodeRecursion>,
+    ) -> datafusion::common::Result<TreeNodeRecursion> {
+        Ok(TreeNodeRecursion::Continue)
     }
 
     fn with_new_children(

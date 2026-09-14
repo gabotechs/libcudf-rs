@@ -6,6 +6,8 @@ description = "Low-level FFI bindings to libcudf using cxx"
 authors = [
     "notfilippo",
     "gabotechs",
+    "jayshrivastava",
+    "gene-bordegaray",
 ]
 links = "cudf"
 

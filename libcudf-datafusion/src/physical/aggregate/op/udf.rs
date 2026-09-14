@@ -36,7 +36,7 @@ impl CuDFAggregateUDF {
 
 impl PartialEq for CuDFAggregateUDF {
     fn eq(&self, other: &Self) -> bool {
-        self.inner.dyn_eq(other.inner.as_any())
+        self.inner.dyn_eq(other.inner.as_ref() as &dyn Any)
     }
 }
 
@@ -55,10 +55,6 @@ impl fmt::Display for CuDFAggregateUDF {
 }
 
 impl AggregateUDFImpl for CuDFAggregateUDF {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn name(&self) -> &str {
         self.inner.name()
     }

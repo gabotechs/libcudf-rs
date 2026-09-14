@@ -4,7 +4,6 @@ use datafusion::logical_expr::ColumnarValue;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion_physical_plan::expressions::Column;
 use delegate::delegate;
-use std::any::Any;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
@@ -31,10 +30,6 @@ impl Display for CuDFColumnExpr {
 }
 
 impl PhysicalExpr for CuDFColumnExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn evaluate(&self, batch: &RecordBatch) -> datafusion::common::Result<ColumnarValue> {
         self.inner.evaluate(batch)
     }

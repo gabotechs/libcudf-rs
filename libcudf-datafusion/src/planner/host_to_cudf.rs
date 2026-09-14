@@ -45,23 +45,23 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
 
         let result = plan.transform_up(|mut plan| {
             let mut cudf_node: Option<Arc<dyn ExecutionPlan>> = None;
-            if let Some(node) = plan.as_any().downcast_ref::<FilterExec>() {
+            if let Some(node) = plan.downcast_ref::<FilterExec>() {
                 cudf_node = try_as_cudf(CuDFFilterExec::try_new(node.clone()))?;
             }
 
-            if let Some(node) = plan.as_any().downcast_ref::<ProjectionExec>() {
+            if let Some(node) = plan.downcast_ref::<ProjectionExec>() {
                 cudf_node = try_as_cudf(CuDFProjectionExec::try_new(node.clone()))?;
             }
 
-            if let Some(node) = plan.as_any().downcast_ref::<SortExec>() {
+            if let Some(node) = plan.downcast_ref::<SortExec>() {
                 cudf_node = Some(Arc::new(CuDFSortExec::new(node.clone())));
             }
 
-            if let Some(node) = plan.as_any().downcast_ref::<HashJoinExec>() {
+            if let Some(node) = plan.downcast_ref::<HashJoinExec>() {
                 cudf_node = try_as_cudf_hash_join(node)?;
             }
 
-            if let Some(node) = plan.as_any().downcast_ref::<AggregateExec>() {
+            if let Some(node) = plan.downcast_ref::<AggregateExec>() {
                 cudf_node = try_as_cudf_aggregate(node)?;
             }
 
@@ -77,14 +77,14 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
             for child in children {
                 let child_is_cudf = is_cudf_plan(child.as_ref());
 
-                if plan_is_cudf && !child_is_cudf && !plan.as_any().is::<CuDFLoadExec>() {
+                if plan_is_cudf && !child_is_cudf && !plan.is::<CuDFLoadExec>() {
                     if let Some(scan) = try_as_cudf_parquet_scan(child, cudf_config)? {
                         new_children.push(scan);
                         changed = true;
                         continue;
                     }
 
-                    if let Some(cp) = child.as_any().downcast_ref::<CoalescePartitionsExec>() {
+                    if let Some(cp) = child.downcast_ref::<CoalescePartitionsExec>() {
                         new_children.push(Arc::new(CuDFLoadExec::new(Arc::clone(cp.input()))));
                     } else {
                         new_children.push(Arc::new(CuDFLoadExec::new(Arc::clone(child))));
@@ -93,13 +93,13 @@ impl PhysicalOptimizerRule for HostToCuDFRule {
                     continue;
                 }
 
-                if !plan_is_cudf && child_is_cudf && !child.as_any().is::<CuDFUnloadExec>() {
+                if !plan_is_cudf && child_is_cudf && !child.is::<CuDFUnloadExec>() {
                     let mut unload = CuDFUnloadExec::new(Arc::clone(child));
                     // Aggregations will expect a specific schema in, which is the one that was
                     // established while the node was placed there. As we are dealing with type
                     // incompatibilities in CuDF, we are tweaking the schema we return, and
                     // therefore, we might need to manually force a cast.
-                    if let Some(agg) = plan.as_any().downcast_ref::<AggregateExec>() {
+                    if let Some(agg) = plan.downcast_ref::<AggregateExec>() {
                         unload = unload.with_target_schema(Arc::clone(&agg.input_schema))
                     }
                     new_children.push(Arc::new(unload));

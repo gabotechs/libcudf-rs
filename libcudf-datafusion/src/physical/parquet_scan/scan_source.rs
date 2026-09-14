@@ -121,7 +121,7 @@ impl CuDFParquetSourceBuilder {
         path: &Path,
         file: &PartitionedFile,
     ) -> std::result::Result<RowGroupSelection, CuDFParquetSourceError> {
-        if file.extensions.is_none() && file.range.is_none() {
+        if file.extensions.is_empty() && file.range.is_none() {
             return Ok(RowGroupSelection::All);
         }
 
@@ -241,10 +241,10 @@ fn access_plan_from_extension(
     file: &PartitionedFile,
     row_group_count: usize,
 ) -> std::result::Result<ParquetAccessPlan, CuDFParquetSourceError> {
-    let Some(extensions) = &file.extensions else {
+    if file.extensions.is_empty() {
         return Ok(ParquetAccessPlan::new_all(row_group_count));
-    };
-    let Some(access_plan) = extensions.downcast_ref::<ParquetAccessPlan>() else {
+    }
+    let Some(access_plan) = file.extensions.get::<ParquetAccessPlan>() else {
         return Err(CuDFParquetSourceError::FileExtensions);
     };
     if access_plan.len() != row_group_count {

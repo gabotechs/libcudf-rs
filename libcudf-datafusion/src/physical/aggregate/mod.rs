@@ -3,6 +3,7 @@ use crate::expr::CuDFColumnExpr;
 use crate::physical::aggregate::op::count::CuDFCount;
 use crate::planner::CuDFConfig;
 use arrow_schema::{DataType, Schema, SchemaRef};
+use datafusion::common::tree_node::TreeNodeRecursion;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::projection::ProjectionMapping;
@@ -14,9 +15,10 @@ use datafusion_physical_plan::expressions::{Column, Literal};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::udaf::AggregateFunctionExpr;
 use datafusion_physical_plan::{
-    DisplayAs, DisplayFormatType, ExecutionPlan, InputOrderMode, PhysicalExpr, PlanProperties,
+    apply_expression_roots, DisplayAs, DisplayFormatType, ExecutionPlan, InputOrderMode,
+    PhysicalExpr, PlanProperties,
 };
-use std::any::{type_name, Any};
+use std::any::type_name;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -166,6 +168,7 @@ impl CuDFAggregateExec {
             &input,
             output_schema,
             &group_by_expr_mapping,
+            false,
             &mode,
             &InputOrderMode::Linear,
             &aggr_expr,
@@ -207,16 +210,27 @@ impl ExecutionPlan for CuDFAggregateExec {
         type_name::<Self>()
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.plan_properties
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.input]
+    }
+
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> Result<TreeNodeRecursion>,
+    ) -> Result<TreeNodeRecursion> {
+        let group_by = self.prepared.group_by.input_exprs();
+        let aggregates = self.prepared.outputs.iter().flat_map(|output| {
+            let expressions = output.expr.all_expressions();
+            expressions
+                .args
+                .into_iter()
+                .chain(expressions.order_by_exprs)
+        });
+        apply_expression_roots(group_by.into_iter().chain(aggregates), f)
     }
 
     fn with_new_children(
@@ -279,7 +293,7 @@ fn prepare_cudf_aggregate_parts(
         return Ok(None);
     }
     for (expr, _) in group_by.expr() {
-        if expr.as_any().downcast_ref::<Column>().is_none() {
+        if expr.downcast_ref::<Column>().is_none() {
             return Ok(None);
         }
     }
@@ -314,12 +328,7 @@ fn prepare_aggregate_candidate(
     mode: AggregateMode,
     input_schema: &SchemaRef,
 ) -> Result<Option<AggregateCandidate>> {
-    let Some(udf) = expr
-        .fun()
-        .inner()
-        .as_any()
-        .downcast_ref::<CuDFAggregateUDF>()
-    else {
+    let Some(udf) = expr.fun().inner().downcast_ref::<CuDFAggregateUDF>() else {
         return Ok(None);
     };
     let op = udf.gpu().clone();
@@ -540,9 +549,9 @@ impl ExprKey {
     }
 
     fn try_new(expr: &Arc<dyn PhysicalExpr>, input_schema: &SchemaRef) -> Result<Option<Self>> {
-        let column = if let Some(column) = expr.as_any().downcast_ref::<Column>() {
+        let column = if let Some(column) = expr.downcast_ref::<Column>() {
             column
-        } else if let Some(column) = expr.as_any().downcast_ref::<CuDFColumnExpr>() {
+        } else if let Some(column) = expr.downcast_ref::<CuDFColumnExpr>() {
             column.datafusion_column()
         } else {
             return Ok(None);
@@ -616,8 +625,7 @@ impl<'a> AggregateStatePlanner<'a> {
 fn is_count_star(expr: &AggregateFunctionExpr) -> bool {
     expr.fun().name().eq_ignore_ascii_case("count")
         && expr.expressions().iter().all(|arg| {
-            arg.as_any()
-                .downcast_ref::<Literal>()
+            arg.downcast_ref::<Literal>()
                 .is_some_and(|literal| !literal.value().is_null())
         })
 }
@@ -638,7 +646,7 @@ fn expr_to_cudf_aggregate_arg(arg: Arc<dyn PhysicalExpr>) -> Result<Option<Arc<d
     // A bare literal aggregate argument, e.g. COUNT(*), must keep DataFusion's
     // normal batch-length expansion. CuDFLiteral evaluates to a scalar, which is
     // correct inside binary GPU expressions but not as a direct aggregate input.
-    if arg.as_any().downcast_ref::<Literal>().is_some() {
+    if arg.downcast_ref::<Literal>().is_some() {
         return Ok(Some(arg));
     }
 
@@ -1059,6 +1067,7 @@ mod test {
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
+            HashMap::new(),
             Arc::new(RuntimeEnv::default()),
         ))
     }
@@ -1264,7 +1273,7 @@ mod integration {
                   CuDFUnloadExec
                     CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@1], aggr_expr=[sum(weather.Rainfall)]
                       CuDFLoadExec
-                        DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000000.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000002.parquet]]}, projection=[Rainfall, RainToday], file_type=parquet
+                        DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[Rainfall, RainToday], file_type=parquet
         ");
         Ok(())
     }
@@ -1282,7 +1291,7 @@ mod integration {
                   CuDFUnloadExec
                     CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@0], aggr_expr=[count(Int64(1))]
                       CuDFLoadExec
-                        DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000000.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000002.parquet]]}, projection=[RainToday], file_type=parquet
+                        DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[RainToday], file_type=parquet
         ");
         Ok(())
     }
@@ -1312,7 +1321,7 @@ mod integration {
                   CuDFUnloadExec
                     CuDFAggregateExec: mode=Partial, group_by=[RainToday@RainToday@3], aggr_expr=[count(Int64(1)), sum(weather.Rainfall), avg(weather.MaxTemp), min(weather.MinTemp), max(weather.MaxTemp)]
                       CuDFLoadExec
-                        DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000000.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp, Rainfall, RainToday], file_type=parquet
+                        DataSourceExec: file_groups={3 groups: [[/testdata/weather/result-000000.parquet], [/testdata/weather/result-000001.parquet], [/testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp, Rainfall, RainToday], file_type=parquet
         ");
         Ok(())
     }

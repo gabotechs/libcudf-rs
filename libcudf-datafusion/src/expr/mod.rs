@@ -46,7 +46,7 @@ pub(crate) fn cudf_to_columnar_value(view: impl Into<CuDFColumnViewOrScalar>) ->
 pub(crate) fn expr_to_cudf_expr(
     expr: &dyn PhysicalExpr,
 ) -> Result<Arc<dyn PhysicalExpr>, DataFusionError> {
-    let any = expr.as_any();
+    let any = expr;
     if let Some(binary_op) = any.downcast_ref::<BinaryExpr>() {
         return Ok(Arc::new(CuDFBinaryExpr::try_from_datafusion(
             binary_op.clone(),

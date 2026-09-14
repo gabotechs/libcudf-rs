@@ -252,7 +252,7 @@ impl<'a> ParquetColumnResolver<'a> {
         expr: &dyn PhysicalExpr,
         ast: &mut CuDFAstExpression,
     ) -> Result<CuDFAstNode, DataFusionError> {
-        let Some(column) = expr.as_any().downcast_ref::<Column>() else {
+        let Some(column) = expr.downcast_ref::<Column>() else {
             return unsupported_parquet_filter();
         };
         self.lower_column(column, ast)
@@ -378,7 +378,6 @@ impl AstColumnResolver for ParquetColumnResolver<'_> {
     fn can_lower_is_null(&self, is_null: &IsNullExpr) -> bool {
         is_null
             .arg()
-            .as_any()
             .downcast_ref::<Column>()
             .is_some_and(|column| self.can_lower_column(column))
     }
@@ -399,7 +398,6 @@ impl AstColumnResolver for ParquetColumnResolver<'_> {
     fn can_lower_is_not_null(&self, is_not_null: &IsNotNullExpr) -> bool {
         is_not_null
             .arg()
-            .as_any()
             .downcast_ref::<Column>()
             .is_some_and(|column| self.can_lower_column(column))
     }
@@ -410,7 +408,7 @@ fn lower_expr(
     resolver: &mut impl AstColumnResolver,
     ast: &mut CuDFAstExpression,
 ) -> Result<CuDFAstNode, DataFusionError> {
-    let any = expr.as_any();
+    let any = expr;
     if let Some(binary) = any.downcast_ref::<BinaryExpr>() {
         return resolver.lower_binary(binary, ast);
     }
@@ -440,7 +438,7 @@ fn lower_expr(
 }
 
 fn can_lower_expr(expr: &dyn PhysicalExpr, resolver: &impl AstColumnResolver) -> bool {
-    let any = expr.as_any();
+    let any = expr;
     if let Some(binary) = any.downcast_ref::<BinaryExpr>() {
         return resolver.can_lower_binary(binary);
     }
@@ -502,7 +500,7 @@ fn is_supported_parquet_comparison(
 }
 
 fn parquet_literal_type(expr: &dyn PhysicalExpr, file_schema: &Schema) -> Option<DataType> {
-    let literal = expr.as_any().downcast_ref::<Literal>()?;
+    let literal = expr.downcast_ref::<Literal>()?;
     normalize_scalar_for_cudf(literal.value().clone()).ok()?;
     literal.data_type(file_schema).ok()
 }
@@ -511,7 +509,7 @@ fn parquet_column_name_and_type_expr(
     expr: &dyn PhysicalExpr,
     file_schema: &Schema,
 ) -> Option<(String, DataType)> {
-    let column = expr.as_any().downcast_ref::<Column>()?;
+    let column = expr.downcast_ref::<Column>()?;
     parquet_column_name_and_type(column, file_schema)
 }
 

@@ -4,6 +4,7 @@ use crate::metrics::CuDFBaselineMetrics;
 use crate::physical::cudf_load::cudf_schema_compatibility_map;
 use arrow::array::RecordBatch;
 use arrow_schema::{Field, Schema, SchemaRef};
+use datafusion::common::tree_node::TreeNodeRecursion;
 use datafusion::common::{JoinType, NullEquality, Statistics};
 use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -16,15 +17,14 @@ use datafusion_physical_plan::metrics::{
 };
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{
-    execute_stream, project_schema, DisplayAs, DisplayFormatType, ExecutionPlan,
-    ExecutionPlanProperties, PhysicalExpr, PlanProperties,
+    apply_expression_roots, execute_stream, project_schema, DisplayAs, DisplayFormatType,
+    ExecutionPlan, ExecutionPlanProperties, PhysicalExpr, PlanProperties,
 };
 use futures::{StreamExt, TryStreamExt};
 use libcudf_rs::{
     CuDFAstExpression, CuDFFilteredHashJoinArgs, CuDFHashJoin, CuDFNullEquality, CuDFTable,
     CuDFTableView,
 };
-use std::any::Any;
 use std::fmt::Formatter;
 use std::future::Future;
 use std::pin::Pin;
@@ -101,8 +101,7 @@ fn extract_column_indices(
     on.iter()
         .map(|(l, r)| {
             let expr = if left_side { l } else { r };
-            expr.as_any()
-                .downcast_ref::<Column>()
+            expr.downcast_ref::<Column>()
                 .ok_or_else(|| {
                     DataFusionError::Internal(
                         "CuDFHashJoinExec: join key is not a Column expression".into(),
@@ -214,10 +213,6 @@ impl ExecutionPlan for CuDFHashJoinExec {
         "CuDFHashJoinExec"
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
@@ -225,12 +220,27 @@ impl ExecutionPlan for CuDFHashJoinExec {
     fn partition_statistics(
         &self,
         _partition: Option<usize>,
-    ) -> Result<Statistics, DataFusionError> {
-        Ok(Statistics::new_unknown(&self.schema()))
+    ) -> Result<Arc<Statistics>, DataFusionError> {
+        Ok(Arc::new(Statistics::new_unknown(&self.schema())))
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.left, &self.right]
+    }
+
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> datafusion::common::Result<TreeNodeRecursion>,
+    ) -> datafusion::common::Result<TreeNodeRecursion> {
+        let join_keys = self
+            .on
+            .iter()
+            .flat_map(|(left, right)| [Arc::clone(left), Arc::clone(right)]);
+        let filter = self
+            .filter
+            .iter()
+            .map(|filter| Arc::clone(filter.expression()));
+        apply_expression_roots(join_keys.chain(filter), f)
     }
 
     fn metrics(&self) -> Option<MetricsSet> {
@@ -745,9 +755,7 @@ pub fn try_as_cudf_hash_join(
     node: &HashJoinExec,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
     for (l, r) in node.on() {
-        if l.as_any().downcast_ref::<Column>().is_none()
-            || r.as_any().downcast_ref::<Column>().is_none()
-        {
+        if l.downcast_ref::<Column>().is_none() || r.downcast_ref::<Column>().is_none() {
             return Ok(None);
         }
     }
@@ -783,6 +791,7 @@ mod tests {
     use crate::planner::CuDFConfig;
     use arrow::array::{record_batch, Array, Int32Array, RecordBatch};
     use arrow_schema::{DataType, Field, Schema, SchemaRef};
+    use datafusion::common::tree_node::TreeNodeRecursion;
     use datafusion::common::{JoinSide, JoinType, NullEquality};
     use datafusion::execution::TaskContext;
     use datafusion::physical_expr::{EquivalenceProperties, Partitioning};
@@ -799,7 +808,6 @@ mod tests {
     use futures::stream;
     use futures_util::TryStreamExt;
     use libcudf_rs::CuDFTable;
-    use std::any::Any;
     use std::error::Error;
     use std::fmt::Formatter;
     use std::sync::Arc;
@@ -985,16 +993,21 @@ mod tests {
             "TestGpuExec"
         }
 
-        fn as_any(&self) -> &dyn Any {
-            self
-        }
-
         fn properties(&self) -> &Arc<PlanProperties> {
             &self.properties
         }
 
         fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
             vec![]
+        }
+
+        fn apply_expressions(
+            &self,
+            _f: &mut dyn FnMut(
+                &Arc<dyn PhysicalExpr>,
+            ) -> datafusion::common::Result<TreeNodeRecursion>,
+        ) -> datafusion::common::Result<TreeNodeRecursion> {
+            Ok(TreeNodeRecursion::Continue)
         }
 
         fn with_new_children(

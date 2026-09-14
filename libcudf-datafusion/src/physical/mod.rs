@@ -25,7 +25,7 @@ pub use projection::CuDFProjectionExec;
 pub use sort::CuDFSortExec;
 
 pub fn is_cudf_plan(plan: &dyn ExecutionPlan) -> bool {
-    let any = plan.as_any();
+    let any = plan;
     any.is::<CuDFAggregateExec>()
         || any.is::<CuDFFilterExec>()
         || any.is::<CuDFCoalescePartitionsExec>()

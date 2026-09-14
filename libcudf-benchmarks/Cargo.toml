@@ -2,6 +2,12 @@
 name = "libcudf-benchmarks"
 version = "0.1.0"
 edition = "2021"
+authors = [
+    "notfilippo",
+    "gabotechs",
+    "jayshrivastava",
+    "gene-bordegaray",
+]
 
 [dependencies]
 libcudf-rs = { path = ".." }

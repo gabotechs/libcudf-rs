@@ -3,6 +3,7 @@ use crate::expr::{columnar_value_to_cudf, expr_to_cudf_expr};
 use crate::metrics::CuDFBaselineMetrics;
 use arrow::array::{Array, RecordBatch};
 use arrow_schema::{DataType, SchemaRef};
+use datafusion::common::tree_node::TreeNodeRecursion;
 use datafusion::common::{exec_err, internal_err, Statistics};
 use datafusion::config::ConfigOptions;
 use datafusion::error::DataFusionError;
@@ -15,13 +16,13 @@ use datafusion_physical_plan::metrics::{
     ExecutionPlanMetricsSet, MetricBuilder, MetricType, MetricsSet, RatioMetrics,
 };
 use datafusion_physical_plan::{
-    DisplayAs, DisplayFormatType, ExecutionPlan, PhysicalExpr, PlanProperties,
+    apply_expression_roots, DisplayAs, DisplayFormatType, ExecutionPlan, PhysicalExpr,
+    PlanProperties,
 };
 use delegate::delegate;
 use futures_util::{Stream, StreamExt};
 use libcudf_rs::{apply_boolean_mask, CuDFColumnView};
 use libcudf_rs::{CuDFColumnViewOrScalar, CuDFTableView};
-use std::any::Any;
 use std::fmt::Formatter;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -68,10 +69,6 @@ impl ExecutionPlan for CuDFFilterExec {
         "CuDFFilterExec"
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn with_new_children(
         self: Arc<Self>,
         children: Vec<Arc<dyn ExecutionPlan>>,
@@ -81,11 +78,17 @@ impl ExecutionPlan for CuDFFilterExec {
         // calls .with_projection(self.projection().cloned()), so using it here is essential.
         let updated = Arc::new(self.host_exec.clone()).with_new_children(children)?;
         let f_exec = updated
-            .as_any()
             .downcast_ref::<FilterExec>()
             .expect("FilterExec::with_new_children should return a FilterExec")
             .clone();
         Ok(Arc::new(Self::try_new(f_exec)?))
+    }
+
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> datafusion::common::Result<TreeNodeRecursion>,
+    ) -> datafusion::common::Result<TreeNodeRecursion> {
+        apply_expression_roots([&self.predicate], f)
     }
 
     fn execute(
@@ -116,7 +119,7 @@ impl ExecutionPlan for CuDFFilterExec {
             fn cardinality_effect(&self) -> CardinalityEffect;
             fn supports_limit_pushdown(&self) -> bool;
             fn gather_filters_for_pushdown(&self, phase: FilterPushdownPhase, parent_filters: Vec<Arc<dyn PhysicalExpr>>, config: &ConfigOptions) -> Result<FilterDescription, DataFusionError>;
-            fn partition_statistics(&self, partition: Option<usize>) -> datafusion::common::Result<Statistics>;
+            fn partition_statistics(&self, partition: Option<usize>) -> datafusion::common::Result<Arc<Statistics>>;
         }
     }
 }
@@ -150,7 +153,7 @@ impl CuDFFilterExecMetrics {
         Self {
             baseline_metrics: CuDFBaselineMetrics::new(metrics, partition),
             selectivity: MetricBuilder::new(metrics)
-                .with_type(MetricType::SUMMARY)
+                .with_type(MetricType::Summary)
                 .ratio_metrics("selectivity", partition),
         }
     }
@@ -327,7 +330,7 @@ mod tests {
           CuDFSortExec: TopK(fetch=3), expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[false]
             CuDFFilterExec: MinTemp@0 > 10
               CuDFLoadExec
-                DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000000.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=MinTemp@0 > 10 AND DynamicFilter [ empty ], pruning_predicate=MinTemp_null_count@1 != row_count@2 AND MinTemp_max@0 > 10, required_guarantees=[]
+                DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000000.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=MinTemp@0 > 10 AND DynamicFilter [ empty ], dynamic_rg_pruning=eligible, pruning_predicate=MinTemp_null_count@1 != row_count@2 AND MinTemp_max@0 > 10, required_guarantees=[]
         ");
 
         let cudf_results = plan.execute().await?;

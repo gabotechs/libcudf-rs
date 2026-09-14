@@ -1,4 +1,5 @@
 use crate::metrics::CuDFBaselineMetrics;
+use datafusion::common::tree_node::TreeNodeRecursion;
 use datafusion::common::{assert_eq_or_internal_err, plan_err};
 use datafusion::error::DataFusionError;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
@@ -7,11 +8,10 @@ use datafusion_physical_plan::execution_plan::{CardinalityEffect, EvaluationType
 use datafusion_physical_plan::metrics::{ExecutionPlanMetricsSet, MetricsSet};
 use datafusion_physical_plan::stream::{RecordBatchReceiverStream, RecordBatchStreamAdapter};
 use datafusion_physical_plan::{
-    DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties, PlanProperties,
-    Statistics,
+    DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties, PhysicalExpr,
+    PlanProperties, Statistics,
 };
 use futures_util::{Stream, StreamExt};
-use std::any::Any;
 use std::fmt::Formatter;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -85,16 +85,19 @@ impl ExecutionPlan for CuDFCoalescePartitionsExec {
         "CuDFCoalescePartitionsExec"
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.input]
+    }
+
+    fn apply_expressions(
+        &self,
+        _f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> datafusion::common::Result<TreeNodeRecursion>,
+    ) -> datafusion::common::Result<TreeNodeRecursion> {
+        Ok(TreeNodeRecursion::Continue)
     }
 
     fn with_new_children(
@@ -184,10 +187,14 @@ impl ExecutionPlan for CuDFCoalescePartitionsExec {
     fn partition_statistics(
         &self,
         _partition: Option<usize>,
-    ) -> datafusion::common::Result<Statistics> {
-        self.input
-            .partition_statistics(None)?
-            .with_fetch(self.fetch, 0, 1)
+    ) -> datafusion::common::Result<Arc<Statistics>> {
+        Ok(Arc::new(
+            self.input
+                .partition_statistics(None)?
+                .as_ref()
+                .clone()
+                .with_fetch(self.fetch, 0, 1)?,
+        ))
     }
 
     fn supports_limit_pushdown(&self) -> bool {

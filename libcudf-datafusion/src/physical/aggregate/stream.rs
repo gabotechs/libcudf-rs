@@ -147,7 +147,7 @@ impl CuDFAggregateStream {
         let group_by_metrics = GroupByMetrics::new(metrics, partition);
         let reduction_factor = (prepared.mode == AggregateMode::Partial).then(|| {
             MetricBuilder::new(metrics)
-                .with_type(MetricType::SUMMARY)
+                .with_type(MetricType::Summary)
                 .ratio_metrics("reduction_factor", partition)
         });
 
