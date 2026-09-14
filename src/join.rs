@@ -125,6 +125,8 @@ fn select_cols(
     Ok(view.inner().select(&indices)?)
 }
 
+/// Gather each side independently, then assemble columns as
+/// `[left_payload | right_payload]`.
 fn gather_join_output(
     left_payload: &ffi::TableView,
     right_payload: &ffi::TableView,
@@ -220,9 +222,9 @@ fn gather_filtered_hash_join_indices(
     mut indices: UniquePtr<ffi::HashJoinIndices>,
     args: FilteredHashJoinIndicesArgs<'_>,
 ) -> Result<(CuDFTable, Arc<JoinIndexVector>, Arc<JoinIndexVector>), CuDFError> {
-    // Hash join returns probe/build maps. cuDF filter_join_indices expects
-    // left/right maps, so pass build as left and probe as right to preserve
-    // the public `[build_cols | probe_cols]` output order.
+    // Hash join returns probe/build maps, while cuDF filter_join_indices expects
+    // left/right maps. Treat build as left so gather_join_output preserves its
+    // `[build_payload | probe_payload]` column-order invariant.
     let probe_indices = Arc::new(JoinIndexVector::try_from_inner(
         indices.pin_mut().release_probe(),
     )?);
