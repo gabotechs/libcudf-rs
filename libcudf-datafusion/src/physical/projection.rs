@@ -2,6 +2,7 @@ use crate::expr::expr_to_cudf_expr;
 use crate::metrics::CuDFBaselineMetrics;
 use arrow::array::RecordBatch;
 use arrow::datatypes::SchemaRef;
+use datafusion::common::tree_node::TreeNodeRecursion;
 use datafusion::config::ConfigOptions;
 use datafusion::error::DataFusionError;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
@@ -12,12 +13,11 @@ use datafusion_physical_plan::filter_pushdown::{FilterDescription, FilterPushdow
 use datafusion_physical_plan::metrics::{ExecutionPlanMetricsSet, MetricsSet};
 use datafusion_physical_plan::projection::{ProjectionExec, ProjectionExpr};
 use datafusion_physical_plan::{
-    DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties, PhysicalExpr,
-    PlanProperties,
+    apply_expression_roots, DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties,
+    PhysicalExpr, PlanProperties,
 };
 use delegate::delegate;
 use futures::stream::{Stream, StreamExt};
-use std::any::Any;
 use std::fmt::Formatter;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -39,7 +39,7 @@ impl CuDFProjectionExec {
             .map(|v| {
                 Ok::<_, DataFusionError>(ProjectionExpr {
                     alias: v.alias.clone(),
-                    expr: expr_to_cudf_expr(v.expr.as_ref())?,
+                    expr: expr_to_cudf_expr(&v.expr)?,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -95,10 +95,6 @@ impl ExecutionPlan for CuDFProjectionExec {
         "CuDFProjectionExec"
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn with_new_children(
         self: Arc<Self>,
         mut children: Vec<Arc<dyn ExecutionPlan>>,
@@ -108,6 +104,13 @@ impl ExecutionPlan for CuDFProjectionExec {
             children.swap_remove(0),
         )?;
         Ok(Arc::new(Self::try_new(p_exe)?))
+    }
+
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> datafusion::common::Result<TreeNodeRecursion>,
+    ) -> datafusion::common::Result<TreeNodeRecursion> {
+        apply_expression_roots(self.cudf_exprs.expr_iter(), f)
     }
 
     fn execute(
@@ -218,7 +221,7 @@ mod tests {
           CuDFProjectionExec: expr=[weather.MinTemp + Int64(1)@0 as weather.MinTemp + Int64(1)]
             CuDFSortExec: TopK(fetch=1), expr=[MinTemp@1 ASC NULLS LAST], preserve_partitioning=[false]
               CuDFLoadExec
-                DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000000.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000002.parquet]]}, projection=[MinTemp@0 + 1 as weather.MinTemp + Int64(1), MinTemp], file_type=parquet, predicate=DynamicFilter [ empty ]
+                DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000002.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000000.parquet]]}, projection=[MinTemp@0 + 1 as weather.MinTemp + Int64(1), MinTemp], file_type=parquet, predicate=DynamicFilter [ empty ], sort_order_for_reorder=[MinTemp@1 ASC NULLS LAST], dynamic_rg_pruning=eligible
         ");
         let result = plan.execute().await?;
         assert_snapshot!(result.pretty_print, @r"

@@ -54,19 +54,19 @@ impl CuDFBaselineMetrics {
 
         Self {
             end_time: MetricBuilder::new(metrics)
-                .with_type(MetricType::SUMMARY)
+                .with_type(MetricType::Summary)
                 .end_timestamp(partition),
             elapsed_compute: MetricBuilder::new(metrics)
-                .with_type(MetricType::SUMMARY)
+                .with_type(MetricType::Summary)
                 .elapsed_compute(partition),
             output_rows: MetricBuilder::new(metrics)
-                .with_type(MetricType::SUMMARY)
+                .with_type(MetricType::Summary)
                 .output_rows(partition),
             output_bytes: MetricBuilder::new(metrics)
-                .with_type(MetricType::SUMMARY)
+                .with_type(MetricType::Summary)
                 .output_bytes(partition),
             output_batches: MetricBuilder::new(metrics)
-                .with_type(MetricType::DEV)
+                .with_type(MetricType::Dev)
                 .output_batches(partition),
         }
     }

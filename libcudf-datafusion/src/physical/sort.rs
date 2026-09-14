@@ -1,6 +1,7 @@
 use crate::errors::cudf_to_df;
 use arrow::array::RecordBatch;
 use arrow_schema::SchemaRef;
+use datafusion::common::tree_node::TreeNodeRecursion;
 use datafusion::common::Statistics;
 use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -10,7 +11,7 @@ use datafusion_physical_plan::expressions::Column;
 use datafusion_physical_plan::sorts::sort::SortExec;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{
-    execute_stream, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties,
+    execute_stream, DisplayAs, DisplayFormatType, ExecutionPlan, PhysicalExpr, PlanProperties,
 };
 use delegate::delegate;
 use futures::Stream;
@@ -18,7 +19,6 @@ use futures_util::{ready, StreamExt};
 use libcudf_rs::{
     gather_unchecked, slice_column, sort, stable_sorted_order, CuDFTable, CuDFTableView, SortOrder,
 };
-use std::any::Any;
 use std::fmt::Formatter;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -47,10 +47,6 @@ impl ExecutionPlan for CuDFSortExec {
         "CuDFSortExec"
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn with_new_children(
         self: Arc<Self>,
         mut children: Vec<Arc<dyn ExecutionPlan>>,
@@ -59,6 +55,13 @@ impl ExecutionPlan for CuDFSortExec {
             .with_fetch(self.inner.fetch())
             .with_preserve_partitioning(self.inner.preserve_partitioning());
         Ok(Arc::new(Self::new(inner)))
+    }
+
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> datafusion::common::Result<TreeNodeRecursion>,
+    ) -> datafusion::common::Result<TreeNodeRecursion> {
+        self.inner.apply_expressions(f)
     }
 
     fn execute(
@@ -104,7 +107,7 @@ impl ExecutionPlan for CuDFSortExec {
         to self.inner {
             fn properties(&self) -> &Arc<PlanProperties>;
             fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>>;
-            fn partition_statistics(&self, partition: Option<usize>) -> Result<Statistics, DataFusionError>;
+            fn partition_statistics(&self, partition: Option<usize>) -> Result<Arc<Statistics>, DataFusionError>;
             fn fetch(&self) -> Option<usize>;
             fn cardinality_effect(&self) -> CardinalityEffect;
         }
@@ -258,7 +261,6 @@ fn extract_sort_params(ordering: &LexOrdering) -> (Vec<usize>, Vec<SortOrder>) {
         .map(|expr| {
             let col_idx = expr
                 .expr
-                .as_any()
                 .downcast_ref::<Column>()
                 .map(|c| c.index())
                 .unwrap_or(0);
@@ -294,7 +296,7 @@ mod tests {
         CuDFUnloadExec
           CuDFSortExec: expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[false]
             CuDFLoadExec
-              DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000000.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet
+              DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000002.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000000.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, sort_order_for_reorder=[MinTemp@0 ASC NULLS LAST]
         ");
 
         let cudf_results = plan.execute().await?;
@@ -320,7 +322,7 @@ mod tests {
         CuDFUnloadExec
           CuDFSortExec: expr=[MaxTemp@1 DESC], preserve_partitioning=[false]
             CuDFLoadExec
-              DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000000.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet
+              DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000000.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, sort_order_for_reorder=[MaxTemp@1 DESC], reverse_row_groups=true
         ");
 
         let cudf_results = plan.execute().await?;
@@ -347,7 +349,7 @@ mod tests {
         CuDFUnloadExec
           CuDFSortExec: TopK(fetch=3), expr=[MinTemp@0 ASC NULLS LAST], preserve_partitioning=[false]
             CuDFLoadExec
-              DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000000.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000002.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=DynamicFilter [ empty ]
+              DataSourceExec: file_groups={1 group: [[/testdata/weather/result-000002.parquet, /testdata/weather/result-000001.parquet, /testdata/weather/result-000000.parquet]]}, projection=[MinTemp, MaxTemp], file_type=parquet, predicate=DynamicFilter [ empty ], sort_order_for_reorder=[MinTemp@0 ASC NULLS LAST], dynamic_rg_pruning=eligible
         ");
 
         let cudf_results = plan.execute().await?;

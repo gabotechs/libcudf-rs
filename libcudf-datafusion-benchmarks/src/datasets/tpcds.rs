@@ -2,7 +2,7 @@ use super::common;
 use arrow::datatypes::{DataType, Field};
 use datafusion::common::internal_err;
 use datafusion::error::DataFusionError;
-use datafusion::physical_expr::expressions::{CastColumnExpr, Column};
+use datafusion::physical_expr::expressions::{CastExpr, Column};
 use datafusion::physical_expr::projection::ProjectionExpr;
 use datafusion::physical_expr::Partitioning;
 use datafusion::physical_plan::projection::ProjectionExec;
@@ -145,9 +145,8 @@ fn project_cols_as_dict(
             .enumerate()
             .map(|(i, f)| ProjectionExpr {
                 expr: if cols.contains(&f.name().as_str()) {
-                    Arc::new(CastColumnExpr::new(
+                    Arc::new(CastExpr::new_with_target_field(
                         Arc::new(Column::new(f.name(), i)),
-                        f.clone(),
                         Arc::new(Field::new(
                             f.name(),
                             DataType::Dictionary(

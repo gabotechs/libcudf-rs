@@ -27,12 +27,12 @@ struct ParquetScanCandidate<'a> {
 
 impl<'a> ParquetScanCandidate<'a> {
     fn try_from_plan(plan: &'a Arc<dyn ExecutionPlan>) -> Result<Option<Self>> {
-        let (plan, coalesce_fetch) = match plan.as_any().downcast_ref::<CoalescePartitionsExec>() {
+        let (plan, coalesce_fetch) = match plan.downcast_ref::<CoalescePartitionsExec>() {
             Some(coalesce) => (coalesce.input(), Some(coalesce.fetch())),
             None => (plan, None),
         };
 
-        let Some(data_source) = plan.as_any().downcast_ref::<DataSourceExec>() else {
+        let Some(data_source) = plan.downcast_ref::<DataSourceExec>() else {
             return Ok(None);
         };
 
@@ -178,7 +178,7 @@ impl<'a> ParquetScanCandidate<'a> {
         let file_schema = self.source.table_schema().file_schema();
         let mut indices = Vec::new();
         for expr in projection.as_ref() {
-            let Some(column) = expr.expr.as_any().downcast_ref::<Column>() else {
+            let Some(column) = expr.expr.downcast_ref::<Column>() else {
                 return Err(UnsupportedReason::Projection);
             };
             let Some(field) = file_schema.fields().get(column.index()) else {
@@ -239,12 +239,12 @@ fn is_noop_scan_predicate(expr: &Arc<dyn PhysicalExpr>) -> bool {
     if is_true_literal(expr) {
         return true;
     }
-    if let Some(dynamic) = expr.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
+    if let Some(dynamic) = expr.downcast_ref::<DynamicFilterPhysicalExpr>() {
         return dynamic
             .current()
             .is_ok_and(|current| is_true_literal(&current));
     }
-    if let Some(binary) = expr.as_any().downcast_ref::<BinaryExpr>() {
+    if let Some(binary) = expr.downcast_ref::<BinaryExpr>() {
         return matches!(binary.op(), Operator::And)
             && is_noop_scan_predicate(binary.left())
             && is_noop_scan_predicate(binary.right());
@@ -253,8 +253,7 @@ fn is_noop_scan_predicate(expr: &Arc<dyn PhysicalExpr>) -> bool {
 }
 
 fn is_true_literal(expr: &Arc<dyn PhysicalExpr>) -> bool {
-    expr.as_any()
-        .downcast_ref::<Literal>()
+    expr.downcast_ref::<Literal>()
         .is_some_and(|literal| matches!(literal.value(), ScalarValue::Boolean(Some(true))))
 }
 

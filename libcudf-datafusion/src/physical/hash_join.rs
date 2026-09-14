@@ -2,8 +2,9 @@ use crate::errors::cudf_to_df;
 use crate::expr::ast::{is_join_filter_supported_by_cudf_ast, join_filter_to_cudf_ast};
 use crate::metrics::CuDFBaselineMetrics;
 use crate::physical::cudf_load::cudf_schema_compatibility_map;
-use arrow::array::RecordBatch;
+use arrow::array::{ArrayRef, RecordBatch};
 use arrow_schema::{Field, Schema, SchemaRef};
+use datafusion::common::tree_node::TreeNodeRecursion;
 use datafusion::common::{JoinType, NullEquality, Statistics};
 use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -16,15 +17,14 @@ use datafusion_physical_plan::metrics::{
 };
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_physical_plan::{
-    execute_stream, project_schema, DisplayAs, DisplayFormatType, ExecutionPlan,
-    ExecutionPlanProperties, PhysicalExpr, PlanProperties,
+    apply_expression_roots, execute_stream, project_schema, DisplayAs, DisplayFormatType,
+    ExecutionPlan, ExecutionPlanProperties, PhysicalExpr, PlanProperties,
 };
 use futures::{StreamExt, TryStreamExt};
 use libcudf_rs::{
     CuDFAstExpression, CuDFFilteredHashJoinArgs, CuDFHashJoin, CuDFNullEquality, CuDFTable,
     CuDFTableView,
 };
-use std::any::Any;
 use std::fmt::Formatter;
 use std::future::Future;
 use std::pin::Pin;
@@ -101,8 +101,7 @@ fn extract_column_indices(
     on.iter()
         .map(|(l, r)| {
             let expr = if left_side { l } else { r };
-            expr.as_any()
-                .downcast_ref::<Column>()
+            expr.downcast_ref::<Column>()
                 .ok_or_else(|| {
                     DataFusionError::Internal(
                         "CuDFHashJoinExec: join key is not a Column expression".into(),
@@ -214,10 +213,6 @@ impl ExecutionPlan for CuDFHashJoinExec {
         "CuDFHashJoinExec"
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
@@ -225,12 +220,27 @@ impl ExecutionPlan for CuDFHashJoinExec {
     fn partition_statistics(
         &self,
         _partition: Option<usize>,
-    ) -> Result<Statistics, DataFusionError> {
-        Ok(Statistics::new_unknown(&self.schema()))
+    ) -> Result<Arc<Statistics>, DataFusionError> {
+        Ok(Arc::new(Statistics::new_unknown(&self.schema())))
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.left, &self.right]
+    }
+
+    fn apply_expressions(
+        &self,
+        f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> datafusion::common::Result<TreeNodeRecursion>,
+    ) -> datafusion::common::Result<TreeNodeRecursion> {
+        let join_keys = self
+            .on
+            .iter()
+            .flat_map(|(left, right)| [Arc::clone(left), Arc::clone(right)]);
+        let filter = self
+            .filter
+            .iter()
+            .map(|filter| Arc::clone(filter.expression()));
+        apply_expression_roots(join_keys.chain(filter), f)
     }
 
     fn metrics(&self) -> Option<MetricsSet> {
@@ -380,14 +390,20 @@ struct JoinPlan {
 
 /// Build-side state created once the collected left table is available.
 ///
-/// `left_out` and `right_out` are the split projection maps used when probing
-/// right-side batches and when finalizing unmatched build rows.
+/// `left_out` and `right_out` projected indexes needed for the join output. They
+/// are sorted and 0-indexed, ex. left_out=[0, 1] right_out=[0, 1] means the join
+/// outputs 4 columns, the first two from each side of the join.
+///
+/// By default cuDF returns columns ordered left_out | right_out. `output_permutation`
+/// specifies if the final output needs to be re-ordered. This might happen if the left
+/// and right columns need to be interleaved or reordered.
 struct StreamingBuildSide {
     left: Arc<CuDFTable>,
     join: CuDFHashJoin,
     filter: Option<CuDFAstExpression>,
     left_out: Option<Vec<usize>>,
     right_out: Option<Vec<usize>>,
+    output_permutation: Option<Vec<usize>>,
 }
 
 /// Lifecycle state for streamed joins.
@@ -458,10 +474,11 @@ impl StreamingJoinState {
             let right =
                 Arc::new(batches_to_table(std::slice::from_ref(&right_batch)).map_err(cudf_to_df)?);
             let result = self.probe(right)?;
-            let batch = result
-                .into_view()
-                .to_record_batch_with_schema(&self.plan.output_schema)
-                .map_err(cudf_to_df)?;
+            let output_permutation = self
+                .build
+                .as_ref()
+                .and_then(|build| build.output_permutation.as_deref());
+            let batch = join_result_to_batch(result, &self.plan.output_schema, output_permutation)?;
 
             if batch.num_rows() == 0 {
                 continue;
@@ -484,7 +501,7 @@ impl StreamingJoinState {
             .expect("left future should be present before first streamed join batch")
             .await?;
         let left_view = Arc::clone(&left).view();
-        let (left_out, right_out) =
+        let (left_out, right_out, output_permutation) =
             split_join_projection(&self.plan.projection, left_view.num_columns());
         let filter = self
             .plan
@@ -504,6 +521,7 @@ impl StreamingJoinState {
             filter,
             left_out,
             right_out,
+            output_permutation,
         });
         Ok(())
     }
@@ -620,10 +638,11 @@ impl StreamingJoinState {
                 .map_err(cudf_to_df)?
         };
 
-        let batch = result
-            .into_view()
-            .to_record_batch_with_schema(&self.plan.output_schema)
-            .map_err(cudf_to_df)?;
+        let batch = join_result_to_batch(
+            result,
+            &self.plan.output_schema,
+            build.output_permutation.as_deref(),
+        )?;
         if batch.num_rows() == 0 {
             Ok(None)
         } else {
@@ -698,29 +717,89 @@ fn batch_stats(batches: &[RecordBatch]) -> BatchStats {
     }
 }
 
+/// Convert a DataFusion join projection into separate left and right projections.
+///
+/// Example:
+///
+/// Consider the input schema L0, L1, L2, L3, R0, R1 for the left and right sides of the join.
+///
+/// DataFusion's join output projection for columns [L0, L1, R0, R1] is the list of
+/// indexes for these columns [0, 1, 4, 5]. This function splits this into independent
+/// projections [0, 1] and [0, 1] for the left and right side respectively. CuDF will
+/// return `left columns | right columns`, so the final output projection is correct. In
+/// this case, the 3rd return value is None.
+///
+/// When the requested projection is out of order, like [R1, L1, L0, R0], then
+/// DataFusion will request the output projection [5, 1, 0, 4]. In this case, this function
+/// sorts the split left and right indexes on each side: [0, 1] and [0, 1]. CuDF performs
+/// the join, once again concatenating `left columns | right columns`, creating
+/// the output schema [0, 1, 4, 5]. This ordering is wrong, so we return a 3rd argument [3, 1, 0, 2],
+/// an "output permutation" to reorder the columns output by the join to [5, 1, 0, 4].
+///
+/// See [`join_result_to_batch`] below, which adjusts a cuDF join output to match the output
+/// permutation.
 fn split_join_projection(
     projection: &Option<Vec<usize>>,
     left_width: usize,
-) -> (Option<Vec<usize>>, Option<Vec<usize>>) {
-    debug_assert!(
-        projection
-            .as_ref()
-            .is_none_or(|p| p.windows(2).all(|w| w[0] < w[1])),
-        "join projection indices must be strictly ascending"
-    );
-
+) -> (Option<Vec<usize>>, Option<Vec<usize>>, Option<Vec<usize>>) {
     match projection {
-        None => (None, None),
+        None => (None, None, None),
         Some(proj) => {
-            let left = proj.iter().filter(|&&i| i < left_width).copied().collect();
-            let right = proj
+            let mut indexed: Vec<_> = proj.iter().copied().enumerate().collect();
+            indexed.sort_by_key(|&(_, index)| index);
+            let split = indexed.partition_point(|&(_, index)| index < left_width);
+            let left = indexed[..split].iter().map(|&(_, index)| index).collect();
+            let right = indexed[split..]
                 .iter()
-                .filter(|&&i| i >= left_width)
-                .map(|&i| i - left_width)
+                .map(|&(_, index)| index - left_width)
                 .collect();
-            (Some(left), Some(right))
+
+            let mut output_permutation = vec![0; proj.len()];
+            for (grouped_position, (requested_position, _)) in indexed.into_iter().enumerate() {
+                output_permutation[requested_position] = grouped_position;
+            }
+            let output_permutation = if output_permutation
+                .iter()
+                .copied()
+                .eq(0..output_permutation.len())
+            {
+                None
+            } else {
+                Some(output_permutation)
+            };
+
+            (Some(left), Some(right), output_permutation)
         }
     }
+}
+
+/// Wraps [`CuDFTable`] join output in GPU-backed [`RecordBatch`]. If an `output_permutation`
+/// is present, we reorder the columns while creating the record batch. This is a schema-only
+/// operation. The underlying GPU buffers are unchanged.
+fn join_result_to_batch(
+    result: CuDFTable,
+    output_schema: &SchemaRef,
+    output_permutation: Option<&[usize]>,
+) -> Result<RecordBatch, DataFusionError> {
+    let view = result.into_view();
+    let Some(output_permutation) = output_permutation else {
+        return view
+            .to_record_batch_with_schema(output_schema)
+            .map_err(cudf_to_df);
+    };
+    let columns: Vec<ArrayRef> = output_permutation
+        .iter()
+        .map(|&index| {
+            view.column(index as i32)
+                .map(|column| Arc::new(column) as ArrayRef)
+        })
+        .collect::<Result<_, _>>()
+        .map_err(cudf_to_df)?;
+    Ok(libcudf_rs::record_batch_with_schema(
+        columns,
+        output_schema,
+        view.num_rows(),
+    )?)
 }
 
 /// Concat GPU-resident record batches into one table.
@@ -745,9 +824,7 @@ pub fn try_as_cudf_hash_join(
     node: &HashJoinExec,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
     for (l, r) in node.on() {
-        if l.as_any().downcast_ref::<Column>().is_none()
-            || r.as_any().downcast_ref::<Column>().is_none()
-        {
+        if l.downcast_ref::<Column>().is_none() || r.downcast_ref::<Column>().is_none() {
             return Ok(None);
         }
     }
@@ -777,12 +854,16 @@ pub fn try_as_cudf_hash_join(
 
 #[cfg(test)]
 mod tests {
-    use super::{cudf_schema_compatibility_map, try_as_cudf_hash_join, CuDFHashJoinExec};
+    use super::{
+        cudf_schema_compatibility_map, split_join_projection, try_as_cudf_hash_join,
+        CuDFHashJoinExec,
+    };
     use crate::errors::cudf_to_df;
     use crate::physical::{CuDFLoadExec, CuDFUnloadExec};
     use crate::planner::CuDFConfig;
     use arrow::array::{record_batch, Array, Int32Array, RecordBatch};
     use arrow_schema::{DataType, Field, Schema, SchemaRef};
+    use datafusion::common::tree_node::TreeNodeRecursion;
     use datafusion::common::{JoinSide, JoinType, NullEquality};
     use datafusion::execution::TaskContext;
     use datafusion::physical_expr::{EquivalenceProperties, Partitioning};
@@ -799,7 +880,6 @@ mod tests {
     use futures::stream;
     use futures_util::TryStreamExt;
     use libcudf_rs::CuDFTable;
-    use std::any::Any;
     use std::error::Error;
     use std::fmt::Formatter;
     use std::sync::Arc;
@@ -870,6 +950,7 @@ mod tests {
             join_type,
             partition_mode,
             filter,
+            None,
         )
         .await
     }
@@ -880,6 +961,7 @@ mod tests {
         join_type: JoinType,
         partition_mode: PartitionMode,
         filter: Option<JoinFilter>,
+        projection: Option<Vec<usize>>,
     ) -> Result<Vec<RecordBatch>, Box<dyn Error>> {
         let left_schema = partition_schema(&left_partitions, left_batch().schema());
         let right_schema = partition_schema(&right_partitions, right_batch().schema());
@@ -930,7 +1012,7 @@ mod tests {
             key_on(),
             filter,
             join_type,
-            None,
+            projection,
             partition_mode,
         )?;
         let unload = CuDFUnloadExec::new(Arc::new(exec));
@@ -985,16 +1067,21 @@ mod tests {
             "TestGpuExec"
         }
 
-        fn as_any(&self) -> &dyn Any {
-            self
-        }
-
         fn properties(&self) -> &Arc<PlanProperties> {
             &self.properties
         }
 
         fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
             vec![]
+        }
+
+        fn apply_expressions(
+            &self,
+            _f: &mut dyn FnMut(
+                &Arc<dyn PhysicalExpr>,
+            ) -> datafusion::common::Result<TreeNodeRecursion>,
+        ) -> datafusion::common::Result<TreeNodeRecursion> {
+            Ok(TreeNodeRecursion::Continue)
         }
 
         fn with_new_children(
@@ -1308,6 +1395,53 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_split_join_projection_returns_output_permutation() -> Result<(), Box<dyn Error>> {
+        assert_eq!(
+            split_join_projection(&Some(vec![2, 0, 3, 1]), 2),
+            (Some(vec![0, 1]), Some(vec![0, 1]), Some(vec![2, 0, 3, 1]))
+        );
+        assert_eq!(
+            split_join_projection(&Some(vec![1, 0, 3, 2]), 2),
+            (Some(vec![0, 1]), Some(vec![0, 1]), Some(vec![1, 0, 3, 2]))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_left_join_with_interleaved_projection() -> Result<(), Box<dyn Error>> {
+        let out = run_join_with_partitions(
+            vec![vec![left_batch()]],
+            vec![vec![right_batch()]],
+            JoinType::Left,
+            PartitionMode::CollectLeft,
+            None,
+            Some(vec![2, 0, 3, 1]),
+        )
+        .await?;
+
+        let mut rows: Vec<_> = int32_options(&out, 0)
+            .into_iter()
+            .zip(int32_options(&out, 1))
+            .zip(int32_options(&out, 2))
+            .zip(int32_options(&out, 3))
+            .map(|(((right_key, left_key), right_val), left_val)| {
+                (right_key, left_key, right_val, left_val)
+            })
+            .collect();
+        rows.sort_by_key(|row| row.1);
+        assert_eq!(
+            rows,
+            vec![
+                (None, Some(1), None, Some(10)),
+                (Some(2), Some(2), Some(200), Some(20)),
+                (Some(3), Some(3), Some(300), Some(30)),
+                (None, Some(4), None, Some(40)),
+            ]
+        );
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_filtered_inner_join() -> Result<(), Box<dyn Error>> {
         let out = run_join_with_right_batches_and_filter(
@@ -1379,6 +1513,7 @@ mod tests {
             JoinType::Inner,
             PartitionMode::Partitioned,
             None,
+            None,
         )
         .await?;
 
@@ -1395,6 +1530,7 @@ mod tests {
             partitioned_right_batches()?,
             JoinType::Left,
             PartitionMode::Partitioned,
+            None,
             None,
         )
         .await?;
@@ -1413,6 +1549,7 @@ mod tests {
             partitioned_right_batches()?,
             JoinType::Full,
             PartitionMode::Partitioned,
+            None,
             None,
         )
         .await?;

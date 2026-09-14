@@ -10,7 +10,6 @@ use datafusion::physical_expr::PhysicalExpr;
 use datafusion_expr::Operator;
 use delegate::delegate;
 use libcudf_rs::{cudf_binary_op, CuDFBinaryOp};
-use std::any::Any;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -38,8 +37,8 @@ impl Hash for CuDFBinaryExpr {
 
 impl CuDFBinaryExpr {
     pub fn try_from_datafusion(expr: BinaryExpr) -> Result<Self, DataFusionError> {
-        let left = expr_to_cudf_expr(expr.left().as_ref())?;
-        let right = expr_to_cudf_expr(expr.right().as_ref())?;
+        let left = expr_to_cudf_expr(expr.left())?;
+        let right = expr_to_cudf_expr(expr.right())?;
         let op = map_op(expr.op()).ok_or_else(|| {
             DataFusionError::NotImplemented(format!(
                 "Operator {:?} is not supported by cuDF",
@@ -63,10 +62,6 @@ impl Display for CuDFBinaryExpr {
 }
 
 impl PhysicalExpr for CuDFBinaryExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn evaluate(&self, batch: &RecordBatch) -> datafusion::common::Result<ColumnarValue> {
         let expected = self.data_type(batch.schema_ref())?;
 

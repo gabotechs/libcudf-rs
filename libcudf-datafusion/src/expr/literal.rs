@@ -7,7 +7,6 @@ use datafusion_physical_plan::expressions::Literal;
 use datafusion_physical_plan::PhysicalExpr;
 use delegate::delegate;
 use libcudf_rs::CuDFScalar;
-use std::any::Any;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -52,10 +51,6 @@ impl Display for CuDFLiteral {
 }
 
 impl PhysicalExpr for CuDFLiteral {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn evaluate(&self, _: &RecordBatch) -> datafusion::common::Result<ColumnarValue> {
         let scalar: Arc<dyn arrow::array::Array> = self.scalar.clone();
         Ok(ColumnarValue::Array(scalar))

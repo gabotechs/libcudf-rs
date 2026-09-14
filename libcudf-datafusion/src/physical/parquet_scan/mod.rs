@@ -16,6 +16,7 @@ use crate::planner::{
 use arrow::array::{Array, ArrayRef};
 use arrow_schema::SchemaRef;
 use datafusion::common::plan_err;
+use datafusion::common::tree_node::TreeNodeRecursion;
 use datafusion::config::ConfigOptions;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::{EquivalenceProperties, Partitioning};
@@ -25,10 +26,9 @@ use datafusion_physical_plan::metrics::{
 };
 use datafusion_physical_plan::stream::RecordBatchReceiverStream;
 use datafusion_physical_plan::{
-    project_schema, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties,
+    project_schema, DisplayAs, DisplayFormatType, ExecutionPlan, PhysicalExpr, PlanProperties,
 };
 use libcudf_rs::{cast, synchronize_default_stream, CuDFAstExpression};
-use std::any::Any;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
@@ -194,16 +194,19 @@ impl ExecutionPlan for CuDFParquetScanExec {
         "CuDFParquetScanExec"
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![]
+    }
+
+    fn apply_expressions(
+        &self,
+        _f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> datafusion::common::Result<TreeNodeRecursion>,
+    ) -> datafusion::common::Result<TreeNodeRecursion> {
+        Ok(TreeNodeRecursion::Continue)
     }
 
     fn with_new_children(

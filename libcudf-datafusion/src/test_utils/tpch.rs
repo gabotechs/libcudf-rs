@@ -9,6 +9,7 @@ use datafusion::{
 
 use std::fs;
 
+use arrow::error::ArrowError;
 use arrow::record_batch::RecordBatch;
 use parquet::{arrow::arrow_writer::ArrowWriter, file::properties::WriterProperties};
 use tpchgen::generators::{
@@ -146,11 +147,12 @@ fn generate_table<A>(
     data_dir: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    A: Iterator<Item = RecordBatch>,
+    A: Iterator<Item = Result<RecordBatch, ArrowError>>,
 {
     let output_path = data_dir.join(format!("{table_name}.parquet"));
 
     if let Some(first_batch) = data_source.next() {
+        let first_batch = first_batch?;
         let file = fs::File::create(&output_path)?;
         let props = WriterProperties::builder().build();
         let mut writer = ArrowWriter::try_new(file, first_batch.schema(), Some(props))?;
@@ -158,6 +160,7 @@ where
         writer.write(&first_batch)?;
 
         for batch in data_source {
+            let batch = batch?;
             writer.write(&batch)?;
         }
 
