@@ -44,7 +44,7 @@ pub struct CuDFFilterExec {
 
 impl CuDFFilterExec {
     pub fn try_new(host_exec: FilterExec) -> Result<Self, DataFusionError> {
-        let predicate = expr_to_cudf_expr(host_exec.predicate().as_ref())?;
+        let predicate = expr_to_cudf_expr(host_exec.predicate())?;
         let input = Arc::clone(host_exec.input());
         let projection = host_exec.projection().clone();
         Ok(Self {
@@ -277,6 +277,7 @@ mod tests {
     use crate::assert_snapshot;
     use crate::test_utils::TestFramework;
     use arrow_schema::{DataType, Field, Schema};
+    use datafusion::common::assert_contains;
     use datafusion::scalar::ScalarValue;
     use datafusion_physical_plan::{
         expressions::Literal, filter::FilterExecBuilder, test::TestMemoryExec, ExecutionPlan,
@@ -347,6 +348,29 @@ mod tests {
         let host_results = tf.execute(host_sql).await?;
         assert_eq!(host_results.pretty_print, cudf_results.pretty_print);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_scalar_subquery_filter() -> Result<(), Box<dyn Error>> {
+        let tf = TestFramework::new().await;
+        let host_sql = r#"
+            SET datafusion.execution.target_partitions = 1;
+            SELECT "MinTemp"
+            FROM weather
+            WHERE "MinTemp" > (SELECT AVG("MinTemp") FROM weather)
+        "#;
+        let plan = tf
+            .plan(&format!("SET cudf.enable=true; {host_sql}"))
+            .await?;
+
+        assert_contains!(
+            plan.display(),
+            "CuDFFilterExec: MinTemp@0 > scalar_subquery(<pending>)"
+        );
+        let cudf_results = plan.execute().await?;
+        let host_results = tf.execute(host_sql).await?;
+        assert_eq!(host_results.pretty_print, cudf_results.pretty_print);
         Ok(())
     }
 }

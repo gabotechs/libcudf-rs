@@ -1,8 +1,11 @@
+use crate::errors::cudf_to_df;
 use crate::expr::binary::CuDFBinaryExpr;
 use crate::expr::literal::CuDFLiteral;
+use crate::physical::normalize_scalar_for_cudf;
 use arrow::array::Array;
 use datafusion::common::{exec_err, not_impl_err};
 use datafusion::error::DataFusionError;
+use datafusion::physical_expr::scalar_subquery::ScalarSubqueryExpr;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::expressions::{BinaryExpr, Column};
 use datafusion_expr::ColumnarValue;
@@ -30,8 +33,10 @@ pub(crate) fn columnar_value_to_cudf(
             }
             exec_err!("ColumnarValue::Array is not CuDFColumnView or CuDFScalar")
         }
-        ColumnarValue::Scalar(_) => {
-            exec_err!("ColumnarValue::Scalar is not allowed when executing in CuDF nodes")
+        ColumnarValue::Scalar(value) => {
+            let value = normalize_scalar_for_cudf(value)?;
+            let scalar = CuDFScalar::try_from_arrow_host(value.to_scalar()?).map_err(cudf_to_df)?;
+            Ok(scalar.into())
         }
     }
 }
@@ -44,9 +49,9 @@ pub(crate) fn cudf_to_columnar_value(view: impl Into<CuDFColumnViewOrScalar>) ->
 }
 
 pub(crate) fn expr_to_cudf_expr(
-    expr: &dyn PhysicalExpr,
+    expr: &Arc<dyn PhysicalExpr>,
 ) -> Result<Arc<dyn PhysicalExpr>, DataFusionError> {
-    let any = expr;
+    let any = expr.as_ref();
     if let Some(binary_op) = any.downcast_ref::<BinaryExpr>() {
         return Ok(Arc::new(CuDFBinaryExpr::try_from_datafusion(
             binary_op.clone(),
@@ -59,6 +64,9 @@ pub(crate) fn expr_to_cudf_expr(
     };
     if let Some(literal) = any.downcast_ref::<Literal>() {
         return Ok(Arc::new(CuDFLiteral::try_from_datafusion(literal.clone())?));
+    }
+    if any.downcast_ref::<ScalarSubqueryExpr>().is_some() {
+        return Ok(Arc::clone(expr));
     }
 
     not_impl_err!("Expression {expr} not supported in CuDF")

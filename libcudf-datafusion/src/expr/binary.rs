@@ -37,8 +37,8 @@ impl Hash for CuDFBinaryExpr {
 
 impl CuDFBinaryExpr {
     pub fn try_from_datafusion(expr: BinaryExpr) -> Result<Self, DataFusionError> {
-        let left = expr_to_cudf_expr(expr.left().as_ref())?;
-        let right = expr_to_cudf_expr(expr.right().as_ref())?;
+        let left = expr_to_cudf_expr(expr.left())?;
+        let right = expr_to_cudf_expr(expr.right())?;
         let op = map_op(expr.op()).ok_or_else(|| {
             DataFusionError::NotImplemented(format!(
                 "Operator {:?} is not supported by cuDF",

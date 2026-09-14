@@ -39,7 +39,7 @@ impl CuDFProjectionExec {
             .map(|v| {
                 Ok::<_, DataFusionError>(ProjectionExpr {
                     alias: v.alias.clone(),
-                    expr: expr_to_cudf_expr(v.expr.as_ref())?,
+                    expr: expr_to_cudf_expr(&v.expr)?,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;

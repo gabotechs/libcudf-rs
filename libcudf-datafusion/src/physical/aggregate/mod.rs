@@ -650,7 +650,7 @@ fn expr_to_cudf_aggregate_arg(arg: Arc<dyn PhysicalExpr>) -> Result<Option<Arc<d
         return Ok(Some(arg));
     }
 
-    match expr_to_cudf_expr(arg.as_ref()) {
+    match expr_to_cudf_expr(&arg) {
         Ok(expr) => Ok(Some(expr)),
         Err(DataFusionError::NotImplemented(_)) => Ok(None),
         Err(e) => Err(e),
