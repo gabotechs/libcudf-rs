@@ -1,5 +1,6 @@
 use crate::errors::cudf_to_df;
 use crate::expr::binary::CuDFBinaryExpr;
+use crate::expr::cast::CuDFCastExpr;
 use crate::expr::literal::CuDFLiteral;
 use crate::physical::normalize_scalar_for_cudf;
 use arrow::array::Array;
@@ -7,7 +8,7 @@ use datafusion::common::{exec_err, not_impl_err};
 use datafusion::error::DataFusionError;
 use datafusion::physical_expr::scalar_subquery::ScalarSubqueryExpr;
 use datafusion::physical_expr::PhysicalExpr;
-use datafusion::physical_plan::expressions::{BinaryExpr, Column};
+use datafusion::physical_plan::expressions::{BinaryExpr, CastExpr, Column};
 use datafusion_expr::ColumnarValue;
 use datafusion_physical_plan::expressions::Literal;
 use libcudf_rs::{CuDFColumnView, CuDFColumnViewOrScalar, CuDFScalar};
@@ -15,6 +16,7 @@ use std::sync::Arc;
 
 pub(crate) mod ast;
 mod binary;
+mod cast;
 mod column;
 mod literal;
 
@@ -57,6 +59,9 @@ pub(crate) fn expr_to_cudf_expr(
             binary_op.clone(),
         )?));
     };
+    if let Some(cast) = any.downcast_ref::<CastExpr>() {
+        return Ok(Arc::new(CuDFCastExpr::try_from_datafusion(cast.clone())?));
+    }
     if let Some(column_expr) = any.downcast_ref::<Column>() {
         return Ok(Arc::new(CuDFColumnExpr::from_datafusion(
             column_expr.clone(),
