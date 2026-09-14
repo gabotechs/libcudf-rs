@@ -10,9 +10,13 @@ use arrow_schema::DataType;
 use cxx::UniquePtr;
 use libcudf_sys::{
     ffi, BinaryOperator, DuplicateKeepOption, JoinKind, NanEquality, NullEquality,
-    OutOfBoundsPolicy, SetAsBuildTable,
+    OutOfBoundsPolicy,
 };
 use std::sync::Arc;
+
+/// cuDF's default hash table load factor for filtered joins
+/// (`cudf::detail::CUCO_DESIRED_LOAD_FACTOR`).
+const DEFAULT_JOIN_LOAD_FACTOR: f64 = 0.5;
 
 /// Arguments for probing a reusable hash join with an AST predicate.
 ///
@@ -979,7 +983,7 @@ pub fn left_semi_join(
     let join = ffi::filtered_join_create(
         &right_keys,
         NullEquality::Equal as i32,
-        SetAsBuildTable::Right as i32,
+        DEFAULT_JOIN_LOAD_FACTOR,
         stream_ref(&stream)?,
     )?;
     let indices = Arc::new(JoinIndexVector::try_from_inner(
@@ -1016,7 +1020,7 @@ pub fn left_anti_join(
     let join = ffi::filtered_join_create(
         &right_keys,
         NullEquality::Equal as i32,
-        SetAsBuildTable::Right as i32,
+        DEFAULT_JOIN_LOAD_FACTOR,
         stream_ref(&stream)?,
     )?;
     let indices = Arc::new(JoinIndexVector::try_from_inner(

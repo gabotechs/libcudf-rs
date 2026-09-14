@@ -592,6 +592,9 @@ pub mod ffi {
         /// Opaque non-owning wrapper for an RMM device async resource reference.
         type DeviceAsyncResourceRef;
 
+        /// Owning handle to an RMM `any_resource`.
+        type DeviceAnyResource;
+
         /// Request for groupby aggregation(s) to perform on a column
         ///
         /// The group membership of each value is determined by the corresponding row
@@ -1368,11 +1371,12 @@ pub mod ffi {
             mr: &DeviceAsyncResourceRef,
         ) -> Result<UniquePtr<JoinIndices>>;
 
-        /// Create a reusable filtered join object from build-side keys.
+        /// Create a reusable filtered join object from build-side keys, with an
+        /// explicit hash table load factor.
         fn filtered_join_create(
             build_keys: &TableView,
             null_equality: i32,
-            set_as_build_table: i32,
+            load_factor: f64,
             stream: &CudaStreamView,
         ) -> Result<UniquePtr<FilteredJoin>>;
 
@@ -1612,7 +1616,7 @@ pub mod ffi {
         /// Return cuDF's current device memory resource reference.
         fn get_current_device_resource_ref() -> UniquePtr<DeviceAsyncResourceRef>;
 
-        /// Set cuDF's current device memory resource reference.
+        /// Set cuDF's current device memory resource reference, returning the previous one.
         ///
         /// # Safety
         ///
@@ -1620,10 +1624,14 @@ pub mod ffi {
         /// reset and all work using it has completed.
         unsafe fn set_current_device_resource_ref(
             resource: &DeviceAsyncResourceRef,
-        ) -> UniquePtr<DeviceAsyncResourceRef>;
+        ) -> UniquePtr<DeviceAnyResource>;
 
-        /// Reset cuDF's current device memory resource reference to the initial resource.
-        fn reset_current_device_resource_ref() -> UniquePtr<DeviceAsyncResourceRef>;
+        /// Reset cuDF's current device memory resource to the initial resource,
+        /// returning the previous one.
+        fn reset_current_device_resource_ref() -> UniquePtr<DeviceAnyResource>;
+
+        /// Borrow a non-owning reference to the resource held by this handle.
+        fn as_ref(self: &DeviceAnyResource) -> UniquePtr<DeviceAsyncResourceRef>;
 
         /// Compare two device async resource references.
         fn device_async_resource_ref_equal(
@@ -1800,16 +1808,6 @@ pub enum JoinKind {
     LeftSemi = 3,
     /// Left anti join.
     LeftAnti = 4,
-}
-
-/// Which table a reusable filtered join treats as its build table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(i32)]
-pub enum SetAsBuildTable {
-    /// The build table is the left table.
-    Left = 0,
-    /// The build table is the right table.
-    Right = 1,
 }
 
 /// cuDF AST table reference.
@@ -3130,8 +3128,6 @@ mod tests {
         assert_eq!(JoinKind::Full as i32, 2);
         assert_eq!(JoinKind::LeftSemi as i32, 3);
         assert_eq!(JoinKind::LeftAnti as i32, 4);
-        assert_eq!(SetAsBuildTable::Left as i32, 0);
-        assert_eq!(SetAsBuildTable::Right as i32, 1);
         Ok(())
     }
 
