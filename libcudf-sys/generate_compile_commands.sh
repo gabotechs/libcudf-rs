@@ -13,10 +13,28 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Find the most recently modified cxx build directory
-CXX_BUILD_DIR=$(find "$PROJECT_ROOT/target/debug/build" -type d -name "out" -path "*/libcudf-sys-*/out" 2>/dev/null -printf '%T@ %p\n' | sort -rn | head -1 | cut -d' ' -f2-)
+# Read the pinned cuDF version so we can select a build directory that matches
+# it. Old upgrades leave several libcudf-sys-*/out trees behind, and picking the
+# wrong one points the IDE at stale headers.
+CUDF_VERSION=$(sed -n 's/^const CUDF_VERSION: &str = "\(.*\)";$/\1/p' "$SCRIPT_DIR/build.rs")
+if [ -z "$CUDF_VERSION" ]; then
+    echo "Error: could not read CUDF_VERSION from $SCRIPT_DIR/build.rs"
+    exit 1
+fi
+
+# Prefer the most recently modified build directory that is fully populated for
+# the pinned version, rather than simply the newest one.
+CXX_BUILD_DIR=""
+while read -r _ candidate; do
+    if [ -d "$candidate/cudf-$CUDF_VERSION" ] && [ -d "$candidate/librmm/include" ] &&
+        [ -d "$candidate/libcudf/include" ] && [ -d "$candidate/cxxbridge/include" ]; then
+        CXX_BUILD_DIR="$candidate"
+        break
+    fi
+done < <(find "$PROJECT_ROOT/target/debug/build" -type d -name "out" -path "*/libcudf-sys-*/out" 2>/dev/null -printf '%T@ %p\n' | sort -rn)
+
 if [ -z "$CXX_BUILD_DIR" ]; then
-    echo "Error: Could not find cxx build output. Run 'cargo build' first."
+    echo "Error: no build output found for cuDF $CUDF_VERSION. Run 'cargo build' first."
     exit 1
 fi
 
@@ -42,12 +60,9 @@ if [ ! -d "$LIBKVIKIO_DIR" ]; then
     exit 1
 fi
 
-# Detect cuDF source headers
-CUDF_SRC_DIR=$(find "$CXX_BUILD_DIR" -maxdepth 1 -type d -name "cudf-*" 2>/dev/null | head -1)
-if [ -z "$CUDF_SRC_DIR" ]; then
-    echo "Error: cuDF source headers not found. Run 'cargo build' first."
-    exit 1
-fi
+# cuDF source headers for the pinned version (validated when selecting the
+# build directory above).
+CUDF_SRC_DIR="$CXX_BUILD_DIR/cudf-$CUDF_VERSION"
 
 # Detect nanoarrow
 NANOARROW_DIR="$CXX_BUILD_DIR/arrow-nanoarrow"
@@ -69,6 +84,7 @@ INCLUDES="$INCLUDES -I $LIBCUDF_DIR/include/rapids"
 INCLUDES="$INCLUDES -I $LIBRMM_DIR/include"
 INCLUDES="$INCLUDES -I $LIBRMM_DIR/include/rapids"
 INCLUDES="$INCLUDES -I $LIBKVIKIO_DIR/include"
+INCLUDES="$INCLUDES -I $CXX_BUILD_DIR/rapids_logger/include"
 INCLUDES="$INCLUDES -I $NANOARROW_DIR/src"
 INCLUDES="$INCLUDES -I $CUDA_ROOT/include"
 

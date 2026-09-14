@@ -37,21 +37,20 @@ namespace libcudf_bridge {
     /// `rmm::mr::cuda_memory_resource`. Sub-allocates from a single up-front
     /// `cudaMalloc` slab.
     struct PoolMemoryResource {
-        std::unique_ptr<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>> inner;
+        std::unique_ptr<rmm::mr::pool_memory_resource> inner;
 
-        PoolMemoryResource(rmm::mr::cuda_memory_resource* upstream,
+        PoolMemoryResource(const rmm::mr::cuda_memory_resource& upstream,
                            std::size_t initial_size);
 
-        PoolMemoryResource(rmm::mr::cuda_memory_resource* upstream,
+        PoolMemoryResource(const rmm::mr::cuda_memory_resource& upstream,
                            std::size_t initial_size,
                            std::size_t maximum_size);
 
-        [[nodiscard]] rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>* get() const;
-
+        [[nodiscard]] rmm::mr::pool_memory_resource* get() const;
     };
 
-    /// Construct an RMM pool memory resource. Borrows the upstream resource for
-    /// the pool's lifetime.
+    /// Construct an RMM pool memory resource. The upstream resource is copied
+    /// into the pool, which owns its own share of it.
     [[nodiscard]] std::unique_ptr<PoolMemoryResource> make_pool_memory_resource(
         const CudaMemoryResource& upstream,
         std::size_t initial_size);

@@ -123,7 +123,7 @@ namespace libcudf_bridge {
     [[nodiscard]] std::unique_ptr<FilteredJoin> filtered_join_create(
         const TableView& build_keys,
         int32_t null_equality,
-        int32_t set_as_build_table,
+        double load_factor,
         const CudaStreamView& stream);
 
     [[nodiscard]] std::unique_ptr<DeviceIndexVector> filtered_join_semi_join(

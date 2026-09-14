@@ -87,7 +87,10 @@ fn configure_pools() -> std::result::Result<(), String> {
     let resource = resource
         .as_ref()
         .ok_or_else(|| "RMM returned a null device resource reference".to_string())?;
-    unsafe { ffi::set_current_device_resource_ref(resource) };
+    // The returned handle owns the resource that was previously installed
+    // (RMM's default `cuda_memory_resource`); dropping it only releases this
+    // reference, not the pool just installed.
+    drop(unsafe { ffi::set_current_device_resource_ref(resource) });
     // Process must keep the resource wrappers alive for the lifetime of
     // the program: cuDF stores a raw pointer back to them. Leaking them is
     // intentional and matches cuDF's own static-storage pattern.

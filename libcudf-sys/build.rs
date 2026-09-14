@@ -20,13 +20,17 @@ const ARCH: &str = "x86_64";
 #[cfg(target_arch = "aarch64")]
 const ARCH: &str = "aarch64";
 
-const CUDF_VERSION: &str = "26.02.01";
-const LIBCUDF_WHEEL: &str = "26.2.1";
-const LIBRMM_WHEEL: &str = "26.2.0";
-const LIBKVIKIO_WHEEL: &str = "26.2.0";
-const RAPIDS_LOGGER_WHEEL: &str = "0.2.0";
+const CUDF_VERSION: &str = "26.08.01";
+const LIBCUDF_WHEEL: &str = "26.8.1";
+const LIBRMM_WHEEL: &str = "26.8.0";
+const LIBKVIKIO_WHEEL: &str = "26.8.0";
+const RAPIDS_LOGGER_WHEEL: &str = "0.2.3";
 const LIBNVJITLINK_WHEEL: &str = "12.9.86";
-const LIBNVCOMP_WHEEL: &str = "5.1.0.21";
+const LIBNVCOMP_WHEEL: &str = "5.3.0.16";
+// cuDF JIT-compiles some kernels at runtime and dlopens `libnvrtc.so.12`. The
+// cu12 build needs the CUDA 12 NVRTC even when a newer CUDA toolkit is
+// installed system-wide, so vendor it as a wheel too.
+const NVRTC_WHEEL: &str = "12.9.86";
 const NANOARROW_COMMIT: &str = "4bf5a9322626e95e3717e43de7616c0a256179eb";
 
 #[derive(Deserialize)]
@@ -123,6 +127,9 @@ fn download_pypi_wheels() {
     let libnvcomp_wheel = std::thread::spawn(move || {
         download_wheel_from_pypi("nvidia_libnvcomp", "nvidia-libnvcomp-cu12", LIBNVCOMP_WHEEL)
     });
+    let nvrtc_wheel = std::thread::spawn(move || {
+        download_wheel_from_pypi("nvidia_cuda_nvrtc", "nvidia-cuda-nvrtc-cu12", NVRTC_WHEEL)
+    });
 
     join_thread!(libcudf_wheel);
     join_thread!(librmm_wheel);
@@ -130,6 +137,7 @@ fn download_pypi_wheels() {
     join_thread!(rapids_logger_wheel);
     join_thread!(libnvjitlink_wheel);
     join_thread!(libnvcomp_wheel);
+    join_thread!(nvrtc_wheel);
 
     stage_wheel_shared_libraries();
 }
@@ -170,32 +178,29 @@ fn pypi_wheel_url(package_name: &str, version: &str) -> String {
 }
 
 fn download_wheel(lib_name: &str, package_name: &str, version: &str, wheel_url: &str) {
-    // Some wheels ship the shared library as `<name>.so` (e.g. `libcudf.so`,
-    // because the wheel's `name` already starts with `lib`), others ship as
-    // `lib<name>.so` (e.g. `librapids_logger.so` for the `rapids_logger`
-    // wheel). Probe both layouts so the cache check works for either.
-    let lib_dir = OUT_DIR.join(lib_name).join("lib64");
-    if lib_dir.join(format!("{lib_name}.so")).exists()
-        || lib_dir.join(format!("lib{lib_name}.so")).exists()
-    {
-        return;
-    }
+    // Drop any previously extracted copy: wheels of different versions may
+    // leave behind stale headers that would otherwise shadow the new ones.
+    let _ = fs::remove_dir_all(OUT_DIR.join(lib_name));
+
     let wheel_file = wheel_url.split('/').next_back().unwrap();
 
     println!("cargo:warning=Downloading prebuilt {package_name} {version}...");
 
     let wheel_path = OUT_DIR.join(wheel_file);
 
-    // Download using reqwest
-    let response =
-        reqwest::blocking::get(wheel_url).expect(&format!("Failed to download {lib_name} wheel"));
+    // Stream to disk: these wheels are hundreds of MBs, too big to buffer in
+    // memory and slow enough to trip the default request timeout.
+    let mut response = reqwest::blocking::Client::builder()
+        .timeout(None)
+        .build()
+        .expect("Failed to build HTTP client")
+        .get(wheel_url)
+        .send()
+        .expect(&format!("Failed to download {lib_name} wheel"));
     let mut file = fs::File::create(&wheel_path)
         .expect(&format!("Failed to create wheel file for {lib_name}"));
-    io::copy(
-        &mut response.bytes().expect("Failed to read response").as_ref(),
-        &mut file,
-    )
-    .expect(&format!("Failed to write wheel file for {lib_name}"));
+    io::copy(&mut response, &mut file)
+        .expect(&format!("Failed to write wheel file for {lib_name}"));
 
     println!("cargo:warning=Extracting {lib_name} wheel...");
     // Extract using zip crate
@@ -339,6 +344,19 @@ fn stage_wheel_shared_libraries() {
     }
     copy_so_files_to_lib_dir_recursive(&OUT_DIR.join("nvidia"), &OUT_DIR)
         .unwrap_or_else(|error| panic!("Failed to copy NVIDIA shared libraries: {error}"));
+
+    // auditwheel vendors a wheel's external dependencies into a sibling
+    // `<package>.libs` directory, named after the PyPI package rather than the
+    // library, so pick up whichever ones the extracted wheels created.
+    let entries = fs::read_dir(&*OUT_DIR).expect("Failed to read build output directory");
+    for entry in entries {
+        let path = entry.expect("Failed to read build output entry").path();
+        if path.is_dir() && path.extension().is_some_and(|ext| ext == "libs") {
+            copy_so_files_to_lib_dir_recursive(&path, &OUT_DIR).unwrap_or_else(|error| {
+                panic!("Failed to copy vendored shared libraries from {path:?}: {error}")
+            });
+        }
+    }
 }
 
 fn copy_so_files_to_lib_dir_recursive(src_dir: &Path, dest_dir: &Path) -> io::Result<()> {

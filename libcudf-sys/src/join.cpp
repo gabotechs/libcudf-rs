@@ -20,8 +20,6 @@ namespace libcudf_bridge {
         static_assert(static_cast<int32_t>(cudf::join_kind::LEFT_ANTI_JOIN) == 4);
         static_assert(static_cast<int32_t>(cudf::null_equality::EQUAL) == 0);
         static_assert(static_cast<int32_t>(cudf::null_equality::UNEQUAL) == 1);
-        static_assert(static_cast<int32_t>(cudf::set_as_build_table::LEFT) == 0);
-        static_assert(static_cast<int32_t>(cudf::set_as_build_table::RIGHT) == 1);
 
         std::unique_ptr<DeviceIndexVector> make_device_index_vector(
             std::unique_ptr<rmm::device_uvector<cudf::size_type>> vec)
@@ -256,14 +254,14 @@ std::unique_ptr<HashJoinIndices> hash_join_left_join_indices(
 std::unique_ptr<FilteredJoin> filtered_join_create(
     const TableView& build_keys,
     int32_t null_equality,
-    int32_t set_as_build_table,
+    double load_factor,
     const CudaStreamView& stream)
 {
     auto result = std::make_unique<FilteredJoin>();
     result->inner = std::make_unique<cudf::filtered_join>(
         *build_keys.inner,
         static_cast<cudf::null_equality>(null_equality),
-        static_cast<cudf::set_as_build_table>(set_as_build_table),
+        load_factor,
         stream.inner);
     return result;
 }
