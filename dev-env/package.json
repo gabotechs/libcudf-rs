@@ -1,0 +1,17 @@
+{
+  "name": "libcudf-dev-env",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit",
+    "check": "npm run build"
+  },
+  "dependencies": {
+    "@pulumi/aws": "^7.44.0",
+    "@pulumi/pulumi": "^3.261.0",
+    "@pulumi/tls": "^5.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.3"
+  }
+}
