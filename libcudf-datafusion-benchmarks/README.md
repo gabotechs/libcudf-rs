@@ -23,14 +23,14 @@ target/release/dfbench
 Build with tokio's runtime instrumentation to enable the [Tokio Console](https://github.com/tokio-rs/console)
 
 
-###### 1. Install
+##### 1. Install
 
 ```bash
 cargo install --locked tokio-console
 tokio-console
 ```
 
-###### 2. Build with Tokio Instrumentation
+##### 2. Build with Tokio Instrumentation
 
 ```bash
 cargo --config 'build.rustflags=["--cfg","tokio_unstable"]' \
