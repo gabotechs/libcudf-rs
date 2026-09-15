@@ -27,9 +27,10 @@ enum Options {
 }
 
 pub fn main() -> Result<()> {
-    env_logger::init();
+    let options = Options::from_args();
+    init_logging(&options);
 
-    match Options::from_args() {
+    match options {
         Options::Run(opt) => opt.run(),
         Options::Compare(opt) => opt.run(),
         Options::Harness(opt) => opt.run(),
@@ -47,4 +48,14 @@ pub fn main() -> Result<()> {
             rt.block_on(async { opt.run().await })
         }
     }
+}
+
+fn init_logging(_options: &Options) {
+    #[cfg(feature = "tokio-console")]
+    if matches!(_options, Options::Run(opt) if opt.tokio_console) {
+        console_subscriber::init();
+        return;
+    }
+
+    env_logger::init();
 }
