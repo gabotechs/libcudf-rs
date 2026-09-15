@@ -23,22 +23,24 @@ target/release/dfbench
 Build with tokio's runtime instrumentation to enable the [Tokio Console](https://github.com/tokio-rs/console)
 
 
-### 0. Install and launch the console.
+###### 1. Install
 
 ```bash
 cargo install --locked tokio-console
 tokio-console
 ```
 
-### 1. Build
+###### 2. Build with Tokio Instrumentation
 
 ```bash
 cargo --config 'build.rustflags=["--cfg","tokio_unstable"]' \
   build -p libcudf-datafusion-benchmarks --release --features tokio-console
 ```
-- Do not use `RUSTFLAGS="--cfg tokio_unstable" cargo build ...` or else this will override all other rust flags.
+- the `rustflags` enable unstable tokio telemetry in the rust compiler
+- the `tokio-console` feature adds the tokio console dependencies to the build
+- do not use `RUSTFLAGS="--cfg tokio_unstable" cargo build ...` or else this will override all other rust flags
 
-### 2. Run
+##### 3. Run
 Use the `--tokio-console` flag.
 
 ```bash
