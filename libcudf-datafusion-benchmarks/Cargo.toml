@@ -10,6 +10,9 @@ authors = [
     "gene-bordegaray",
 ]
 
+[features]
+tokio-console = ["dep:console-subscriber", "tokio/tracing"]
+
 [dependencies]
 libcudf-datafusion = { path = "../libcudf-datafusion" }
 arrow = { workspace = true }
@@ -17,6 +20,7 @@ datafusion = "55"
 datafusion-expr = "55"
 datafusion-physical-plan = "55"
 tokio = { version = "1.41", features = ["full"] }
+console-subscriber = { version = "0.5", optional = true }
 parquet = { version = "59" }
 structopt = "0.3.26"
 log = "0.4"

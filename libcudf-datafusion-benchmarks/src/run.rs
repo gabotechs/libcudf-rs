@@ -84,6 +84,11 @@ pub struct RunOpt {
     #[structopt(short, long)]
     debug: bool,
 
+    /// Expose Tokio runtime telemetry to tokio-console.
+    #[cfg(feature = "tokio-console")]
+    #[structopt(long)]
+    pub(crate) tokio_console: bool,
+
     /// Run each query once before starting timed iterations.
     /// Useful to amortize one-shot costs (parquet metadata caching,
     /// CUDA context init, JIT, etc.) before measurement begins.

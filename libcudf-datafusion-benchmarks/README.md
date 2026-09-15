@@ -18,6 +18,41 @@ The binary is written to:
 target/release/dfbench
 ```
 
+## Tokio Console
+
+Build with tokio's runtime instrumentation to enable the [Tokio Console](https://github.com/tokio-rs/console)
+
+
+### 0. Install and launch the console.
+
+```bash
+cargo install --locked tokio-console
+tokio-console
+```
+
+### 1. Build
+
+```bash
+cargo --config 'build.rustflags=["--cfg","tokio_unstable"]' \
+  build -p libcudf-datafusion-benchmarks --release --features tokio-console
+```
+- Do not use `RUSTFLAGS="--cfg tokio_unstable" cargo build ...` or else this will override all other rust flags.
+
+### 2. Run
+Use the `--tokio-console` flag.
+
+```bash
+target/release/dfbench run \
+  --tokio-console \
+  --dataset tpch_sf1 \
+  --query q1 \
+  --iterations 10 \
+  --gpu
+```
+
+Console instrumentation adds overhead and should not be enabled when collecting
+benchmark timings.
+
 ## Datasets
 
 Datasets live under:
