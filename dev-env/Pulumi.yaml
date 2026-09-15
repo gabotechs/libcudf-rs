@@ -1,0 +1,6 @@
+name: libcudf-dev-env
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+description: Disposable GPU development environment for libcudf-rs
