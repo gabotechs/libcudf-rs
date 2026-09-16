@@ -1,4 +1,4 @@
-use crate::{CuDFColumnView, CuDFScalar};
+use crate::{CuDFColumnView, CuDFScalar, CuDFStream};
 use arrow::array::Array;
 
 /// An enum that can hold either a cuDF column view or a scalar
@@ -11,6 +11,16 @@ pub enum CuDFColumnViewOrScalar {
     ColumnView(CuDFColumnView),
     /// A single scalar value
     Scalar(CuDFScalar),
+}
+
+impl CuDFColumnViewOrScalar {
+    /// Return the CUDA stream on which this value becomes ready.
+    pub fn execution_stream(&self) -> CuDFStream {
+        match self {
+            Self::ColumnView(column) => column.execution_stream(),
+            Self::Scalar(scalar) => scalar.execution_stream(),
+        }
+    }
 }
 
 impl From<CuDFColumnView> for CuDFColumnViewOrScalar {

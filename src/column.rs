@@ -1,7 +1,9 @@
 use crate::data_type::arrow_type_to_cudf;
 use crate::device_resource::resource_ref;
-use crate::stream::stream_ref;
-use crate::{CuDFColumnView, CuDFError, CuDFScalar};
+use crate::stream::{
+    common_execution_stream, ensure_same_stream, global_execution_stream, stream_ref,
+};
+use crate::{CuDFColumnView, CuDFError, CuDFScalar, CuDFStream};
 use arrow::array::Array;
 use arrow::ffi::FFI_ArrowArray;
 use arrow_schema::ffi::FFI_ArrowSchema;
@@ -17,11 +19,20 @@ pub struct CuDFColumn {
     view: Arc<UniquePtr<ffi::ColumnView>>,
     pub(crate) inner: UniquePtr<libcudf_sys::ffi::Column>,
     metadata: crate::column_view::ColumnViewMetadata,
+    stream: CuDFStream,
 }
 
 impl CuDFColumn {
     pub(crate) fn try_from_inner(
         inner: UniquePtr<libcudf_sys::ffi::Column>,
+    ) -> Result<Self, CuDFError> {
+        let stream = global_execution_stream()?;
+        Self::try_from_inner_on_stream(inner, stream)
+    }
+
+    pub(crate) fn try_from_inner_on_stream(
+        inner: UniquePtr<libcudf_sys::ffi::Column>,
+        stream: CuDFStream,
     ) -> Result<Self, CuDFError> {
         if inner.is_null() {
             return Err(CuDFError::NullHandle("column"));
@@ -34,11 +45,17 @@ impl CuDFColumn {
             inner,
             view: Arc::new(view),
             metadata,
+            stream,
         })
     }
 
     pub(crate) fn len(&self) -> usize {
         self.metadata.len()
+    }
+
+    /// Return the CUDA stream on which this column becomes ready.
+    pub fn execution_stream(&self) -> CuDFStream {
+        self.stream.clone()
     }
 
     /// Return the bytes allocated for this column in device memory.
@@ -67,6 +84,15 @@ impl CuDFColumn {
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
     pub fn try_from_arrow_host(array: &dyn Array) -> Result<Self, CuDFError> {
+        let stream = global_execution_stream()?;
+        Self::try_from_arrow_host_on_stream(array, &stream)
+    }
+
+    /// Convert an Arrow array to a cuDF column on `stream`.
+    pub fn try_from_arrow_host_on_stream(
+        array: &dyn Array,
+        stream: &CuDFStream,
+    ) -> Result<Self, CuDFError> {
         crate::config::ensure_pools_configured()?;
         if arrow_type_to_cudf(array.data_type()).is_none() {
             return Err(CuDFError::ArrowError(ArrowError::NotYetImplemented(
@@ -81,17 +107,17 @@ impl CuDFColumn {
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let array_ptr = &ffi_array as *const FFI_ArrowArray as *const u8;
 
-        let stream = crate::stream::execution_stream()?;
+        let stream_view = unsafe { stream.view()? };
         let mr = ffi::get_current_device_resource_ref();
         let inner = unsafe {
             ffi::from_arrow_column(
                 schema_ptr,
                 array_ptr,
-                stream_ref(&stream)?,
+                stream_ref(&stream_view)?,
                 resource_ref(&mr)?,
             )
         }?;
-        Self::try_from_inner(inner)
+        Self::try_from_inner_on_stream(inner, stream.clone())
     }
 
     /// Create a column by repeating a scalar value.
@@ -100,15 +126,33 @@ impl CuDFColumn {
     ///
     /// Returns an error if the column cannot be allocated on the GPU.
     pub fn try_from_scalar(scalar: &CuDFScalar, len: usize) -> Result<Self, CuDFError> {
+        let stream = scalar.execution_stream();
+        Self::try_from_scalar_on_stream(scalar, len, &stream)
+    }
+
+    /// Create a column by repeating a scalar value on `stream`.
+    pub fn try_from_scalar_on_stream(
+        scalar: &CuDFScalar,
+        len: usize,
+        stream: &CuDFStream,
+    ) -> Result<Self, CuDFError> {
         crate::config::ensure_pools_configured()?;
-        let stream = crate::stream::execution_stream()?;
+        ensure_same_stream(
+            stream,
+            &scalar.execution_stream(),
+            "scalar and output column",
+        )?;
+        let stream_view = unsafe { stream.view()? };
         let mr = ffi::get_current_device_resource_ref();
-        Self::try_from_inner(ffi::make_column_from_scalar(
-            scalar.inner(),
-            crate::errors::usize_to_cudf_size(len, "column length")?,
-            stream_ref(&stream)?,
-            resource_ref(&mr)?,
-        )?)
+        Self::try_from_inner_on_stream(
+            ffi::make_column_from_scalar(
+                scalar.inner(),
+                crate::errors::usize_to_cudf_size(len, "column length")?,
+                stream_ref(&stream_view)?,
+                resource_ref(&mr)?,
+            )?,
+            stream.clone(),
+        )
     }
 
     /// Return a [CuDFColumnView] pointing to this [CuDFColumn]. The current [CuDFColumn] will
@@ -116,7 +160,8 @@ impl CuDFColumn {
     pub fn view(self: Arc<Self>) -> CuDFColumnView {
         let view = Arc::clone(&self.view);
         let metadata = self.metadata.clone();
-        CuDFColumnView::from_shared_view(view, Some(self), metadata)
+        let stream = self.stream.clone();
+        CuDFColumnView::from_shared_view(view, Some(self), metadata, stream)
     }
 
     /// Consumes the current [CuDFColumn], returning a [CuDFColumnView] pointing to it.
@@ -126,17 +171,36 @@ impl CuDFColumn {
 
     /// Concatenate multiple [CuDFColumnView]s into a single [CuDFColumn].
     pub fn concat(views: Vec<CuDFColumnView>) -> Result<Self, CuDFError> {
+        let stream = common_execution_stream(
+            views.iter().map(CuDFColumnView::execution_stream),
+            "concatenated columns",
+        )?
+        .unwrap_or(global_execution_stream()?);
+        Self::concat_on_stream(views, &stream)
+    }
+
+    /// Concatenate columns on `stream`.
+    ///
+    /// The caller must establish any dependencies when the inputs were
+    /// produced on other streams.
+    pub fn concat_on_stream(
+        views: Vec<CuDFColumnView>,
+        stream: &CuDFStream,
+    ) -> Result<Self, CuDFError> {
         let inner_views = views
             .iter()
             .map(CuDFColumnView::clone_inner)
             .collect::<Result<Vec<_>, _>>()?;
-        let stream = crate::stream::execution_stream()?;
+        let stream_view = unsafe { stream.view()? };
         let mr = ffi::get_current_device_resource_ref();
-        Self::try_from_inner(libcudf_sys::ffi::concatenate_columns(
-            &inner_views,
-            stream_ref(&stream)?,
-            resource_ref(&mr)?,
-        )?)
+        Self::try_from_inner_on_stream(
+            libcudf_sys::ffi::concatenate_columns(
+                &inner_views,
+                stream_ref(&stream_view)?,
+                resource_ref(&mr)?,
+            )?,
+            stream.clone(),
+        )
     }
 }
 
