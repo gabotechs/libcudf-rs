@@ -50,7 +50,9 @@ pub use join::{
     CuDFFilteredHashJoinArgs, CuDFHashJoin, CuDFNullEquality,
 };
 pub use operations::{apply_boolean_mask, cast, gather, gather_unchecked, slice_column};
-pub use pinned::{pin_record_batch, synchronize_default_stream, PinnedHostBuffer};
+#[allow(deprecated)]
+pub use pinned::synchronize_default_stream;
+pub use pinned::{pin_record_batch, synchronize_execution_stream, PinnedHostBuffer};
 pub use scalar::CuDFScalar;
 pub use sort::{sort, sort_by_all, stable_sorted_order, SortOrder};
 pub use stream::{CuDFStream, CuDFStreamFlags};

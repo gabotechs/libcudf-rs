@@ -151,7 +151,7 @@ impl CuDFColumnView {
         unsafe {
             let device_array_ptr =
                 &mut device_array as *mut libcudf_sys::ArrowDeviceArray as *mut u8;
-            let stream = ffi::get_default_stream();
+            let stream = crate::stream::execution_stream()?;
             let mr = ffi::get_current_device_resource_ref();
             ffi::to_arrow_host_column(
                 self.inner(),
@@ -194,7 +194,7 @@ impl CuDFColumnView {
             let _ = self.null_buf.set(None);
             return Ok(());
         }
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         stream_ref(&stream)?.synchronize()?;
         let mask_bits = self
             .metadata

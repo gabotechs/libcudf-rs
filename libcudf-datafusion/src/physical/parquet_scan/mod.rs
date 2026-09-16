@@ -28,7 +28,7 @@ use datafusion_physical_plan::stream::RecordBatchReceiverStream;
 use datafusion_physical_plan::{
     project_schema, DisplayAs, DisplayFormatType, ExecutionPlan, PhysicalExpr, PlanProperties,
 };
-use libcudf_rs::{cast, synchronize_default_stream, CuDFAstExpression};
+use libcudf_rs::{cast, synchronize_execution_stream, CuDFAstExpression};
 use std::fmt::Formatter;
 use std::sync::Arc;
 
@@ -330,7 +330,7 @@ fn build_record_batch(
     cast_timer.done();
 
     let sync_timer = metrics.sync_time.timer();
-    synchronize_default_stream().map_err(cudf_to_df)?;
+    synchronize_execution_stream().map_err(cudf_to_df)?;
     sync_timer.done();
 
     let output_batch_timer = metrics.output_batch_time.timer();

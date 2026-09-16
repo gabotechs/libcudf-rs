@@ -16,7 +16,7 @@ use arrow::alloc::Allocation;
 use arrow::array::{make_array, ArrayData, ArrayDataBuilder, RecordBatch};
 use arrow::buffer::{BooleanBuffer, Buffer, NullBuffer};
 use cxx::UniquePtr;
-use libcudf_sys::ffi::{self, get_pinned_memory_resource, HostDeviceAsyncResourceRef};
+use libcudf_sys::ffi::{get_pinned_memory_resource, HostDeviceAsyncResourceRef};
 use std::ptr::NonNull;
 use std::sync::{Arc, OnceLock};
 
@@ -66,16 +66,22 @@ impl Drop for PinnedHostBuffer {
     }
 }
 
-/// Block until all GPU work submitted to cuDF's default stream has
+/// Block until all GPU work submitted to libcudf-rs's execution stream has
 /// completed.
 ///
 /// Required after issuing an asynchronous upload from a pinned source if the
 /// source is about to be dropped, since `cudaMemcpyAsync` returns before the
 /// DMA has finished and the pinned buffer must outlive the transfer.
-pub fn synchronize_default_stream() -> Result<()> {
-    let stream = ffi::get_default_stream();
+pub fn synchronize_execution_stream() -> Result<()> {
+    let stream = crate::stream::execution_stream()?;
     stream_ref(&stream)?.synchronize()?;
     Ok(())
+}
+
+/// Block until all GPU work submitted by libcudf-rs has completed.
+#[deprecated(since = "0.1.0", note = "use synchronize_execution_stream instead")]
+pub fn synchronize_default_stream() -> Result<()> {
+    synchronize_execution_stream()
 }
 
 /// Return a copy of `batch` whose underlying buffers all live in pinned

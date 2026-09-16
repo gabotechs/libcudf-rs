@@ -1,7 +1,10 @@
 use cxx::UniquePtr;
+use std::sync::OnceLock;
 
 use crate::{CuDFError, Result};
 use libcudf_sys::ffi;
+
+static EXECUTION_STREAM: OnceLock<std::result::Result<CuDFStream, String>> = OnceLock::new();
 
 /// Stream creation flags for CUDA stream-backed cuDF execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,9 +23,6 @@ impl From<CuDFStreamFlags> for u32 {
 }
 
 /// Owning Rust wrapper for a CUDA stream used by cuDF operations.
-///
-/// For the default stream, use [`ffi::get_default_stream`] to get the default stream
-/// view instead.
 ///
 /// This type owns an opaque C++ `rmm::cuda_stream`. Dropping `CuDFStream`
 /// destroys that underlying stream.
@@ -79,6 +79,19 @@ impl CuDFStream {
     }
 }
 
+/// Return a view of the process-global stream used by high-level cuDF operations.
+pub(crate) fn execution_stream() -> Result<UniquePtr<ffi::CudaStreamView>> {
+    let stream = match EXECUTION_STREAM.get_or_init(|| {
+        CuDFStream::try_with_flags(CuDFStreamFlags::NonBlocking).map_err(|error| error.to_string())
+    }) {
+        Ok(stream) => stream,
+        Err(message) => return Err(CuDFError::Configuration(message.clone())),
+    };
+
+    // EXECUTION_STREAM owns the underlying stream for the process lifetime.
+    unsafe { stream.view() }
+}
+
 /// Return a non-null CUDA stream view reference from a cuDF FFI handle.
 ///
 /// cuDF should always return a valid stream view; this surfaces a Rust error if
@@ -87,4 +100,20 @@ pub(crate) fn stream_ref(stream: &UniquePtr<ffi::CudaStreamView>) -> Result<&ffi
     stream
         .as_ref()
         .ok_or(CuDFError::NullHandle("CUDA stream view"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn execution_stream_is_not_a_default_stream(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let stream = execution_stream()?;
+        let stream = stream_ref(&stream)?;
+
+        assert!(!stream.is_default());
+        assert!(!stream.is_per_thread_default());
+        Ok(())
+    }
 }

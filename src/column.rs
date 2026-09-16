@@ -81,7 +81,7 @@ impl CuDFColumn {
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let array_ptr = &ffi_array as *const FFI_ArrowArray as *const u8;
 
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         let mr = ffi::get_current_device_resource_ref();
         let inner = unsafe {
             ffi::from_arrow_column(
@@ -101,7 +101,7 @@ impl CuDFColumn {
     /// Returns an error if the column cannot be allocated on the GPU.
     pub fn try_from_scalar(scalar: &CuDFScalar, len: usize) -> Result<Self, CuDFError> {
         crate::config::ensure_pools_configured()?;
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         let mr = ffi::get_current_device_resource_ref();
         Self::try_from_inner(ffi::make_column_from_scalar(
             scalar.inner(),
@@ -130,7 +130,7 @@ impl CuDFColumn {
             .iter()
             .map(CuDFColumnView::clone_inner)
             .collect::<Result<Vec<_>, _>>()?;
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         let mr = ffi::get_current_device_resource_ref();
         Self::try_from_inner(libcudf_sys::ffi::concatenate_columns(
             &inner_views,

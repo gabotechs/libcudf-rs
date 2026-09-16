@@ -107,7 +107,7 @@ pub fn sort(
     let column_order_i32: Vec<i32> = sort_orders.iter().map(|&o| o.order() as i32).collect();
     let null_precedence_i32: Vec<i32> =
         sort_orders.iter().map(|&o| o.null_order() as i32).collect();
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let mr = ffi::get_current_device_resource_ref();
 
     let inner = ffi::stable_sort_by_key(
@@ -157,7 +157,7 @@ pub fn sort_by_all(
     let column_order_i32: Vec<i32> = sort_orders.iter().map(|&o| o.order() as i32).collect();
     let null_precedence_i32: Vec<i32> =
         sort_orders.iter().map(|&o| o.null_order() as i32).collect();
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let mr = ffi::get_current_device_resource_ref();
 
     let inner = ffi::stable_sort(
@@ -203,7 +203,7 @@ pub fn stable_sorted_order(
     let column_order_i32: Vec<i32> = sort_orders.iter().map(|&o| o.order() as i32).collect();
     let null_precedence_i32: Vec<i32> =
         sort_orders.iter().map(|&o| o.null_order() as i32).collect();
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let mr = ffi::get_current_device_resource_ref();
 
     let inner = ffi::stable_sorted_order(
