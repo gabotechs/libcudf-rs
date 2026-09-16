@@ -1,9 +1,9 @@
 use crate::cudf_reference::CuDFRef;
 use crate::device_resource::resource_ref;
 use crate::errors::Result;
-use crate::stream::stream_ref;
+use crate::stream::{ensure_same_stream, stream_ref};
 use crate::table_view::CuDFTableView;
-use crate::{CuDFColumn, CuDFColumnView, CuDFTable};
+use crate::{CuDFColumn, CuDFColumnView, CuDFStream, CuDFTable};
 use cxx::UniquePtr;
 use libcudf_sys::ffi::{
     self, aggregation_request_create, aggregation_requests_create, make_count_aggregation_groupby,
@@ -22,6 +22,7 @@ use std::sync::Arc;
 pub struct CuDFGroupBy {
     inner: UniquePtr<ffi::GroupBy>,
     _keepalive: Option<Arc<dyn CuDFRef>>,
+    stream: CuDFStream,
 }
 
 impl CuDFGroupBy {
@@ -30,6 +31,7 @@ impl CuDFGroupBy {
     /// The keys determine how rows are grouped. Rows with matching key
     /// values will be grouped together for aggregation.
     pub fn from_table_view(view: CuDFTableView) -> Self {
+        let stream = view.execution_stream();
         let column_order: &[i32] = &[];
         let null_precedence: &[i32] = &[];
         let inner = ffi::groupby_create(
@@ -42,6 +44,7 @@ impl CuDFGroupBy {
         Self {
             inner,
             _keepalive: Some(Arc::new(view)),
+            stream,
         }
     }
 
@@ -57,17 +60,18 @@ impl CuDFGroupBy {
         let mut keepalives = Vec::new();
         let mut requests_inner = aggregation_requests_create();
         for request in requests {
+            ensure_same_stream(&self.stream, &request.stream, "group-by keys and values")?;
             keepalives.push(request.keepalive.clone());
             requests_inner.pin_mut().add(request.inner);
         }
 
-        let stream = crate::stream::execution_stream()?;
+        let stream = unsafe { self.stream.view()? };
         let mr = ffi::get_current_device_resource_ref();
         let mut gby_result =
             self.inner
                 .aggregate(&requests_inner, stream_ref(&stream)?, resource_ref(&mr)?)?;
         let keys = gby_result.pin_mut().release_keys();
-        let keys = CuDFTable::try_from_inner(keys)?;
+        let keys = CuDFTable::try_from_inner_on_stream(keys, self.stream.clone())?;
 
         let mut results = Vec::with_capacity(gby_result.len());
         for i in 0..gby_result.len() {
@@ -75,7 +79,10 @@ impl CuDFGroupBy {
             let mut cols = Vec::with_capacity(released_result.len());
             for j in 0..released_result.len() {
                 let col = released_result.pin_mut().release(j);
-                cols.push(CuDFColumn::try_from_inner(col)?);
+                cols.push(CuDFColumn::try_from_inner_on_stream(
+                    col,
+                    self.stream.clone(),
+                )?);
             }
 
             results.push(cols)
@@ -91,6 +98,7 @@ impl CuDFGroupBy {
 pub struct AggregationRequest {
     inner: UniquePtr<ffi::AggregationRequest>,
     keepalive: Option<Arc<dyn CuDFRef>>,
+    stream: CuDFStream,
 }
 
 impl AggregationRequest {
@@ -99,10 +107,12 @@ impl AggregationRequest {
     /// The group membership of each value is determined by the corresponding
     /// row in the keys used to construct the groupby.
     pub fn from_column_view(view: CuDFColumnView) -> Self {
+        let stream = view.execution_stream();
         let inner = aggregation_request_create(view.inner());
         Self {
             inner,
             keepalive: Some(Arc::new(view)),
+            stream,
         }
     }
 

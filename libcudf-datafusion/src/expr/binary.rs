@@ -77,8 +77,8 @@ impl PhysicalExpr for CuDFBinaryExpr {
         let rhs_value = self.right.evaluate(batch)?;
         let lhs_type = lhs_value.data_type();
         let rhs_type = rhs_value.data_type();
-        let lhs = columnar_value_to_cudf(lhs_value)?;
-        let rhs = columnar_value_to_cudf(rhs_value)?;
+        let lhs = columnar_value_to_cudf(lhs_value, batch)?;
+        let rhs = columnar_value_to_cudf(rhs_value, batch)?;
 
         let result = if self.op == CuDFBinaryOp::Div
             && is_decimal_division(&expected, &lhs_type, &rhs_type)

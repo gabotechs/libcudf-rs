@@ -28,7 +28,10 @@ use datafusion_physical_plan::stream::RecordBatchReceiverStream;
 use datafusion_physical_plan::{
     project_schema, DisplayAs, DisplayFormatType, ExecutionPlan, PhysicalExpr, PlanProperties,
 };
-use libcudf_rs::{cast, synchronize_execution_stream, CuDFAstExpression};
+use libcudf_rs::{
+    cast, global_execution_stream, record_batch_with_schema, CuDFAstExpression, CuDFStream,
+    CuDFStreamFlags,
+};
 use std::fmt::Formatter;
 use std::sync::Arc;
 
@@ -40,6 +43,7 @@ pub struct CuDFParquetScanConfig {
     projection: Option<Vec<usize>>,
     filter: Option<Arc<CuDFAstExpression>>,
     files_per_batch: usize,
+    stream_count: usize,
     chunk_read_limit: usize,
     pass_read_limit: usize,
 }
@@ -55,6 +59,7 @@ impl CuDFParquetScanConfig {
             projection: None,
             filter: None,
             files_per_batch: DEFAULT_PARQUET_SCAN_FILES_PER_BATCH,
+            stream_count: 1,
             chunk_read_limit: DEFAULT_PARQUET_SCAN_CHUNK_READ_LIMIT,
             pass_read_limit: DEFAULT_PARQUET_SCAN_PASS_READ_LIMIT,
         }
@@ -75,6 +80,12 @@ impl CuDFParquetScanConfig {
     /// Set the maximum number of files per cuDF read.
     pub fn with_files_per_batch(mut self, files_per_batch: usize) -> Self {
         self.files_per_batch = files_per_batch;
+        self
+    }
+
+    /// Set the number of CUDA streams used within each DataFusion partition.
+    pub fn with_stream_count(mut self, stream_count: usize) -> Self {
+        self.stream_count = stream_count;
         self
     }
 
@@ -110,6 +121,9 @@ impl CuDFParquetScanExec {
         if config.files_per_batch == 0 {
             return plan_err!("CuDFParquetScanExec files_per_batch must be greater than zero");
         }
+        if config.stream_count == 0 {
+            return plan_err!("CuDFParquetScanExec stream count must be greater than zero");
+        }
         if config.chunk_read_limit == 0 {
             return plan_err!(
                 "CuDFParquetScanExec chunk_read_limit must be greater than zero; cuDF treats zero as an unbounded read"
@@ -140,6 +154,18 @@ impl CuDFParquetScanExec {
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
         })
+    }
+
+    pub(crate) fn with_stream_count(
+        &self,
+        stream_count: usize,
+    ) -> datafusion::common::Result<Self> {
+        Self::try_new(self.config.clone().with_stream_count(stream_count))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stream_count(&self) -> usize {
+        self.config.stream_count
     }
 }
 
@@ -185,7 +211,11 @@ impl DisplayAs for CuDFParquetScanExec {
             self.config.pass_read_limit,
             read_columns,
             self.config.filter.is_some()
-        )
+        )?;
+        if self.config.stream_count > 1 {
+            write!(f, ", streams={}", self.config.stream_count)?;
+        }
+        Ok(())
     }
 }
 
@@ -247,60 +277,90 @@ impl ExecutionPlan for CuDFParquetScanExec {
         };
 
         let schema = self.schema();
-        let reader = ParquetBatchReader::new(
-            Arc::clone(&schema),
-            self.read_plan.read_columns(),
-            self.config.filter.clone(),
-            self.config.chunk_read_limit,
-            self.config.pass_read_limit,
-        );
         let metrics = ScanMetrics::new(&self.metrics, partition);
-        let mut builder = RecordBatchReceiverStream::builder(Arc::clone(&schema), 1);
-        let output = builder.tx();
+        let mut builder =
+            RecordBatchReceiverStream::builder(Arc::clone(&schema), self.config.stream_count);
 
-        builder.spawn_blocking(move || {
-            for file_batch in scan_partition.batches() {
-                let mut compute_timer = Some(metrics.baseline.elapsed_compute().timer());
-                let result: datafusion::common::Result<_> = {
-                    metrics.record_file_batch(file_batch);
+        if self.config.stream_count > 1 {
+            global_execution_stream()
+                .and_then(|stream| stream.synchronize())
+                .map_err(cudf_to_df)?;
+        }
 
-                    let mut read_timer = Some(metrics.read_time.timer());
-                    let continued = reader.read(file_batch, |parquet_batch| {
+        for lane in 0..self.config.stream_count {
+            let file_batches = scan_partition
+                .batches()
+                .iter()
+                .enumerate()
+                .filter(|(batch_index, _)| batch_index % self.config.stream_count == lane)
+                .map(|(_, file_batch)| file_batch)
+                .cloned()
+                .collect::<Vec<_>>();
+            if file_batches.is_empty() {
+                continue;
+            }
+
+            let stream = if self.config.stream_count == 1 {
+                global_execution_stream().map_err(cudf_to_df)?
+            } else {
+                CuDFStream::try_with_flags(CuDFStreamFlags::NonBlocking).map_err(cudf_to_df)?
+            };
+            let reader = ParquetBatchReader::new(
+                Arc::clone(&schema),
+                self.read_plan.read_columns(),
+                self.config.filter.clone(),
+                self.config.chunk_read_limit,
+                self.config.pass_read_limit,
+                stream,
+            );
+            let schema = Arc::clone(&schema);
+            let metrics = metrics.clone();
+            let output = builder.tx();
+
+            builder.spawn_blocking(move || {
+                for file_batch in &file_batches {
+                    let mut compute_timer = Some(metrics.baseline.elapsed_compute().timer());
+                    let result: datafusion::common::Result<_> = {
+                        metrics.record_file_batch(file_batch);
+
+                        let mut read_timer = Some(metrics.read_time.timer());
+                        let continued = reader.read(file_batch, |parquet_batch| {
+                            if let Some(timer) = read_timer.take() {
+                                timer.done();
+                            }
+
+                            let batch = build_record_batch(parquet_batch, &schema, &metrics)?;
+                            metrics.baseline.record_output(&batch);
+
+                            if let Some(timer) = compute_timer.take() {
+                                timer.done();
+                            }
+                            let send_timer = metrics.output_send_time.timer();
+                            let send_result = output.blocking_send(Ok(batch));
+                            send_timer.done();
+                            let continued = send_result.is_ok();
+                            if continued {
+                                compute_timer = Some(metrics.baseline.elapsed_compute().timer());
+                                read_timer = Some(metrics.read_time.timer());
+                            }
+                            Ok(continued)
+                        });
                         if let Some(timer) = read_timer.take() {
                             timer.done();
                         }
-
-                        let batch = build_record_batch(parquet_batch, &schema, &metrics)?;
-                        metrics.baseline.record_output(&batch);
-
-                        if let Some(timer) = compute_timer.take() {
-                            timer.done();
-                        }
-                        let send_timer = metrics.output_send_time.timer();
-                        let send_result = output.blocking_send(Ok(batch));
-                        send_timer.done();
-                        let continued = send_result.is_ok();
-                        if continued {
-                            compute_timer = Some(metrics.baseline.elapsed_compute().timer());
-                            read_timer = Some(metrics.read_time.timer());
-                        }
-                        Ok(continued)
-                    });
-                    if let Some(timer) = read_timer.take() {
+                        continued
+                    };
+                    if let Some(timer) = compute_timer.take() {
                         timer.done();
                     }
-                    continued
-                };
-                if let Some(timer) = compute_timer.take() {
-                    timer.done();
+                    if !result? {
+                        return Ok(());
+                    }
                 }
-                if !result? {
-                    return Ok(());
-                }
-            }
 
-            Ok(())
-        });
+                Ok(())
+            });
+        }
 
         Ok(builder.build())
     }
@@ -329,12 +389,8 @@ fn build_record_batch(
     }
     cast_timer.done();
 
-    let sync_timer = metrics.sync_time.timer();
-    synchronize_execution_stream().map_err(cudf_to_df)?;
-    sync_timer.done();
-
     let output_batch_timer = metrics.output_batch_time.timer();
-    let batch = libcudf_rs::record_batch_with_schema(cudf_cols, schema, parquet_batch.num_rows)?;
+    let batch = record_batch_with_schema(cudf_cols, schema, parquet_batch.num_rows)?;
     output_batch_timer.done();
 
     Ok(batch)
@@ -346,7 +402,6 @@ struct ScanMetrics {
     baseline: CuDFBaselineMetrics,
     read_time: Time,
     cast_time: Time,
-    sync_time: Time,
     output_batch_time: Time,
     output_send_time: Time,
     files: Count,
@@ -359,7 +414,6 @@ impl ScanMetrics {
             baseline: CuDFBaselineMetrics::new(metrics, partition),
             read_time: MetricBuilder::new(metrics).subset_time("read_time", partition),
             cast_time: MetricBuilder::new(metrics).subset_time("cast_time", partition),
-            sync_time: MetricBuilder::new(metrics).subset_time("sync_time", partition),
             output_batch_time: MetricBuilder::new(metrics)
                 .subset_time("output_batch_time", partition),
             output_send_time: MetricBuilder::new(metrics)
@@ -385,7 +439,10 @@ mod tests {
     use datafusion::execution::TaskContext;
     use datafusion_physical_plan::{execute_stream, ExecutionPlan};
     use futures_util::TryStreamExt;
-    use libcudf_rs::{CuDFAstExpression, CuDFAstOperator, CuDFColumnView, CuDFScalar};
+    use libcudf_rs::{
+        record_batch_execution_stream, CuDFAstExpression, CuDFAstOperator, CuDFColumnView,
+        CuDFScalar,
+    };
     use parquet::arrow::ArrowWriter;
     use parquet::file::properties::WriterProperties;
     use std::fs::{remove_file, File};
@@ -469,6 +526,53 @@ mod tests {
 
         assert!(batches.len() > 1);
         assert_eq!(values, (0..8).map(Some).collect::<Vec<_>>());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn eight_streams_attach_distinct_streams_to_file_batches(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int32,
+            false,
+        )]));
+        let paths = (1..=8)
+            .map(|value| {
+                let path = temp_parquet_file();
+                let batch = RecordBatch::try_new(
+                    Arc::clone(&schema),
+                    vec![Arc::new(Int32Array::from(vec![value]))],
+                )?;
+                write_parquet(&path, &batch)?;
+                Ok(path)
+            })
+            .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+
+        let batches = execute_scan(
+            scan_config_for_paths(&paths, schema)?
+                .with_files_per_batch(1)
+                .with_stream_count(8),
+        )
+        .await?;
+
+        for path in paths {
+            remove_file(path).ok();
+        }
+        assert_eq!(batches.len(), 8);
+        let streams = batches
+            .iter()
+            .map(|batch| {
+                record_batch_execution_stream(batch)
+                    .expect("cuDF parquet batch has a valid execution stream")
+                    .expect("cuDF parquet batch has an execution stream")
+            })
+            .collect::<Vec<_>>();
+        for left in 0..streams.len() {
+            for right in left + 1..streams.len() {
+                assert!(!streams[left].ptr_eq(&streams[right]));
+            }
+        }
         Ok(())
     }
 

@@ -70,12 +70,15 @@ fn rescale_decimal(
             .into_view()
             .into()),
         CuDFColumnViewOrScalar::Scalar(scalar) => {
+            let stream = scalar.execution_stream();
             let array = scalar.to_arrow_host().map_err(cudf_to_df)?;
             let casted = arrow::compute::cast(array.as_ref(), &target_type)
                 .map_err(|err| DataFusionError::ArrowError(Box::new(err), None))?;
-            Ok(CuDFScalar::try_from_arrow_host(Scalar::new(casted))
-                .map_err(cudf_to_df)?
-                .into())
+            Ok(
+                CuDFScalar::try_from_arrow_host_on_stream(Scalar::new(casted), &stream)
+                    .map_err(cudf_to_df)?
+                    .into(),
+            )
         }
     }
 }
