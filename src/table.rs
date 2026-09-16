@@ -318,7 +318,7 @@ impl CuDFTable {
     fn read_parquet_options_with_metadata(
         options: UniquePtr<ffi::ParquetReaderOptions>,
     ) -> Result<CuDFParquetReadResult, CuDFError> {
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         let mr = ffi::get_current_device_resource_ref();
         let options = options
             .as_ref()
@@ -336,7 +336,7 @@ impl CuDFTable {
     where
         F: FnMut(CuDFParquetReadResult) -> Result<bool, CuDFError>,
     {
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         let mr = ffi::get_current_device_resource_ref();
         let reader = ffi::chunked_parquet_reader_create(
             chunk_read_limit,
@@ -413,7 +413,7 @@ impl CuDFTable {
             .as_ref()
             .ok_or(CuDFError::NullHandle("Parquet sink info"))?;
         let options = ffi::parquet_writer_options_create(sink, &self.view)?;
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         let _metadata = ffi::write_parquet(
             options
                 .as_ref()
@@ -468,7 +468,7 @@ impl CuDFTable {
 
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         let mr = ffi::get_current_device_resource_ref();
         let inner = unsafe {
             ffi::from_arrow_host(
@@ -591,7 +591,7 @@ impl CuDFTable {
             .iter()
             .map(CuDFTableView::clone_inner)
             .collect::<Result<_, _>>()?;
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         let mr = ffi::get_current_device_resource_ref();
         let inner =
             ffi::concatenate_tables(&inner_views, stream_ref(&stream)?, resource_ref(&mr)?)?;

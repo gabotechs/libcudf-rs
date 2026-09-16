@@ -213,7 +213,7 @@ impl CuDFTableView {
                 &metadata,
                 &mut ffi_schema as *mut FFI_ArrowSchema as *mut u8,
             )?;
-            let stream = ffi::get_default_stream();
+            let stream = crate::stream::execution_stream()?;
             let mr = ffi::get_current_device_resource_ref();
             ffi::to_arrow_host_table(
                 self.inner(),

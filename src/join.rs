@@ -84,7 +84,7 @@ fn sys_hash_join_inner_join_indices(
     join: &ffi::HashJoin,
     probe_keys: &ffi::TableView,
 ) -> Result<UniquePtr<ffi::HashJoinIndices>, CuDFError> {
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     Ok(ffi::hash_join_inner_join_indices(
         join,
@@ -98,7 +98,7 @@ fn sys_hash_join_left_join_indices(
     join: &ffi::HashJoin,
     probe_keys: &ffi::TableView,
 ) -> Result<UniquePtr<ffi::HashJoinIndices>, CuDFError> {
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     Ok(ffi::hash_join_left_join_indices(
         join,
@@ -135,7 +135,7 @@ fn gather_join_output(
     left_policy: OutOfBoundsPolicy,
     right_policy: OutOfBoundsPolicy,
 ) -> Result<CuDFTable, CuDFError> {
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     let left = CuDFTable::try_from_inner(ffi::gather(
         left_payload,
@@ -231,7 +231,7 @@ fn gather_filtered_hash_join_indices(
     let build_indices = Arc::new(JoinIndexVector::try_from_inner(
         indices.pin_mut().release_build(),
     )?);
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     let mut filtered_indices = ffi::filter_join_indices(
         args.build_conditional,
@@ -291,7 +291,7 @@ fn distinct_valid_indices(indices: CuDFColumnView) -> Result<Option<Arc<CuDFColu
         return Ok(None);
     }
 
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     let zero = int32_scalar(0)?;
     let bool_type = bool_data_type()?;
@@ -340,7 +340,7 @@ fn matched_row_mask(
     row_count: usize,
     matched_indices: Arc<JoinIndexVector>,
 ) -> Result<Arc<CuDFColumn>, CuDFError> {
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     let false_scalar = bool_scalar(false)?;
     let mask = Arc::new(CuDFColumn::try_from_inner(ffi::make_column_from_scalar(
@@ -372,7 +372,7 @@ fn unmatched_indices_from_matches(
     row_count: usize,
     matched_indices: Arc<JoinIndexVector>,
 ) -> Result<Arc<CuDFColumn>, CuDFError> {
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     let all_indices = join_index_sequence(row_count, 0, 1)?;
     let matched_mask = matched_row_mask(row_count, matched_indices)?;
@@ -403,7 +403,7 @@ fn unmatched_indices_from_matches(
 }
 
 fn join_index_sequence(size: usize, init: i32, step: i32) -> Result<Arc<CuDFColumn>, CuDFError> {
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     let init_array = Int32Array::from(vec![init]);
     let step_array = Int32Array::from(vec![step]);
@@ -472,7 +472,7 @@ impl CuDFHashJoin {
         null_equality: CuDFNullEquality,
     ) -> Result<Self, CuDFError> {
         let build_keys = select_cols(build, build_on)?;
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         let inner = ffi::hash_join_create(
             &build_keys,
             null_equality.into_sys() as i32,
@@ -794,7 +794,7 @@ impl CuDFHashJoin {
             return Ok(());
         };
 
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         let resource = ffi::get_current_device_resource_ref();
         let matched_build_mask = match &self.matched_build_mask {
             Some(mask) => Arc::clone(mask),
@@ -835,7 +835,7 @@ impl CuDFHashJoin {
             return Ok(all_build_indices);
         };
 
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         let resource = ffi::get_current_device_resource_ref();
         let false_scalar = bool_scalar(false)?;
         let bool_type = bool_data_type()?;
@@ -881,7 +881,7 @@ pub fn inner_join(
     let right_keys = select_cols(right, right_on)?;
     let left_payload = left_out_cols.map(|c| select_cols(left, c)).transpose()?;
     let right_payload = right_out_cols.map(|c| select_cols(right, c)).transpose()?;
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     let indices = ffi::inner_join_indices(
         &left_keys,
@@ -916,7 +916,7 @@ pub fn left_join(
     let right_keys = select_cols(right, right_on)?;
     let left_payload = left_out_cols.map(|c| select_cols(left, c)).transpose()?;
     let right_payload = right_out_cols.map(|c| select_cols(right, c)).transpose()?;
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     let indices = ffi::left_join_indices(
         &left_keys,
@@ -951,7 +951,7 @@ pub fn full_join(
     let right_keys = select_cols(right, right_on)?;
     let left_payload = left_out_cols.map(|c| select_cols(left, c)).transpose()?;
     let right_payload = right_out_cols.map(|c| select_cols(right, c)).transpose()?;
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     let indices = ffi::full_join_indices(
         &left_keys,
@@ -980,7 +980,7 @@ pub fn left_semi_join(
 ) -> Result<CuDFTable, CuDFError> {
     let left_keys = select_cols(left, left_on)?;
     let right_keys = select_cols(right, right_on)?;
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     let join = ffi::filtered_join_create(
         &right_keys,
@@ -1017,7 +1017,7 @@ pub fn left_anti_join(
 ) -> Result<CuDFTable, CuDFError> {
     let left_keys = select_cols(left, left_on)?;
     let right_keys = select_cols(right, right_on)?;
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     let join = ffi::filtered_join_create(
         &right_keys,
@@ -1047,7 +1047,7 @@ pub fn left_anti_join(
 ///
 /// Returns all combinations of rows from both inputs.
 pub fn cross_join(left: &CuDFTableView, right: &CuDFTableView) -> Result<CuDFTable, CuDFError> {
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let resource = ffi::get_current_device_resource_ref();
     CuDFTable::try_from_inner(ffi::cross_join(
         left.inner(),

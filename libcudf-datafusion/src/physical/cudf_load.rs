@@ -19,7 +19,7 @@ use datafusion_physical_plan::{
     PlanProperties,
 };
 use futures_util::stream::StreamExt;
-use libcudf_rs::{is_cudf_array, pin_record_batch, synchronize_default_stream, CuDFTable};
+use libcudf_rs::{is_cudf_array, pin_record_batch, synchronize_execution_stream, CuDFTable};
 use std::fmt::Formatter;
 use std::sync::Arc;
 
@@ -207,10 +207,9 @@ impl CuDFRecordBatchReceiverStreamBuilder {
                     import_timer.done();
 
                     let sync_timer = ctx.metrics.sync_time.timer();
-                    // Beware: `CuDFTable::try_from_arrow_host` internally uses the default stream.
-                    // If we ever migrate that to a different stream, this call should 
-                    // be updated to synchronize that stream.
-                    synchronize_default_stream().map_err(cudf_to_df)?;
+                    // The pinned source must stay alive until its asynchronous upload on the
+                    // libcudf-rs execution stream completes.
+                    synchronize_execution_stream().map_err(cudf_to_df)?;
                     sync_timer.done();
 
                     let output_batch_timer = ctx.metrics.output_batch_time.timer();

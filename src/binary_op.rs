@@ -99,7 +99,7 @@ pub fn cudf_binary_op(
             "Output type {output_type} not supported in CuDF"
         )))?;
     };
-    let stream = ffi::get_default_stream();
+    let stream = crate::stream::execution_stream()?;
     let mr = ffi::get_current_device_resource_ref();
     let stream_view = stream_ref(&stream)?;
     let mr_ref = resource_ref(&mr)?;

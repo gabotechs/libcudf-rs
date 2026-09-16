@@ -61,7 +61,7 @@ impl CuDFGroupBy {
             requests_inner.pin_mut().add(request.inner);
         }
 
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         let mr = ffi::get_current_device_resource_ref();
         let mut gby_result =
             self.inner

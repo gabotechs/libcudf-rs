@@ -46,7 +46,7 @@ impl CuDFScalar {
 
     /// Return whether this scalar contains a valid value.
     pub fn is_valid(&self) -> Result<bool, CuDFError> {
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         Ok(self.inner().is_valid(stream_ref(&stream)?)?)
     }
 
@@ -96,7 +96,7 @@ impl CuDFScalar {
         unsafe {
             let device_array_ptr =
                 &mut device_array as *mut libcudf_sys::ArrowDeviceArray as *mut u8;
-            let stream = ffi::get_default_stream();
+            let stream = crate::stream::execution_stream()?;
             let mr = ffi::get_current_device_resource_ref();
             let column = ffi::make_column_from_scalar(
                 self.inner(),
@@ -154,7 +154,7 @@ impl CuDFScalar {
         let column = CuDFColumn::try_from_arrow_host(&array)?.into_view();
 
         // Extract the scalar from the column at index 0
-        let stream = ffi::get_default_stream();
+        let stream = crate::stream::execution_stream()?;
         let mr = ffi::get_current_device_resource_ref();
         let cudf_scalar =
             ffi::get_element(column.inner(), 0, stream_ref(&stream)?, resource_ref(&mr)?)?;
