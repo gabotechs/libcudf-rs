@@ -6,7 +6,7 @@ use crate::physical::aggregate::{
 use arrow::array::{Array, ArrayRef, RecordBatch};
 use arrow_schema::SchemaRef;
 use datafusion::common::{exec_err, internal_err};
-use datafusion::error::Result;
+use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream};
 use datafusion::physical_expr_common::metrics::{
     ExecutionPlanMetricsSet, MetricBuilder, MetricType, RatioMetrics, Time,
@@ -17,15 +17,12 @@ use futures::{ready, StreamExt};
 use libcudf_rs::{
     record_batch_with_schema, CuDFColumn, CuDFColumnView, CuDFGroupBy, CuDFTable, CuDFTableView,
 };
+use std::future::Future;
+use std::mem;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-
-enum StreamState {
-    ReadingInput,
-    ProducingOutput,
-    Done,
-}
+use tokio::task::{JoinError, JoinHandle};
 
 /// Aggregate-specific timers. Mirrors upstream `GroupByMetrics` from
 /// `datafusion::physical_plan::aggregates::group_values::metrics`: same
@@ -91,26 +88,29 @@ struct RunningState {
 pub struct CuDFAggregateStream {
     input: SendableRecordBatchStream,
     output_schema: SchemaRef,
-    prepared: PreparedCuDFAggregate,
-    /// cuDF expressions that extract each physical op's argument columns from a batch.
-    aggregate_args: Vec<Vec<Arc<dyn PhysicalExpr>>>,
-    column_mapping: ColumnMapping,
     state: StreamState,
-    /// Batches accumulated since the last flush, cleared on each flush.
+    worker: Option<AggregateWorker>,
+    /// Batches accumulated for the next chunk aggregation.
     pending_batches: Vec<RecordBatch>,
     /// Estimated GPU memory held by `pending_batches`.
     pending_bytes: usize,
     /// Target input bytes accumulated before running an aggregate/merge cycle.
     chunk_target_bytes: usize,
-    /// Aggregated running state (at most G rows), updated after each flush.
-    running: Option<RunningState>,
     /// Output rows/bytes/batches + total elapsed_compute, GPU-safe.
     baseline_metrics: CuDFBaselineMetrics,
-    /// Per-stage timers, named to match upstream `AggregateExec`.
-    group_by_metrics: GroupByMetrics,
     /// Partial-mode-only ratio of input rows to output rows. `None` for
     /// `Single`/`Final*` modes where the metric is not meaningful.
     reduction_factor: Option<RatioMetrics>,
+}
+
+/// State moved to a blocking pool while doing cuDF work / waiting on kernels.
+struct AggregateWorker {
+    output_schema: SchemaRef,
+    prepared: PreparedCuDFAggregate,
+    aggregate_args: Vec<Vec<Arc<dyn PhysicalExpr>>>,
+    column_mapping: ColumnMapping,
+    running: Option<RunningState>,
+    group_by_metrics: GroupByMetrics,
 }
 
 impl CuDFAggregateStream {
@@ -153,33 +153,65 @@ impl CuDFAggregateStream {
 
         Ok(Self {
             input,
-            output_schema,
-            prepared,
-            aggregate_args,
-            column_mapping,
+            output_schema: Arc::clone(&output_schema),
             state: StreamState::ReadingInput,
+            worker: Some(AggregateWorker {
+                output_schema,
+                prepared,
+                aggregate_args,
+                column_mapping,
+                running: None,
+                group_by_metrics,
+            }),
             pending_batches: Vec::new(),
             pending_bytes: 0,
             chunk_target_bytes: chunk_target_bytes.max(1),
-            running: None,
             baseline_metrics,
-            group_by_metrics,
             reduction_factor,
         })
     }
 
-    /// Aggregate all pending batches in one GPU kernel call and merge the result
-    /// into the running state.
-    ///
-    /// Clears `pending_batches` on return.
-    fn flush_pending(&mut self) -> Result<()> {
-        if self.pending_batches.is_empty() {
+    fn start_aggregating_chunk(&mut self, after: AfterChunk) {
+        let pending_batches = mem::take(&mut self.pending_batches);
+        self.pending_bytes = 0;
+        let mut worker = self
+            .worker
+            .take()
+            .expect("aggregate worker must be available before aggregating a chunk");
+        let elapsed_compute = self.baseline_metrics.elapsed_compute().clone();
+
+        let task = tokio::task::spawn_blocking(move || {
+            let _timer = elapsed_compute.timer();
+            worker.aggregate_chunk(pending_batches)?;
+            Ok(worker)
+        });
+        self.state = StreamState::AggregatingChunk { task, after };
+    }
+
+    fn start_finalizing(&mut self) {
+        let mut worker = self
+            .worker
+            .take()
+            .expect("aggregate worker must be available before finalization");
+        let elapsed_compute = self.baseline_metrics.elapsed_compute().clone();
+
+        let task = tokio::task::spawn_blocking(move || {
+            let _timer = elapsed_compute.timer();
+            worker.build_output()
+        });
+        self.state = StreamState::Finalizing(task);
+    }
+}
+
+impl AggregateWorker {
+    /// Concatenate the buffered batches, aggregate the resulting chunk, and merge
+    /// its partial state into the running aggregate.
+    fn aggregate_chunk(&mut self, pending_batches: Vec<RecordBatch>) -> Result<()> {
+        if pending_batches.is_empty() {
             return Ok(());
         }
 
-        let chunk = concat_cudf_batches(&self.pending_batches)?;
-        self.pending_batches.clear();
-        self.pending_bytes = 0;
+        let chunk = concat_cudf_batches(&pending_batches)?;
 
         let group_by = self.evaluate_batch_groups(&chunk)?;
         let evaluated_args = self.evaluate_batch_arguments(&chunk)?;
@@ -468,19 +500,72 @@ fn concat_cudf_batches(batches: &[RecordBatch]) -> Result<RecordBatch> {
     Ok(record_batch_with_schema(cols, &schema, num_rows)?)
 }
 
+/// State transitions for one aggregate output partition.
+///
+/// ```text
+/// ReadingInput (poll the inputs and buffer batches, no cudf kernels)
+///      ^                                  |
+///      |                                  | we have enough batches
+///      |                                  | or the input is exhausted
+///      |                                  |
+///      |                                  v
+///      |                           AggregatingChunk (concat + aggregate + merge cudf kernels)
+///      |                                  |
+///      |                                  |
+///      +--- if the input is not done ---<-+
+///                                         v
+///      |                                  |
+///                                         | input is exhausted
+///      |                                  |
+///                                         v
+///                                    Finalizing (cast kernels + create output batch)
+///                                         |
+///                                         | task incomplete: Poll::Pending
+///                                         |
+///                                         v
+///                                       Done
+/// ```
+enum StreamState {
+    /// Poll the input stream and buffer batches until
+    /// - the chunk byte target is reached or
+    /// - the input is exhausted
+    ReadingInput,
+    /// Concatenates the buffered input batches, aggregates the resulting chunk, and merges it into the running state.
+    AggregatingChunk {
+        // Stores the aggregation task, which runs cudf kernels.
+        task: JoinHandle<Result<AggregateWorker>>,
+        // State to transition to after the aggregation is done.
+        after: AfterChunk,
+    },
+    /// Final casts or division kernels + constructing the single output batch.
+    Finalizing(JoinHandle<Result<Option<RecordBatch>>>),
+    /// No more work to do. All later polls return `None`.
+    Done,
+}
+
+#[derive(Clone, Copy)]
+enum AfterChunk {
+    ReadingInput,
+    Finalizing,
+}
+
 impl futures::Stream for CuDFAggregateStream {
     type Item = Result<RecordBatch>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
-            match &self.state {
+            match &mut self.state {
                 StreamState::ReadingInput => match ready!(self.input.poll_next_unpin(cx)) {
                     None => {
-                        self.state = StreamState::ProducingOutput;
+                        if self.pending_batches.is_empty() {
+                            self.start_finalizing();
+                        } else {
+                            self.start_aggregating_chunk(AfterChunk::Finalizing);
+                        }
                     }
                     Some(Err(e)) => return Poll::Ready(Some(Err(e))),
                     Some(Ok(batch)) => {
-                        // Don't include `input.poll_next_unpin` wait time here.
+                        // Input wait time is excluded; only account for handling the ready batch.
                         let elapsed_compute = self.baseline_metrics.elapsed_compute().clone();
                         let _timer = elapsed_compute.timer();
                         if let Some(reduction) = self.reduction_factor.as_ref() {
@@ -491,27 +576,55 @@ impl futures::Stream for CuDFAggregateStream {
                             .saturating_add(batch.get_array_memory_size());
                         self.pending_batches.push(batch);
                         if self.pending_bytes >= self.chunk_target_bytes {
-                            self.flush_pending()?;
+                            self.start_aggregating_chunk(AfterChunk::ReadingInput);
                         }
                     }
                 },
-                StreamState::ProducingOutput => {
-                    let elapsed_compute = self.baseline_metrics.elapsed_compute().clone();
-                    let _timer = elapsed_compute.timer();
-                    self.flush_pending()?;
-                    let output = self.build_output()?;
-                    self.state = StreamState::Done;
-                    return match output {
-                        Some(batch) => {
-                            if let Some(reduction) = self.reduction_factor.as_ref() {
-                                reduction.add_part(batch.num_rows());
+                StreamState::AggregatingChunk { task, after } => match Pin::new(task).poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Ok(Ok(worker))) => {
+                        let after = *after;
+                        self.worker = Some(worker);
+                        match after {
+                            AfterChunk::ReadingInput => {
+                                self.state = StreamState::ReadingInput;
                             }
-                            self.baseline_metrics.record_output(&batch);
-                            Poll::Ready(Some(Ok(batch)))
+                            AfterChunk::Finalizing => self.start_finalizing(),
                         }
-                        None => Poll::Ready(None),
-                    };
-                }
+                    }
+                    Poll::Ready(Ok(Err(error))) => {
+                        self.state = StreamState::Done;
+                        return Poll::Ready(Some(Err(error)));
+                    }
+                    Poll::Ready(Err(error)) => {
+                        self.state = StreamState::Done;
+                        return Poll::Ready(Some(Err(blocking_task_error(error))));
+                    }
+                },
+                StreamState::Finalizing(task) => match Pin::new(task).poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Ok(Ok(output))) => {
+                        self.state = StreamState::Done;
+                        return match output {
+                            Some(batch) => {
+                                if let Some(reduction) = self.reduction_factor.as_ref() {
+                                    reduction.add_part(batch.num_rows());
+                                }
+                                self.baseline_metrics.record_output(&batch);
+                                Poll::Ready(Some(Ok(batch)))
+                            }
+                            None => Poll::Ready(None),
+                        };
+                    }
+                    Poll::Ready(Ok(Err(error))) => {
+                        self.state = StreamState::Done;
+                        return Poll::Ready(Some(Err(error)));
+                    }
+                    Poll::Ready(Err(error)) => {
+                        self.state = StreamState::Done;
+                        return Poll::Ready(Some(Err(blocking_task_error(error))));
+                    }
+                },
                 StreamState::Done => return Poll::Ready(None),
             }
         }
@@ -522,4 +635,8 @@ impl RecordBatchStream for CuDFAggregateStream {
     fn schema(&self) -> SchemaRef {
         self.output_schema.clone()
     }
+}
+
+fn blocking_task_error(error: JoinError) -> DataFusionError {
+    DataFusionError::Execution(format!("CuDF aggregate blocking task failed: {error}"))
 }
