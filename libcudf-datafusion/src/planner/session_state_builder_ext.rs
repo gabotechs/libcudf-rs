@@ -1,4 +1,5 @@
 use crate::planner::host_to_cudf::HostToCuDFRule;
+use crate::planner::parquet_aggregate_streams::ParquetAggregateStreamsRule;
 use crate::planner::rescale_leafs::RescaleLeafsRule;
 use crate::CuDFConfig;
 use datafusion::execution::SessionStateBuilder;
@@ -23,5 +24,6 @@ impl SessionStateBuilderExt for SessionStateBuilder {
 
         self.with_physical_optimizer_rule(Arc::new(RescaleLeafsRule(target_partitions)))
             .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
+            .with_physical_optimizer_rule(Arc::new(ParquetAggregateStreamsRule))
     }
 }

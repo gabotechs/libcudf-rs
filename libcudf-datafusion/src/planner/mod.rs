@@ -1,5 +1,6 @@
 mod config;
 mod host_to_cudf;
+mod parquet_aggregate_streams;
 mod parquet_scan;
 mod rescale_leafs;
 mod session_state_builder_ext;

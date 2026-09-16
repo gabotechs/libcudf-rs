@@ -138,12 +138,17 @@ mod tests {
             // same revenue; this extra ordering pins the row order.
             sql = sql.replace("revenue desc", "revenue, c_acctbal desc");
         }
+        let target_partitions = if correctness_parquet_scan_enabled() {
+            1
+        } else {
+            PARTITIONS
+        };
         let gpu_ctx = SessionContext::from(
             SessionStateBuilder::new()
                 .with_default_features()
                 .with_config(
                     SessionConfig::new()
-                        .with_target_partitions(PARTITIONS)
+                        .with_target_partitions(target_partitions)
                         .with_option_extension(parquet_scan_config()),
                 )
                 .with_cudf_planner()
@@ -202,7 +207,9 @@ mod tests {
     }
 
     fn parquet_scan_config() -> CuDFConfig {
-        CuDFConfig::default().with_parquet_scan(correctness_parquet_scan_enabled())
+        CuDFConfig::default()
+            .with_parquet_scan(correctness_parquet_scan_enabled())
+            .with_parquet_scan_streams(4)
     }
 
     fn correctness_parquet_scan_enabled() -> bool {

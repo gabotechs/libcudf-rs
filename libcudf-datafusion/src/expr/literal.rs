@@ -3,10 +3,11 @@ use crate::physical::normalize_scalar_for_cudf;
 use arrow::array::RecordBatch;
 use arrow_schema::{DataType, FieldRef, Schema};
 use datafusion::logical_expr::ColumnarValue;
+use datafusion::scalar::ScalarValue;
 use datafusion_physical_plan::expressions::Literal;
 use datafusion_physical_plan::PhysicalExpr;
 use delegate::delegate;
-use libcudf_rs::CuDFScalar;
+use libcudf_rs::{global_execution_stream, record_batch_execution_stream, CuDFScalar};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -14,7 +15,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct CuDFLiteral {
     inner: Literal,
-    scalar: Arc<CuDFScalar>,
+    value: ScalarValue,
 }
 
 impl PartialEq for CuDFLiteral {
@@ -34,12 +35,7 @@ impl Hash for CuDFLiteral {
 impl CuDFLiteral {
     pub fn try_from_datafusion(inner: Literal) -> datafusion::common::Result<Self> {
         let value = normalize_scalar_for_cudf(inner.value().clone())?;
-        let host_scalar = value.to_scalar()?;
-        let scalar = CuDFScalar::try_from_arrow_host(host_scalar).map_err(cudf_to_df)?;
-        Ok(Self {
-            inner,
-            scalar: Arc::new(scalar),
-        })
+        Ok(Self { inner, value })
     }
 }
 
@@ -51,8 +47,15 @@ impl Display for CuDFLiteral {
 }
 
 impl PhysicalExpr for CuDFLiteral {
-    fn evaluate(&self, _: &RecordBatch) -> datafusion::common::Result<ColumnarValue> {
-        let scalar: Arc<dyn arrow::array::Array> = self.scalar.clone();
+    fn evaluate(&self, batch: &RecordBatch) -> datafusion::common::Result<ColumnarValue> {
+        let stream = record_batch_execution_stream(batch)
+            .map_err(cudf_to_df)?
+            .map(Ok)
+            .unwrap_or_else(global_execution_stream)
+            .map_err(cudf_to_df)?;
+        let scalar = CuDFScalar::try_from_arrow_host_on_stream(self.value.to_scalar()?, &stream)
+            .map_err(cudf_to_df)?;
+        let scalar: Arc<dyn arrow::array::Array> = Arc::new(scalar);
         Ok(ColumnarValue::Array(scalar))
     }
 
@@ -84,7 +87,6 @@ mod tests {
     use super::CuDFLiteral;
     use crate::assert_snapshot;
     use crate::test_utils::TestFramework;
-    use arrow::array::Array;
     use arrow_schema::DataType;
     use datafusion::common::assert_contains;
     use datafusion::common::{DataFusionError, ScalarValue};
@@ -95,12 +97,12 @@ mod tests {
         let literal = CuDFLiteral::try_from_datafusion(Literal::new(ScalarValue::Utf8View(Some(
             "needle".to_string(),
         ))))?;
-        assert_eq!(literal.scalar.data_type(), &DataType::Utf8);
+        assert_eq!(literal.value.data_type(), DataType::Utf8);
 
         let literal = CuDFLiteral::try_from_datafusion(Literal::new(ScalarValue::BinaryView(
             Some(b"needle".to_vec()),
         )))?;
-        assert_eq!(literal.scalar.data_type(), &DataType::Utf8);
+        assert_eq!(literal.value.data_type(), DataType::Utf8);
 
         let err =
             CuDFLiteral::try_from_datafusion(Literal::new(ScalarValue::BinaryView(Some(vec![
