@@ -104,9 +104,7 @@ impl CuDFStream {
 }
 
 /// Return the execution stream shared by every GPU column in `batch`.
-///
-/// A GPU-backed record batch represents data produced on one CUDA stream. A
-/// mixed-stream batch is rejected instead of relying on implicit synchronization.
+/// Errors if, for any reason, the stream is not the same for all GPU buffers.
 pub fn record_batch_execution_stream(batch: &RecordBatch) -> Result<Option<CuDFStream>> {
     record_batch_execution_stream_from_columns(batch.columns())
 }
@@ -136,11 +134,16 @@ pub(crate) fn execution_stream() -> Result<UniquePtr<ffi::CudaStreamView>> {
     unsafe { stream.view() }
 }
 
+/// Require two handles to own the same CUDA stream (through shared ownership).
+///
+/// Equality is based on shared stream identity. This function does not treat
+/// separately created streams as equal, even if the caller synchronized them.
 pub(crate) fn ensure_same_stream(
     expected: &CuDFStream,
     actual: &CuDFStream,
     context: &str,
 ) -> Result<()> {
+    /// TODO: This is probably a smell. We should introduce a unique ID for streams.
     if expected.ptr_eq(actual) {
         Ok(())
     } else {
@@ -151,6 +154,12 @@ pub(crate) fn ensure_same_stream(
     }
 }
 
+/// Return the common stream when every input refers to the same CUDA stream.
+///
+/// Returns `None` for no inputs and an error for different stream identities.
+///
+/// This function does not synchronize streams or establish dependencies
+/// between them.
 pub(crate) fn common_execution_stream(
     streams: impl IntoIterator<Item = CuDFStream>,
     context: &str,

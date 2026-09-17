@@ -349,6 +349,10 @@ impl CuDFTableView {
 /// All GPU `RecordBatch` creation should go through this function instead of calling
 /// `RecordBatch::try_new` directly.
 ///
+/// Every GPU column or scalar must refer to the same CUDA stream. Host arrays
+/// have no stream and are ignored by this check. A batch containing GPU arrays
+/// from different streams is rejected.
+///
 /// `num_rows` is required so zero-column batches (e.g. produced by `FilterExec`
 /// with `projection=[]` for `COUNT(*) WHERE ...` plans) carry their row count.
 pub fn record_batch_with_schema(
