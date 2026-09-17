@@ -55,7 +55,9 @@ pub use pinned::synchronize_default_stream;
 pub use pinned::{pin_record_batch, synchronize_execution_stream, PinnedHostBuffer};
 pub use scalar::CuDFScalar;
 pub use sort::{sort, sort_by_all, stable_sorted_order, SortOrder};
-pub use stream::{CuDFStream, CuDFStreamFlags};
+pub use stream::{
+    global_execution_stream, record_batch_execution_stream, CuDFStream, CuDFStreamFlags,
+};
 pub use table::*;
 pub use table_view::*;
 

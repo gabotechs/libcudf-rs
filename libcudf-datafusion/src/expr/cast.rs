@@ -52,7 +52,7 @@ impl Display for CuDFCastExpr {
 
 impl PhysicalExpr for CuDFCastExpr {
     fn evaluate(&self, batch: &RecordBatch) -> datafusion::common::Result<ColumnarValue> {
-        let value = columnar_value_to_cudf(self.expr.evaluate(batch)?)?;
+        let value = columnar_value_to_cudf(self.expr.evaluate(batch)?, batch)?;
         let CuDFColumnViewOrScalar::ColumnView(column) = value else {
             return not_impl_err!("Scalar casts are not supported by cuDF expressions");
         };

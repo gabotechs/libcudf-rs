@@ -1,6 +1,6 @@
 use crate::data_type::arrow_type_to_cudf_data_type;
 use crate::device_resource::resource_ref;
-use crate::stream::stream_ref;
+use crate::stream::{ensure_same_stream, stream_ref};
 use crate::{CuDFColumn, CuDFColumnView, CuDFError, CuDFRef, CuDFTable, CuDFTableView};
 use arrow::array::Array;
 use arrow_schema::{ArrowError, DataType};
@@ -69,7 +69,13 @@ fn gather_with_policy(
     gather_map: &CuDFColumnView,
     policy: OutOfBoundsPolicy,
 ) -> Result<CuDFTable, CuDFError> {
-    let stream = crate::stream::execution_stream()?;
+    let execution_stream = table.execution_stream();
+    ensure_same_stream(
+        &execution_stream,
+        &gather_map.execution_stream(),
+        "gather table and map",
+    )?;
+    let stream = unsafe { execution_stream.view()? };
     let mr = ffi::get_current_device_resource_ref();
     let inner = ffi::gather(
         table.inner(),
@@ -78,7 +84,7 @@ fn gather_with_policy(
         stream_ref(&stream)?,
         resource_ref(&mr)?,
     )?;
-    CuDFTable::try_from_inner(inner)
+    CuDFTable::try_from_inner_on_stream(inner, execution_stream)
 }
 
 /// Filter a table using a boolean mask
@@ -128,7 +134,13 @@ pub fn apply_boolean_mask(
     table: &CuDFTableView,
     boolean_mask: &CuDFColumnView,
 ) -> Result<CuDFTable, CuDFError> {
-    let stream = crate::stream::execution_stream()?;
+    let execution_stream = table.execution_stream();
+    ensure_same_stream(
+        &execution_stream,
+        &boolean_mask.execution_stream(),
+        "filtered table and mask",
+    )?;
+    let stream = unsafe { execution_stream.view()? };
     let mr = ffi::get_current_device_resource_ref();
     let inner = ffi::apply_boolean_mask(
         table.inner(),
@@ -136,7 +148,7 @@ pub fn apply_boolean_mask(
         stream_ref(&stream)?,
         resource_ref(&mr)?,
     )?;
-    CuDFTable::try_from_inner(inner)
+    CuDFTable::try_from_inner_on_stream(inner, execution_stream)
 }
 
 /// Create a sliced view of a column
@@ -190,7 +202,8 @@ pub fn slice_column(
         crate::errors::usize_to_cudf_size(offset, "column slice offset")?,
         crate::errors::usize_to_cudf_size(end, "column slice end")?,
     ];
-    let stream = crate::stream::execution_stream()?;
+    let execution_stream = column.execution_stream();
+    let stream = unsafe { execution_stream.view()? };
     // SAFETY: the returned view is attached to a clone of `column` below.
     let views = unsafe { ffi::slice_column(column.inner(), &indices, stream_ref(&stream)?) }?;
     let views = views
@@ -205,7 +218,12 @@ pub fn slice_column(
     }
     // SAFETY: the result keeps `column` alive for the lifetime of the view.
     let inner = unsafe { views.get(0) }?;
-    CuDFColumnView::try_from_inner(inner, Some(Arc::new(column.clone()) as Arc<dyn CuDFRef>))
+    CuDFColumnView::try_from_inner_with_device_size_on_stream(
+        inner,
+        Some(Arc::new(column.clone()) as Arc<dyn CuDFRef>),
+        None,
+        execution_stream,
+    )
 }
 
 /// Cast a column to a different data type on the GPU
@@ -231,7 +249,8 @@ pub fn cast(column: &CuDFColumnView, target_type: &DataType) -> Result<CuDFColum
             target_type
         )))
     })?;
-    let stream = crate::stream::execution_stream()?;
+    let execution_stream = column.execution_stream();
+    let stream = unsafe { execution_stream.view()? };
     let mr = ffi::get_current_device_resource_ref();
     let result = ffi::cast(
         column.inner(),
@@ -239,7 +258,7 @@ pub fn cast(column: &CuDFColumnView, target_type: &DataType) -> Result<CuDFColum
         stream_ref(&stream)?,
         resource_ref(&mr)?,
     )?;
-    CuDFColumn::try_from_inner(result)
+    CuDFColumn::try_from_inner_on_stream(result, execution_stream)
 }
 
 #[cfg(test)]
