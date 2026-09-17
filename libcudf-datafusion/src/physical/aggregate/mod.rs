@@ -181,6 +181,22 @@ impl CuDFAggregateExec {
             metrics: ExecutionPlanMetricsSet::new(),
         })
     }
+
+    pub(crate) fn input(&self) -> &Arc<dyn ExecutionPlan> {
+        &self.input
+    }
+
+    pub(crate) fn mode(&self) -> AggregateMode {
+        self.prepared.mode
+    }
+
+    pub(crate) fn group_by(&self) -> &PhysicalGroupBy {
+        &self.prepared.group_by
+    }
+
+    pub(crate) fn aggr_expr(&self) -> Vec<Arc<AggregateFunctionExpr>> {
+        self.prepared.aggr_expr()
+    }
 }
 
 impl DisplayAs for CuDFAggregateExec {
@@ -701,6 +717,7 @@ mod test {
     use datafusion_physical_plan::ExecutionPlan;
     use datafusion_physical_plan::PhysicalExpr;
     use futures_util::TryStreamExt;
+    use libcudf_rs::{record_batch_with_schema, CuDFColumn, CuDFStream, CuDFStreamFlags};
     use std::collections::HashMap;
     use std::error::Error;
     use std::sync::Arc;
@@ -849,6 +866,43 @@ mod test {
             vec![("hello".to_string(), 15), ("world".to_string(), 9)]
         );
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_group_by_sum_merges_eight_cuda_streams() -> Result<(), Box<dyn Error>> {
+        let mut batches = Vec::new();
+        for value in 1_i64..=8 {
+            let key = if value % 2 == 1 { "hello" } else { "world" };
+            let batch = record_batch!(("a", Int64, [value]), ("c", Utf8, [key]))?;
+            let stream = CuDFStream::try_with_flags(CuDFStreamFlags::NonBlocking)?;
+            batches.push(cudf_batch_on_stream(batch, &stream)?);
+        }
+        let schema = batches[0].schema();
+        let root = TestMemoryExec::try_new(&[batches], Arc::clone(&schema), None)?;
+        let group_by = PhysicalGroupBy::new_single(vec![(col("c", &schema)?, "c".to_string())]);
+        let agg = AggregateExprBuilder::new(sum(), vec![col("a", &schema)?])
+            .schema(Arc::clone(&schema))
+            .alias("SUM(a)")
+            .build()?;
+        let aggregate = CuDFAggregateExec::try_new(
+            Arc::new(root),
+            AggregateMode::Single,
+            group_by,
+            vec![Arc::new(agg)],
+        )?;
+        let unload = CuDFUnloadExec::new(Arc::new(aggregate));
+        let output = unload
+            .execute(0, task_ctx_with_aggregate_chunk_target_bytes(1))?
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        let mut rows = grouped_i64_rows(&output);
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![("hello".to_string(), 16), ("world".to_string(), 20)]
+        );
         Ok(())
     }
 
@@ -1070,6 +1124,23 @@ mod test {
             HashMap::new(),
             Arc::new(RuntimeEnv::default()),
         ))
+    }
+
+    fn cudf_batch_on_stream(
+        batch: RecordBatch,
+        stream: &CuDFStream,
+    ) -> Result<RecordBatch, Box<dyn Error>> {
+        let columns = batch
+            .columns()
+            .iter()
+            .map(|column| {
+                CuDFColumn::try_from_arrow_host_on_stream(column.as_ref(), stream)
+                    .map(|column| Arc::new(column.into_view()) as ArrayRef)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let result = record_batch_with_schema(columns, &batch.schema(), batch.num_rows())?;
+        stream.synchronize()?;
+        Ok(result)
     }
 
     fn grouped_i64_rows(batches: &[RecordBatch]) -> Vec<(String, i64)> {
