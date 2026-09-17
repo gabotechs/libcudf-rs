@@ -28,7 +28,10 @@ use datafusion_physical_plan::stream::RecordBatchReceiverStream;
 use datafusion_physical_plan::{
     project_schema, DisplayAs, DisplayFormatType, ExecutionPlan, PhysicalExpr, PlanProperties,
 };
-use libcudf_rs::{cast, synchronize_execution_stream, CuDFAstExpression};
+use libcudf_rs::{
+    cast, global_execution_stream, record_batch_with_schema, CuDFAstExpression, CuDFStream,
+    CuDFStreamFlags,
+};
 use std::fmt::Formatter;
 use std::sync::Arc;
 
@@ -247,14 +250,20 @@ impl ExecutionPlan for CuDFParquetScanExec {
         };
 
         let schema = self.schema();
+        let metrics = ScanMetrics::new(&self.metrics, partition);
+        let stream = if self.config.file_groups.len() == 1 {
+            global_execution_stream().map_err(cudf_to_df)?
+        } else {
+            CuDFStream::try_with_flags(CuDFStreamFlags::NonBlocking).map_err(cudf_to_df)?
+        };
         let reader = ParquetBatchReader::new(
             Arc::clone(&schema),
             self.read_plan.read_columns(),
             self.config.filter.clone(),
             self.config.chunk_read_limit,
             self.config.pass_read_limit,
+            stream,
         );
-        let metrics = ScanMetrics::new(&self.metrics, partition);
         let mut builder = RecordBatchReceiverStream::builder(Arc::clone(&schema), 1);
         let output = builder.tx();
 
@@ -329,12 +338,8 @@ fn build_record_batch(
     }
     cast_timer.done();
 
-    let sync_timer = metrics.sync_time.timer();
-    synchronize_execution_stream().map_err(cudf_to_df)?;
-    sync_timer.done();
-
     let output_batch_timer = metrics.output_batch_time.timer();
-    let batch = libcudf_rs::record_batch_with_schema(cudf_cols, schema, parquet_batch.num_rows)?;
+    let batch = record_batch_with_schema(cudf_cols, schema, parquet_batch.num_rows)?;
     output_batch_timer.done();
 
     Ok(batch)
@@ -346,7 +351,6 @@ struct ScanMetrics {
     baseline: CuDFBaselineMetrics,
     read_time: Time,
     cast_time: Time,
-    sync_time: Time,
     output_batch_time: Time,
     output_send_time: Time,
     files: Count,
@@ -359,7 +363,6 @@ impl ScanMetrics {
             baseline: CuDFBaselineMetrics::new(metrics, partition),
             read_time: MetricBuilder::new(metrics).subset_time("read_time", partition),
             cast_time: MetricBuilder::new(metrics).subset_time("cast_time", partition),
-            sync_time: MetricBuilder::new(metrics).subset_time("sync_time", partition),
             output_batch_time: MetricBuilder::new(metrics)
                 .subset_time("output_batch_time", partition),
             output_send_time: MetricBuilder::new(metrics)
@@ -381,11 +384,15 @@ mod tests {
     use arrow::array::{Array, ArrayRef, Int32Array, Scalar};
     use arrow::record_batch::RecordBatch;
     use arrow_schema::{DataType, Field, Schema};
+    use datafusion::config::ConfigOptions;
     use datafusion::datasource::listing::PartitionedFile;
     use datafusion::execution::TaskContext;
-    use datafusion_physical_plan::{execute_stream, ExecutionPlan};
+    use datafusion_physical_plan::{execute_stream, ExecutionPlan, ExecutionPlanProperties};
     use futures_util::TryStreamExt;
-    use libcudf_rs::{CuDFAstExpression, CuDFAstOperator, CuDFColumnView, CuDFScalar};
+    use libcudf_rs::{
+        record_batch_execution_stream, CuDFAstExpression, CuDFAstOperator, CuDFColumnView,
+        CuDFScalar,
+    };
     use parquet::arrow::ArrowWriter;
     use parquet::file::properties::WriterProperties;
     use std::fs::{remove_file, File};
@@ -469,6 +476,62 @@ mod tests {
 
         assert!(batches.len() > 1);
         assert_eq!(values, (0..8).map(Some).collect::<Vec<_>>());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn partitions_attach_distinct_streams_to_file_batches(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int32,
+            false,
+        )]));
+        let paths = (1..=8)
+            .map(|value| {
+                let path = temp_parquet_file();
+                let batch = RecordBatch::try_new(
+                    Arc::clone(&schema),
+                    vec![Arc::new(Int32Array::from(vec![value]))],
+                )?;
+                write_parquet(&path, &batch)?;
+                Ok(path)
+            })
+            .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+
+        let plan: Arc<dyn ExecutionPlan> = Arc::new(CuDFParquetScanExec::try_new(
+            scan_config_for_paths(&paths, schema)?.with_files_per_batch(1),
+        )?);
+        let plan = plan
+            .repartitioned(8, &ConfigOptions::new())?
+            .expect("eight files can be repartitioned eight ways");
+        assert_eq!(plan.output_partitioning().partition_count(), 8);
+        let mut batches = Vec::new();
+        for partition in 0..8 {
+            batches.extend(
+                plan.execute(partition, Arc::new(TaskContext::default()))?
+                    .try_collect::<Vec<_>>()
+                    .await?,
+            );
+        }
+
+        for path in paths {
+            remove_file(path).ok();
+        }
+        assert_eq!(batches.len(), 8);
+        let streams = batches
+            .iter()
+            .map(|batch| {
+                record_batch_execution_stream(batch)
+                    .expect("cuDF parquet batch has a valid execution stream")
+                    .expect("cuDF parquet batch has an execution stream")
+            })
+            .collect::<Vec<_>>();
+        for left in 0..streams.len() {
+            for right in left + 1..streams.len() {
+                assert!(!streams[left].ptr_eq(&streams[right]));
+            }
+        }
         Ok(())
     }
 
