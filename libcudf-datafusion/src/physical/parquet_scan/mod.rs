@@ -15,8 +15,8 @@ use crate::planner::{
 };
 use arrow::array::{Array, ArrayRef};
 use arrow_schema::SchemaRef;
-use datafusion::common::plan_err;
 use datafusion::common::tree_node::TreeNodeRecursion;
+use datafusion::common::{plan_err, Result};
 use datafusion::config::ConfigOptions;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::{EquivalenceProperties, Partitioning};
@@ -99,13 +99,14 @@ impl CuDFParquetScanConfig {
 pub struct CuDFParquetScanExec {
     config: CuDFParquetScanConfig,
     read_plan: ReadPlan,
+    cuda_streams: bool,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
 
 impl CuDFParquetScanExec {
     /// Create a cuDF Parquet scan from a validated scan config.
-    pub fn try_new(config: CuDFParquetScanConfig) -> datafusion::common::Result<Self> {
+    pub fn try_new(config: CuDFParquetScanConfig) -> Result<Self> {
         let file_count = ReadPlan::source_count(&config.file_groups);
         if file_count == 0 {
             return plan_err!("CuDFParquetScanExec requires at least one parquet file");
@@ -140,15 +141,33 @@ impl CuDFParquetScanExec {
         Ok(Self {
             config,
             read_plan,
+            cuda_streams: false,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
         })
     }
+
+    pub(crate) fn cuda_streams_enabled(&self) -> bool {
+        self.cuda_streams
+    }
+
+    pub(crate) fn repartitioned_for_cuda_streams(
+        &self,
+        target_partitions: usize,
+    ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
+        let config =
+            ReadPlan::repartitioned_source_groups(&self.config.file_groups, target_partitions)
+                .map_or_else(
+                    || self.config.clone(),
+                    |file_groups| self.config.clone().with_file_groups(file_groups),
+                );
+        let mut scan = Self::try_new(config)?;
+        scan.cuda_streams = true;
+        Ok((scan.config.file_groups.len() > 1).then(|| Arc::new(scan) as Arc<dyn ExecutionPlan>))
+    }
 }
 
-fn parquet_read_columns(
-    config: &CuDFParquetScanConfig,
-) -> datafusion::common::Result<Option<Arc<[String]>>> {
+fn parquet_read_columns(config: &CuDFParquetScanConfig) -> Result<Option<Arc<[String]>>> {
     let Some(projection) = config.projection.as_ref() else {
         return Ok(None);
     };
@@ -188,7 +207,11 @@ impl DisplayAs for CuDFParquetScanExec {
             self.config.pass_read_limit,
             read_columns,
             self.config.filter.is_some()
-        )
+        )?;
+        if self.cuda_streams {
+            write!(f, ", cuda_streams=true")?;
+        }
+        Ok(())
     }
 }
 
@@ -207,15 +230,15 @@ impl ExecutionPlan for CuDFParquetScanExec {
 
     fn apply_expressions(
         &self,
-        _f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> datafusion::common::Result<TreeNodeRecursion>,
-    ) -> datafusion::common::Result<TreeNodeRecursion> {
+        _f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> Result<TreeNodeRecursion>,
+    ) -> Result<TreeNodeRecursion> {
         Ok(TreeNodeRecursion::Continue)
     }
 
     fn with_new_children(
         self: Arc<Self>,
         children: Vec<Arc<dyn ExecutionPlan>>,
-    ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
+    ) -> Result<Arc<dyn ExecutionPlan>> {
         if !children.is_empty() {
             return plan_err!(
                 "CuDFParquetScanExec expects no children, {} were provided",
@@ -229,7 +252,7 @@ impl ExecutionPlan for CuDFParquetScanExec {
         &self,
         target_partitions: usize,
         _config: &ConfigOptions,
-    ) -> datafusion::common::Result<Option<Arc<dyn ExecutionPlan>>> {
+    ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
         let Some(file_groups) =
             ReadPlan::repartitioned_source_groups(&self.config.file_groups, target_partitions)
         else {
@@ -237,24 +260,26 @@ impl ExecutionPlan for CuDFParquetScanExec {
         };
 
         let config = self.config.clone().with_file_groups(file_groups);
-        Ok(Some(Arc::new(Self::try_new(config)?)))
+        let mut scan = Self::try_new(config)?;
+        scan.cuda_streams = self.cuda_streams;
+        Ok(Some(Arc::new(scan)))
     }
 
     fn execute(
         &self,
         partition: usize,
         _context: Arc<TaskContext>,
-    ) -> datafusion::common::Result<SendableRecordBatchStream> {
+    ) -> Result<SendableRecordBatchStream> {
         let Some(scan_partition) = self.read_plan.partition(partition) else {
             return plan_err!("CuDFParquetScanExec invalid partition {partition}");
         };
 
         let schema = self.schema();
         let metrics = ScanMetrics::new(&self.metrics, partition);
-        let stream = if self.config.file_groups.len() == 1 {
-            global_execution_stream().map_err(cudf_to_df)?
-        } else {
+        let stream = if self.cuda_streams {
             CuDFStream::try_with_flags(CuDFStreamFlags::NonBlocking).map_err(cudf_to_df)?
+        } else {
+            global_execution_stream().map_err(cudf_to_df)?
         };
         let reader = ParquetBatchReader::new(
             Arc::clone(&schema),
@@ -270,7 +295,7 @@ impl ExecutionPlan for CuDFParquetScanExec {
         builder.spawn_blocking(move || {
             for file_batch in scan_partition.batches() {
                 let mut compute_timer = Some(metrics.baseline.elapsed_compute().timer());
-                let result: datafusion::common::Result<_> = {
+                let result: Result<_> = {
                     metrics.record_file_batch(file_batch);
 
                     let mut read_timer = Some(metrics.read_time.timer());
@@ -323,7 +348,7 @@ fn build_record_batch(
     parquet_batch: reader::ReadBatch,
     schema: &SchemaRef,
     metrics: &ScanMetrics,
-) -> datafusion::common::Result<arrow::record_batch::RecordBatch> {
+) -> Result<arrow::record_batch::RecordBatch> {
     let cast_timer = metrics.cast_time.timer();
     let mut cudf_cols: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
     for (column, field) in parquet_batch.columns.into_iter().zip(schema.fields()) {
@@ -480,7 +505,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn partitions_attach_distinct_streams_to_file_batches(
+    async fn cuda_streams_are_enabled_only_for_marked_scans(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let schema = Arc::new(Schema::new(vec![Field::new(
             "value",
@@ -499,37 +524,29 @@ mod tests {
             })
             .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
 
-        let plan: Arc<dyn ExecutionPlan> = Arc::new(CuDFParquetScanExec::try_new(
-            scan_config_for_paths(&paths, schema)?.with_files_per_batch(1),
-        )?);
-        let plan = plan
+        let config = scan_config_for_paths(&paths, schema)?.with_files_per_batch(1);
+        let plan: Arc<dyn ExecutionPlan> = Arc::new(CuDFParquetScanExec::try_new(config.clone())?);
+        let ordinary_plan = plan
             .repartitioned(8, &ConfigOptions::new())?
             .expect("eight files can be repartitioned eight ways");
-        assert_eq!(plan.output_partitioning().partition_count(), 8);
-        let mut batches = Vec::new();
-        for partition in 0..8 {
-            batches.extend(
-                plan.execute(partition, Arc::new(TaskContext::default()))?
-                    .try_collect::<Vec<_>>()
-                    .await?,
-            );
-        }
+        let streamed_plan = CuDFParquetScanExec::try_new(config)?
+            .repartitioned_for_cuda_streams(8)?
+            .expect("eight files can use eight CUDA streams");
+
+        let ordinary_streams = collect_partition_streams(&ordinary_plan).await?;
+        let streamed_streams = collect_partition_streams(&streamed_plan).await?;
 
         for path in paths {
             remove_file(path).ok();
         }
-        assert_eq!(batches.len(), 8);
-        let streams = batches
+        assert_eq!(ordinary_streams.len(), 8);
+        assert_eq!(streamed_streams.len(), 8);
+        assert!(ordinary_streams
             .iter()
-            .map(|batch| {
-                record_batch_execution_stream(batch)
-                    .expect("cuDF parquet batch has a valid execution stream")
-                    .expect("cuDF parquet batch has an execution stream")
-            })
-            .collect::<Vec<_>>();
-        for left in 0..streams.len() {
-            for right in left + 1..streams.len() {
-                assert!(!streams[left].ptr_eq(&streams[right]));
+            .all(|stream| stream.ptr_eq(&ordinary_streams[0])));
+        for left in 0..streamed_streams.len() {
+            for right in left + 1..streamed_streams.len() {
+                assert!(!streamed_streams[left].ptr_eq(&streamed_streams[right]));
             }
         }
         Ok(())
@@ -618,6 +635,27 @@ mod tests {
             vec![sources],
             schema,
         ))
+    }
+
+    async fn collect_partition_streams(
+        plan: &Arc<dyn ExecutionPlan>,
+    ) -> Result<Vec<libcudf_rs::CuDFStream>, Box<dyn std::error::Error>> {
+        let mut streams = Vec::new();
+        for partition in 0..plan.output_partitioning().partition_count() {
+            let batches = plan
+                .execute(partition, Arc::new(TaskContext::default()))?
+                .try_collect::<Vec<_>>()
+                .await?;
+            streams.extend(
+                batches
+                    .iter()
+                    .map(record_batch_execution_stream)
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .map(|stream| stream.expect("cuDF parquet batch has an execution stream")),
+            );
+        }
+        Ok(streams)
     }
 
     fn write_parquet(

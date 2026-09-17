@@ -14,7 +14,7 @@ mod tests {
     use std::path::Path;
     use tokio::sync::OnceCell;
 
-    const PARTITIONS: usize = 6;
+    const PARTITIONS: usize = 8;
     const TPCH_SCALE_FACTOR: f64 = 1.0;
     const TPCH_DATA_PARTS: i32 = 16;
     const DIRECT_PARQUET_SCAN_TEST_ENV: &str = "LIBCUDF_DATAFUSION_DIRECT_PARQUET_SCAN_TESTS";
@@ -138,13 +138,15 @@ mod tests {
             // same revenue; this extra ordering pins the row order.
             sql = sql.replace("revenue desc", "revenue, c_acctbal desc");
         }
+        let parquet_scan_enabled = parquet_scan_enabled();
+        let target_partitions = if parquet_scan_enabled { 1 } else { PARTITIONS };
         let gpu_ctx = SessionContext::from(
             SessionStateBuilder::new()
                 .with_default_features()
                 .with_config(
                     SessionConfig::new()
-                        .with_target_partitions(PARTITIONS)
-                        .with_option_extension(parquet_scan_config()),
+                        .with_target_partitions(target_partitions)
+                        .with_option_extension(parquet_scan_config(parquet_scan_enabled)),
                 )
                 .with_cudf_planner()
                 .build(),
@@ -201,11 +203,13 @@ mod tests {
         ctx.register_udaf((*sum()).clone());
     }
 
-    fn parquet_scan_config() -> CuDFConfig {
-        CuDFConfig::default().with_parquet_scan(correctness_parquet_scan_enabled())
+    fn parquet_scan_config(enabled: bool) -> CuDFConfig {
+        CuDFConfig::default()
+            .with_parquet_scan(enabled)
+            .with_parquet_scan_streams(PARTITIONS)
     }
 
-    fn correctness_parquet_scan_enabled() -> bool {
+    fn parquet_scan_enabled() -> bool {
         env::var(DIRECT_PARQUET_SCAN_TEST_ENV).is_ok_and(|value| {
             matches!(
                 value.as_str(),

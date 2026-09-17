@@ -19,6 +19,8 @@ extensions_options! {
         pub parquet_scan: bool, default = false
         /// Maximum number of files included in each cuDF Parquet read.
         pub parquet_scan_files_per_batch: usize, default = DEFAULT_PARQUET_SCAN_FILES_PER_BATCH
+        /// Number of partitions and CUDA streams used by eligible Parquet-to-aggregate pipelines.
+        pub parquet_scan_streams: usize, default = 1
         /// Maximum approximate bytes returned by each cuDF chunked Parquet read.
         ///
         /// cuDF treats 0 as "no limit"; direct DataFusion scans reject 0 so this
@@ -66,6 +68,13 @@ impl CuDFConfig {
     #[must_use]
     pub fn with_parquet_scan_files_per_batch(mut self, files_per_batch: usize) -> Self {
         self.parquet_scan_files_per_batch = files_per_batch;
+        self
+    }
+
+    /// Return a copy with the number of partitions and CUDA streams for eligible Parquet-to-aggregate pipelines.
+    #[must_use]
+    pub fn with_parquet_scan_streams(mut self, streams: usize) -> Self {
+        self.parquet_scan_streams = streams;
         self
     }
 
