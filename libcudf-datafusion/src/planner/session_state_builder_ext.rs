@@ -1,4 +1,5 @@
 use crate::planner::host_to_cudf::HostToCuDFRule;
+use crate::planner::parquet_aggregate_streams::ParquetAggregateStreamsRule;
 use crate::planner::rescale_leafs::RescaleLeafsRule;
 use crate::CuDFConfig;
 use datafusion::execution::SessionStateBuilder;
@@ -21,7 +22,8 @@ impl SessionStateBuilderExt for SessionStateBuilder {
         // Assume only one GPU present, and therefore, force target_partitions == 1.
         cfg.options_mut().execution.target_partitions = 1;
 
-        self.with_physical_optimizer_rule(Arc::new(RescaleLeafsRule(target_partitions)))
-            .with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
+        self.with_physical_optimizer_rule(Arc::new(HostToCuDFRule))
+            .with_physical_optimizer_rule(Arc::new(ParquetAggregateStreamsRule))
+            .with_physical_optimizer_rule(Arc::new(RescaleLeafsRule(target_partitions)))
     }
 }

@@ -143,7 +143,7 @@ pub(crate) fn ensure_same_stream(
     actual: &CuDFStream,
     context: &str,
 ) -> Result<()> {
-    /// TODO: This is probably a smell. We should introduce a unique ID for streams.
+    // TODO: This is probably a smell. We should introduce a unique ID for streams.
     if expected.ptr_eq(actual) {
         Ok(())
     } else {

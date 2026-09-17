@@ -312,10 +312,10 @@ mod tests {
     }
 
     fn parquet_scan_config() -> CuDFConfig {
-        CuDFConfig::default().with_parquet_scan(correctness_parquet_scan_enabled())
+        CuDFConfig::default().with_parquet_scan(parquet_scan_enabled())
     }
 
-    fn correctness_parquet_scan_enabled() -> bool {
+    fn parquet_scan_enabled() -> bool {
         env::var(DIRECT_PARQUET_SCAN_TEST_ENV).is_ok_and(|value| {
             matches!(
                 value.as_str(),

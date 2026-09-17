@@ -80,6 +80,10 @@ pub struct RunOpt {
     #[structopt(long = "cudf-parquet-scan-files-per-batch")]
     cudf_parquet_scan_files_per_batch: Option<usize>,
 
+    /// CUDA streams used by optimizer-selected Parquet-to-aggregate pipelines.
+    #[structopt(long = "cudf-parquet-scan-streams")]
+    cudf_parquet_scan_streams: Option<usize>,
+
     /// Activate debug mode to see more details
     #[structopt(short, long)]
     debug: bool,
@@ -152,6 +156,10 @@ impl RunOpt {
             }
             if let Some(files_per_batch) = self.cudf_parquet_scan_files_per_batch {
                 cudf_config = cudf_config.with_parquet_scan_files_per_batch(files_per_batch);
+            }
+            if self.enable_cudf_parquet_scan {
+                cudf_config = cudf_config
+                    .with_parquet_scan_streams(self.cudf_parquet_scan_streams.unwrap_or(2));
             }
             config = config.with_option_extension(cudf_config);
         }
