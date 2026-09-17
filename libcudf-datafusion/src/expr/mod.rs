@@ -3,7 +3,7 @@ use crate::expr::binary::CuDFBinaryExpr;
 use crate::expr::cast::CuDFCastExpr;
 use crate::expr::literal::CuDFLiteral;
 use crate::physical::normalize_scalar_for_cudf;
-use arrow::array::Array;
+use arrow::array::{Array, RecordBatch};
 use datafusion::common::{exec_err, not_impl_err};
 use datafusion::error::DataFusionError;
 use datafusion::physical_expr::scalar_subquery::ScalarSubqueryExpr;
@@ -11,7 +11,10 @@ use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::expressions::{BinaryExpr, CastExpr, Column};
 use datafusion_expr::ColumnarValue;
 use datafusion_physical_plan::expressions::Literal;
-use libcudf_rs::{CuDFColumnView, CuDFColumnViewOrScalar, CuDFScalar};
+use libcudf_rs::{
+    global_execution_stream, record_batch_execution_stream, CuDFColumnView, CuDFColumnViewOrScalar,
+    CuDFScalar,
+};
 use std::sync::Arc;
 
 pub(crate) mod ast;
@@ -24,6 +27,7 @@ pub(crate) use column::CuDFColumnExpr;
 
 pub(crate) fn columnar_value_to_cudf(
     c: ColumnarValue,
+    batch: &RecordBatch,
 ) -> Result<CuDFColumnViewOrScalar, DataFusionError> {
     match c {
         ColumnarValue::Array(arr) => {
@@ -37,7 +41,11 @@ pub(crate) fn columnar_value_to_cudf(
         }
         ColumnarValue::Scalar(value) => {
             let value = normalize_scalar_for_cudf(value)?;
-            let scalar = CuDFScalar::try_from_arrow_host(value.to_scalar()?).map_err(cudf_to_df)?;
+            let stream = record_batch_execution_stream(batch)
+                .map_err(cudf_to_df)?
+                .unwrap_or(global_execution_stream().map_err(cudf_to_df)?);
+            let scalar = CuDFScalar::try_from_arrow_host_on_stream(value.to_scalar()?, &stream)
+                .map_err(cudf_to_df)?;
             Ok(scalar.into())
         }
     }
@@ -75,4 +83,36 @@ pub(crate) fn expr_to_cudf_expr(
     }
 
     not_impl_err!("Expression {expr} not supported in CuDF")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow::array::{ArrayRef, Int32Array};
+    use arrow_schema::{DataType, Field, Schema};
+    use datafusion::common::ScalarValue;
+    use libcudf_rs::{record_batch_with_schema, CuDFColumn, CuDFStream, CuDFStreamFlags};
+
+    #[test]
+    fn scalar_uses_the_batch_stream() -> Result<(), Box<dyn std::error::Error>> {
+        let stream = CuDFStream::try_with_flags(CuDFStreamFlags::NonBlocking)?;
+        let column =
+            CuDFColumn::try_from_arrow_host_on_stream(&Int32Array::from(vec![1, 2]), &stream)?;
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int32,
+            false,
+        )]));
+        let batch =
+            record_batch_with_schema(vec![Arc::new(column.into_view()) as ArrayRef], &schema, 2)?;
+
+        let CuDFColumnViewOrScalar::Scalar(scalar) =
+            columnar_value_to_cudf(ColumnarValue::Scalar(ScalarValue::Int32(Some(1))), &batch)?
+        else {
+            unreachable!()
+        };
+        assert!(scalar.execution_stream().ptr_eq(&stream));
+        stream.synchronize()?;
+        Ok(())
+    }
 }

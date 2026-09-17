@@ -1,7 +1,10 @@
 use crate::cudf_reference::CuDFRef;
 use crate::device_resource::resource_ref;
-use crate::stream::stream_ref;
-use crate::{CuDFColumnView, CuDFError};
+use crate::stream::{
+    common_execution_stream, global_execution_stream, record_batch_execution_stream_from_columns,
+    stream_ref,
+};
+use crate::{CuDFColumnView, CuDFError, CuDFStream};
 use arrow::array::{Array, ArrayRef, RecordBatch, RecordBatchOptions, StructArray};
 use arrow::ffi::from_ffi;
 use arrow_schema::ffi::FFI_ArrowSchema;
@@ -20,6 +23,7 @@ pub struct CuDFTableView {
     pub(crate) keepalive: Option<Arc<dyn CuDFRef>>,
     num_rows: usize,
     column_device_memory_sizes: Vec<usize>,
+    stream: CuDFStream,
 }
 
 impl CuDFTableView {
@@ -28,12 +32,14 @@ impl CuDFTableView {
         keepalive: Option<Arc<dyn CuDFRef>>,
         num_rows: usize,
         column_device_memory_sizes: Vec<usize>,
+        stream: CuDFStream,
     ) -> Self {
         Self {
             inner,
             keepalive,
             num_rows,
             column_device_memory_sizes,
+            stream,
         }
     }
 
@@ -48,6 +54,11 @@ impl CuDFTableView {
             .as_ref()
             .ok_or(CuDFError::NullHandle("table view"))?;
         Ok(ffi::table_view_clone(inner)?)
+    }
+
+    /// Return the CUDA stream on which this table becomes ready.
+    pub fn execution_stream(&self) -> CuDFStream {
+        self.stream.clone()
     }
 
     /// Create a table view from a slice of column view references
@@ -81,6 +92,11 @@ impl CuDFTableView {
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
     pub fn try_from_column_views(column_views: Vec<CuDFColumnView>) -> Result<Self, CuDFError> {
+        let stream = common_execution_stream(
+            column_views.iter().map(CuDFColumnView::execution_stream),
+            "table-view columns",
+        )?
+        .unwrap_or(global_execution_stream()?);
         let mut view_ptrs: Vec<*const ffi::ColumnView> = Vec::with_capacity(column_views.len());
         let mut keepalives = Vec::with_capacity(column_views.len());
         let column_device_memory_sizes = column_views
@@ -104,6 +120,7 @@ impl CuDFTableView {
             keepalive: Some(Arc::new(keepalives)),
             num_rows,
             column_device_memory_sizes,
+            stream,
         })
     }
 
@@ -172,10 +189,11 @@ impl CuDFTableView {
             .into());
         }
         let inner = self.inner.column(index)?;
-        CuDFColumnView::try_from_inner_with_device_size(
+        CuDFColumnView::try_from_inner_with_device_size_on_stream(
             inner,
             Some(Arc::new(self.clone())),
             self.column_device_memory_sizes.get(usize_index).copied(),
+            self.stream.clone(),
         )
     }
 
@@ -213,7 +231,7 @@ impl CuDFTableView {
                 &metadata,
                 &mut ffi_schema as *mut FFI_ArrowSchema as *mut u8,
             )?;
-            let stream = crate::stream::execution_stream()?;
+            let stream = self.stream.view()?;
             let mr = ffi::get_current_device_resource_ref();
             ffi::to_arrow_host_table(
                 self.inner(),
@@ -331,6 +349,10 @@ impl CuDFTableView {
 /// All GPU `RecordBatch` creation should go through this function instead of calling
 /// `RecordBatch::try_new` directly.
 ///
+/// Every GPU column or scalar must refer to the same CUDA stream. Host arrays
+/// have no stream and are ignored by this check. A batch containing GPU arrays
+/// from different streams is rejected.
+///
 /// `num_rows` is required so zero-column batches (e.g. produced by `FilterExec`
 /// with `projection=[]` for `COUNT(*) WHERE ...` plans) carry their row count.
 pub fn record_batch_with_schema(
@@ -338,6 +360,8 @@ pub fn record_batch_with_schema(
     schema: &SchemaRef,
     num_rows: usize,
 ) -> Result<RecordBatch, ArrowError> {
+    record_batch_execution_stream_from_columns(&columns)
+        .map_err(|error| ArrowError::InvalidArgumentError(error.to_string()))?;
     let relabeled: Vec<ArrayRef> = columns
         .into_iter()
         .zip(schema.fields())
@@ -361,6 +385,7 @@ impl Clone for CuDFTableView {
             keepalive: self.keepalive.clone(),
             num_rows: self.num_rows,
             column_device_memory_sizes: self.column_device_memory_sizes.clone(),
+            stream: self.stream.clone(),
         }
     }
 }

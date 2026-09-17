@@ -167,7 +167,8 @@ fn filter_and_project(
 ) -> Result<RecordBatch, DataFusionError> {
     // Evaluate the predicate to get a boolean mask (CuDF array on GPU)
     let filter_array = predicate.evaluate(batch)?;
-    let CuDFColumnViewOrScalar::ColumnView(bool_mask) = columnar_value_to_cudf(filter_array)?
+    let CuDFColumnViewOrScalar::ColumnView(bool_mask) =
+        columnar_value_to_cudf(filter_array, batch)?
     else {
         return internal_err!("Expected a CuDFColumnView from predicate evaluation for filter");
     };

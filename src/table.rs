@@ -1,8 +1,8 @@
 use crate::cudf_array::is_cudf_array;
 use crate::device_resource::resource_ref;
-use crate::stream::stream_ref;
+use crate::stream::{common_execution_stream, global_execution_stream, stream_ref};
 use crate::table_view::CuDFTableView;
-use crate::{CuDFAstExpression, CuDFColumn, CuDFError};
+use crate::{CuDFAstExpression, CuDFColumn, CuDFError, CuDFStream};
 use arrow::array::{Array, ArrayData, StructArray};
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow::record_batch::RecordBatch;
@@ -20,6 +20,7 @@ pub struct CuDFTable {
     pub(crate) inner: UniquePtr<ffi::Table>,
     num_rows: usize,
     column_device_memory_sizes: Vec<usize>,
+    stream: CuDFStream,
 }
 
 /// Result of reading Parquet with cuDF, including metadata needed for schema adaptation.
@@ -58,6 +59,14 @@ where
 impl CuDFTable {
     /// Create a CuDFTable from a raw FFI table (internal use)
     pub(crate) fn try_from_inner(inner: UniquePtr<ffi::Table>) -> Result<Self, CuDFError> {
+        let stream = global_execution_stream()?;
+        Self::try_from_inner_on_stream(inner, stream)
+    }
+
+    pub(crate) fn try_from_inner_on_stream(
+        inner: UniquePtr<ffi::Table>,
+        stream: CuDFStream,
+    ) -> Result<Self, CuDFError> {
         if inner.is_null() {
             return Err(CuDFError::NullHandle("table"));
         }
@@ -70,6 +79,7 @@ impl CuDFTable {
             view: Arc::new(view),
             num_rows,
             column_device_memory_sizes,
+            stream,
         })
     }
     /// Create an empty table
@@ -89,12 +99,17 @@ impl CuDFTable {
     }
 
     pub(crate) fn try_from_columns(mut columns: Vec<CuDFColumn>) -> Result<Self, CuDFError> {
+        let stream = common_execution_stream(
+            columns.iter().map(CuDFColumn::execution_stream),
+            "table columns",
+        )?
+        .unwrap_or(global_execution_stream()?);
         let ptrs: Vec<_> = columns
             .iter_mut()
             .map(|col| col.inner.as_mut_ptr())
             .collect();
         let inner = unsafe { ffi::create_table_from_columns_move(&ptrs) }?;
-        Self::try_from_inner(inner)
+        Self::try_from_inner_on_stream(inner, stream)
     }
 
     /// Read a table from a Parquet file
@@ -156,8 +171,21 @@ impl CuDFTable {
         P: AsRef<Path>,
         S: AsRef<str>,
     {
+        let stream = global_execution_stream()?;
+        Self::read_parquet_with_options_on_stream(read_options, &stream)
+    }
+
+    /// Read Parquet files with cuDF metadata on `stream`.
+    pub fn read_parquet_with_options_on_stream<P, S>(
+        read_options: CuDFParquetReadOptions<'_, P, S>,
+        stream: &CuDFStream,
+    ) -> Result<CuDFParquetReadResult, CuDFError>
+    where
+        P: AsRef<Path>,
+        S: AsRef<str>,
+    {
         let options = Self::parquet_reader_options(read_options)?;
-        Self::read_parquet_options_with_metadata(options)
+        Self::read_parquet_options_with_metadata(options, stream)
     }
 
     /// Read all Parquet chunks with cuDF metadata for each chunk.
@@ -197,8 +225,37 @@ impl CuDFTable {
         S: AsRef<str>,
         F: FnMut(CuDFParquetReadResult) -> Result<bool, CuDFError>,
     {
+        let stream = global_execution_stream()?;
+        Self::for_each_parquet_chunk_on_stream(
+            read_options,
+            chunk_read_limit,
+            pass_read_limit,
+            &stream,
+            callback,
+        )
+    }
+
+    /// Read Parquet chunks on `stream`, invoking `callback` for each chunk.
+    pub fn for_each_parquet_chunk_on_stream<P, S, F>(
+        read_options: CuDFParquetReadOptions<'_, P, S>,
+        chunk_read_limit: usize,
+        pass_read_limit: usize,
+        stream: &CuDFStream,
+        callback: F,
+    ) -> Result<(), CuDFError>
+    where
+        P: AsRef<Path>,
+        S: AsRef<str>,
+        F: FnMut(CuDFParquetReadResult) -> Result<bool, CuDFError>,
+    {
         let options = Self::parquet_reader_options(read_options)?;
-        Self::for_each_parquet_options_chunk(options, chunk_read_limit, pass_read_limit, callback)
+        Self::for_each_parquet_options_chunk(
+            options,
+            chunk_read_limit,
+            pass_read_limit,
+            stream,
+            callback,
+        )
     }
 
     fn parquet_reader_options<P, S>(
@@ -317,26 +374,28 @@ impl CuDFTable {
 
     fn read_parquet_options_with_metadata(
         options: UniquePtr<ffi::ParquetReaderOptions>,
+        execution_stream: &CuDFStream,
     ) -> Result<CuDFParquetReadResult, CuDFError> {
-        let stream = crate::stream::execution_stream()?;
+        let stream = unsafe { execution_stream.view()? };
         let mr = ffi::get_current_device_resource_ref();
         let options = options
             .as_ref()
             .ok_or(CuDFError::NullHandle("Parquet reader options"))?;
         let mut result = ffi::read_parquet(options, stream_ref(&stream)?, resource_ref(&mr)?)?;
-        Self::parquet_read_result_from_metadata(&mut result)
+        Self::parquet_read_result_from_metadata(&mut result, execution_stream)
     }
 
     fn for_each_parquet_options_chunk<F>(
         options: UniquePtr<ffi::ParquetReaderOptions>,
         chunk_read_limit: usize,
         pass_read_limit: usize,
+        execution_stream: &CuDFStream,
         mut callback: F,
     ) -> Result<(), CuDFError>
     where
         F: FnMut(CuDFParquetReadResult) -> Result<bool, CuDFError>,
     {
-        let stream = crate::stream::execution_stream()?;
+        let stream = unsafe { execution_stream.view()? };
         let mr = ffi::get_current_device_resource_ref();
         let reader = ffi::chunked_parquet_reader_create(
             chunk_read_limit,
@@ -350,7 +409,10 @@ impl CuDFTable {
 
         while reader.has_next()? {
             let mut result = reader.read_chunk()?;
-            if !callback(Self::parquet_read_result_from_metadata(&mut result)?)? {
+            if !callback(Self::parquet_read_result_from_metadata(
+                &mut result,
+                execution_stream,
+            )?)? {
                 break;
             }
         }
@@ -359,6 +421,7 @@ impl CuDFTable {
 
     fn parquet_read_result_from_metadata(
         result: &mut UniquePtr<ffi::TableWithMetadata>,
+        stream: &CuDFStream,
     ) -> Result<CuDFParquetReadResult, CuDFError> {
         let metadata = result.pin_mut().release_metadata()?;
         let metadata = metadata
@@ -373,7 +436,7 @@ impl CuDFTable {
             column_names.push(info.name());
         }
         let inner = result.pin_mut().release_table()?;
-        let table = Self::try_from_inner(inner)?;
+        let table = Self::try_from_inner_on_stream(inner, stream.clone())?;
         let num_rows = table.num_rows();
         Ok(CuDFParquetReadResult {
             table,
@@ -413,7 +476,7 @@ impl CuDFTable {
             .as_ref()
             .ok_or(CuDFError::NullHandle("Parquet sink info"))?;
         let options = ffi::parquet_writer_options_create(sink, &self.view)?;
-        let stream = crate::stream::execution_stream()?;
+        let stream = unsafe { self.stream.view()? };
         let _metadata = ffi::write_parquet(
             options
                 .as_ref()
@@ -451,10 +514,19 @@ impl CuDFTable {
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
     pub fn try_from_arrow_host(batch: RecordBatch) -> Result<Self, CuDFError> {
+        let stream = global_execution_stream()?;
+        Self::try_from_arrow_host_on_stream(batch, &stream)
+    }
+
+    /// Create a cuDF table from a host Arrow batch on `stream`.
+    pub fn try_from_arrow_host_on_stream(
+        batch: RecordBatch,
+        stream: &CuDFStream,
+    ) -> Result<Self, CuDFError> {
         crate::config::ensure_pools_configured()?;
         for col in batch.columns() {
             if is_cudf_array(col) {
-                return Err(ArrowError::InvalidArgumentError("Tried to move a RecordBatch from the host to CuDF, but a column was already in CuDF".to_string()))?;
+                return Err(ArrowError::InvalidArgumentError("Tried to move a RecordBatch from the host to CuDF, but a column was already in CuDF".to_string()).into());
             }
         }
         let schema = batch.schema().as_ref().clone();
@@ -468,18 +540,18 @@ impl CuDFTable {
 
         let schema_ptr = &ffi_schema as *const FFI_ArrowSchema as *const u8;
         let device_array_ptr = &device_array as *const ArrowDeviceArray as *const u8;
-        let stream = crate::stream::execution_stream()?;
+        let stream_view = unsafe { stream.view()? };
         let mr = ffi::get_current_device_resource_ref();
         let inner = unsafe {
             ffi::from_arrow_host(
                 schema_ptr,
                 device_array_ptr,
-                stream_ref(&stream)?,
+                stream_ref(&stream_view)?,
                 resource_ref(&mr)?,
             )
         }?;
 
-        Self::try_from_inner(inner)
+        Self::try_from_inner_on_stream(inner, stream.clone())
     }
 
     /// Get the number of rows in the table
@@ -532,6 +604,11 @@ impl CuDFTable {
         self.column_device_memory_sizes.iter().sum()
     }
 
+    /// Return the CUDA stream on which this table becomes ready.
+    pub fn execution_stream(&self) -> CuDFStream {
+        self.stream.clone()
+    }
+
     /// Get a non-owning view of this table
     ///
     /// The returned view borrows from this table and remains valid as long as
@@ -540,7 +617,8 @@ impl CuDFTable {
         let view = Arc::clone(&self.view);
         let num_rows = self.num_rows;
         let sizes = self.column_device_memory_sizes.clone();
-        CuDFTableView::from_shared_view(view, Some(self), num_rows, sizes)
+        let stream = self.stream.clone();
+        CuDFTableView::from_shared_view(view, Some(self), num_rows, sizes, stream)
     }
 
     /// Get a non-owning view of this table
@@ -553,11 +631,12 @@ impl CuDFTable {
     /// This consumes the table structure and returns its columns as a collection
     /// that can be individually released.
     pub fn into_columns(mut self) -> Result<Vec<CuDFColumn>, CuDFError> {
+        let stream = self.stream.clone();
         let mut columns = self.inner.pin_mut().release()?;
         let mut result = Vec::with_capacity(columns.len());
         for i in 0..columns.len() {
             let col = columns.pin_mut().release(i);
-            result.push(CuDFColumn::try_from_inner(col));
+            result.push(CuDFColumn::try_from_inner_on_stream(col, stream.clone()));
         }
         result.into_iter().collect()
     }
@@ -587,15 +666,31 @@ impl CuDFTable {
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
     pub fn concat(views: Vec<CuDFTableView>) -> Result<Self, CuDFError> {
+        let stream = common_execution_stream(
+            views.iter().map(CuDFTableView::execution_stream),
+            "concatenated tables",
+        )?
+        .unwrap_or(global_execution_stream()?);
+        Self::concat_on_stream(views, &stream)
+    }
+
+    /// Concatenate tables on `stream`.
+    ///
+    /// The caller must establish any dependencies when the inputs were
+    /// produced on other streams.
+    pub fn concat_on_stream(
+        views: Vec<CuDFTableView>,
+        stream: &CuDFStream,
+    ) -> Result<Self, CuDFError> {
         let inner_views: Vec<_> = views
             .iter()
             .map(CuDFTableView::clone_inner)
             .collect::<Result<_, _>>()?;
-        let stream = crate::stream::execution_stream()?;
+        let stream_view = unsafe { stream.view()? };
         let mr = ffi::get_current_device_resource_ref();
         let inner =
-            ffi::concatenate_tables(&inner_views, stream_ref(&stream)?, resource_ref(&mr)?)?;
-        Self::try_from_inner(inner)
+            ffi::concatenate_tables(&inner_views, stream_ref(&stream_view)?, resource_ref(&mr)?)?;
+        Self::try_from_inner_on_stream(inner, stream.clone())
     }
 }
 

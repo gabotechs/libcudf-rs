@@ -1,8 +1,8 @@
 use crate::cudf_reference::CuDFRef;
 use crate::data_type::cudf_type_to_arrow;
 use crate::device_resource::resource_ref;
-use crate::stream::stream_ref;
-use crate::{slice_column, CuDFError};
+use crate::stream::{global_execution_stream, stream_ref};
+use crate::{slice_column, CuDFError, CuDFStream};
 use arrow::array::{Array, ArrayData, ArrayRef};
 use arrow::buffer::{BooleanBuffer, Buffer, NullBuffer};
 use arrow::ffi::FFI_ArrowSchema;
@@ -51,6 +51,7 @@ pub struct CuDFColumnView {
     pub(crate) keepalive: Option<Arc<dyn CuDFRef>>,
     metadata: ColumnViewMetadata,
     null_buf: OnceLock<Option<NullBuffer>>,
+    stream: CuDFStream,
 }
 
 impl CuDFColumnView {
@@ -69,12 +70,28 @@ impl CuDFColumnView {
         keepalive: Option<Arc<dyn CuDFRef>>,
         device_memory_size: Option<usize>,
     ) -> Result<Self, CuDFError> {
+        let stream = global_execution_stream()?;
+        Self::try_from_inner_with_device_size_on_stream(
+            inner,
+            keepalive,
+            device_memory_size,
+            stream,
+        )
+    }
+
+    pub(crate) fn try_from_inner_with_device_size_on_stream(
+        inner: UniquePtr<ffi::ColumnView>,
+        keepalive: Option<Arc<dyn CuDFRef>>,
+        device_memory_size: Option<usize>,
+        stream: CuDFStream,
+    ) -> Result<Self, CuDFError> {
         let metadata = column_view_metadata(&inner, device_memory_size)?;
         Ok(Self {
             inner: Arc::new(inner),
             keepalive,
             metadata,
             null_buf: OnceLock::new(),
+            stream,
         })
     }
 
@@ -82,12 +99,14 @@ impl CuDFColumnView {
         inner: Arc<UniquePtr<ffi::ColumnView>>,
         keepalive: Option<Arc<dyn CuDFRef>>,
         metadata: ColumnViewMetadata,
+        stream: CuDFStream,
     ) -> Self {
         Self {
             inner,
             keepalive,
             metadata,
             null_buf: OnceLock::new(),
+            stream,
         }
     }
 
@@ -104,6 +123,11 @@ impl CuDFColumnView {
         Ok(ffi::column_view_clone(inner)?)
     }
 
+    /// Return the CUDA stream on which this column becomes ready.
+    pub fn execution_stream(&self) -> CuDFStream {
+        self.stream.clone()
+    }
+
     /// Relabel this view's Arrow `DataType` without touching GPU memory.
     /// Used by [`record_batch_with_schema`](crate::record_batch_with_schema) to
     /// reconcile cuDF's max-precision decimals with declared schema types.
@@ -115,6 +139,7 @@ impl CuDFColumnView {
             keepalive: self.keepalive,
             metadata,
             null_buf: self.null_buf,
+            stream: self.stream,
         }
     }
 
@@ -151,7 +176,7 @@ impl CuDFColumnView {
         unsafe {
             let device_array_ptr =
                 &mut device_array as *mut libcudf_sys::ArrowDeviceArray as *mut u8;
-            let stream = crate::stream::execution_stream()?;
+            let stream = self.stream.view()?;
             let mr = ffi::get_current_device_resource_ref();
             ffi::to_arrow_host_column(
                 self.inner(),
@@ -194,7 +219,7 @@ impl CuDFColumnView {
             let _ = self.null_buf.set(None);
             return Ok(());
         }
-        let stream = crate::stream::execution_stream()?;
+        let stream = unsafe { self.stream.view()? };
         stream_ref(&stream)?.synchronize()?;
         let mask_bits = self
             .metadata
@@ -248,6 +273,7 @@ impl Clone for CuDFColumnView {
             keepalive: self.keepalive.clone(),
             metadata: self.metadata.clone(),
             null_buf: self.null_buf.clone(),
+            stream: self.stream.clone(),
         }
     }
 }

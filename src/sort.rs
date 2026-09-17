@@ -107,7 +107,8 @@ pub fn sort(
     let column_order_i32: Vec<i32> = sort_orders.iter().map(|&o| o.order() as i32).collect();
     let null_precedence_i32: Vec<i32> =
         sort_orders.iter().map(|&o| o.null_order() as i32).collect();
-    let stream = crate::stream::execution_stream()?;
+    let execution_stream = table.execution_stream();
+    let stream = unsafe { execution_stream.view()? };
     let mr = ffi::get_current_device_resource_ref();
 
     let inner = ffi::stable_sort_by_key(
@@ -118,7 +119,7 @@ pub fn sort(
         stream_ref(&stream)?,
         resource_ref(&mr)?,
     )?;
-    CuDFTable::try_from_inner(inner)
+    CuDFTable::try_from_inner_on_stream(inner, execution_stream)
 }
 
 /// Sort a table by all columns in lexicographic order
@@ -157,7 +158,8 @@ pub fn sort_by_all(
     let column_order_i32: Vec<i32> = sort_orders.iter().map(|&o| o.order() as i32).collect();
     let null_precedence_i32: Vec<i32> =
         sort_orders.iter().map(|&o| o.null_order() as i32).collect();
-    let stream = crate::stream::execution_stream()?;
+    let execution_stream = table.execution_stream();
+    let stream = unsafe { execution_stream.view()? };
     let mr = ffi::get_current_device_resource_ref();
 
     let inner = ffi::stable_sort(
@@ -167,7 +169,7 @@ pub fn sort_by_all(
         stream_ref(&stream)?,
         resource_ref(&mr)?,
     )?;
-    CuDFTable::try_from_inner(inner)
+    CuDFTable::try_from_inner_on_stream(inner, execution_stream)
 }
 
 /// Get the sorted order (indices) of a table
@@ -203,7 +205,8 @@ pub fn stable_sorted_order(
     let column_order_i32: Vec<i32> = sort_orders.iter().map(|&o| o.order() as i32).collect();
     let null_precedence_i32: Vec<i32> =
         sort_orders.iter().map(|&o| o.null_order() as i32).collect();
-    let stream = crate::stream::execution_stream()?;
+    let execution_stream = table.execution_stream();
+    let stream = unsafe { execution_stream.view()? };
     let mr = ffi::get_current_device_resource_ref();
 
     let inner = ffi::stable_sorted_order(
@@ -213,7 +216,7 @@ pub fn stable_sorted_order(
         stream_ref(&stream)?,
         resource_ref(&mr)?,
     )?;
-    CuDFColumn::try_from_inner(inner)
+    CuDFColumn::try_from_inner_on_stream(inner, execution_stream)
 }
 
 #[cfg(test)]

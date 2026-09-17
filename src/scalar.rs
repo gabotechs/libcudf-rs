@@ -1,7 +1,7 @@
 use crate::data_type::cudf_type_to_arrow;
 use crate::device_resource::resource_ref;
-use crate::stream::stream_ref;
-use crate::{CuDFColumn, CuDFError};
+use crate::stream::{global_execution_stream, stream_ref};
+use crate::{CuDFColumn, CuDFError, CuDFStream};
 use arrow::array::{Array, ArrayData, ArrayRef, Scalar};
 use arrow::buffer::NullBuffer;
 use arrow_schema::DataType;
@@ -20,11 +20,14 @@ pub struct CuDFScalar {
     inner: Arc<UniquePtr<ffi::Scalar>>,
     dt: DataType,
     cached_scalar: RwLock<Option<Arc<ArrayData>>>,
+    stream: CuDFStream,
 }
 
 impl CuDFScalar {
-    /// Create a CuDFScalar from an existing cuDF scalar
-    pub(crate) fn try_from_inner(inner: UniquePtr<ffi::Scalar>) -> Result<Self, CuDFError> {
+    pub(crate) fn try_from_inner_on_stream(
+        inner: UniquePtr<ffi::Scalar>,
+        stream: CuDFStream,
+    ) -> Result<Self, CuDFError> {
         if inner.is_null() {
             return Err(CuDFError::NullHandle("scalar"));
         }
@@ -36,6 +39,7 @@ impl CuDFScalar {
             inner: Arc::new(inner),
             dt,
             cached_scalar,
+            stream,
         })
     }
 
@@ -44,9 +48,14 @@ impl CuDFScalar {
         &self.inner
     }
 
+    /// Return the CUDA stream on which this scalar becomes ready.
+    pub fn execution_stream(&self) -> CuDFStream {
+        self.stream.clone()
+    }
+
     /// Return whether this scalar contains a valid value.
     pub fn is_valid(&self) -> Result<bool, CuDFError> {
-        let stream = crate::stream::execution_stream()?;
+        let stream = unsafe { self.stream.view()? };
         Ok(self.inner().is_valid(stream_ref(&stream)?)?)
     }
 
@@ -96,7 +105,7 @@ impl CuDFScalar {
         unsafe {
             let device_array_ptr =
                 &mut device_array as *mut libcudf_sys::ArrowDeviceArray as *mut u8;
-            let stream = crate::stream::execution_stream()?;
+            let stream = self.stream.view()?;
             let mr = ffi::get_current_device_resource_ref();
             let column = ffi::make_column_from_scalar(
                 self.inner(),
@@ -147,19 +156,32 @@ impl CuDFScalar {
     /// # Ok::<(), libcudf_rs::CuDFError>(())
     /// ```
     pub fn try_from_arrow_host<T: Array>(scalar: Scalar<T>) -> Result<Self, CuDFError> {
+        let stream = global_execution_stream()?;
+        Self::try_from_arrow_host_on_stream(scalar, &stream)
+    }
+
+    /// Convert an Arrow scalar to a cuDF scalar on `stream`.
+    pub fn try_from_arrow_host_on_stream<T: Array>(
+        scalar: Scalar<T>,
+        stream: &CuDFStream,
+    ) -> Result<Self, CuDFError> {
         // Convert scalar to a single-element array
         let array = scalar.into_inner();
 
         // Convert the array to a cuDF column (this copies to GPU)
-        let column = CuDFColumn::try_from_arrow_host(&array)?.into_view();
+        let column = CuDFColumn::try_from_arrow_host_on_stream(&array, stream)?.into_view();
 
         // Extract the scalar from the column at index 0
-        let stream = crate::stream::execution_stream()?;
+        let stream_view = unsafe { stream.view()? };
         let mr = ffi::get_current_device_resource_ref();
-        let cudf_scalar =
-            ffi::get_element(column.inner(), 0, stream_ref(&stream)?, resource_ref(&mr)?)?;
+        let cudf_scalar = ffi::get_element(
+            column.inner(),
+            0,
+            stream_ref(&stream_view)?,
+            resource_ref(&mr)?,
+        )?;
 
-        Self::try_from_inner(cudf_scalar)
+        Self::try_from_inner_on_stream(cudf_scalar, stream.clone())
     }
 
     /// Get or compute the cached ArrayData for this scalar
@@ -223,6 +245,7 @@ impl Clone for CuDFScalar {
             inner: Arc::clone(&self.inner),
             dt: self.dt.clone(),
             cached_scalar: RwLock::new(None),
+            stream: self.stream.clone(),
         }
     }
 }
@@ -255,6 +278,7 @@ unsafe impl Array for CuDFScalar {
                 inner: Arc::clone(&self.inner),
                 dt: self.dt.clone(),
                 cached_scalar: RwLock::new(None),
+                stream: self.stream.clone(),
             })
         }
     }

@@ -1,7 +1,7 @@
 use crate::column::CuDFColumn;
 use crate::data_type::arrow_type_to_cudf_data_type;
 use crate::device_resource::resource_ref;
-use crate::stream::stream_ref;
+use crate::stream::{ensure_same_stream, stream_ref};
 use crate::{CuDFColumnViewOrScalar, CuDFError};
 use arrow_schema::{ArrowError, DataType};
 use libcudf_sys::ffi;
@@ -99,7 +99,25 @@ pub fn cudf_binary_op(
             "Output type {output_type} not supported in CuDF"
         )))?;
     };
-    let stream = crate::stream::execution_stream()?;
+    if matches!(
+        (&left, &right),
+        (
+            CuDFColumnViewOrScalar::Scalar(_),
+            CuDFColumnViewOrScalar::Scalar(_)
+        )
+    ) {
+        return Err(ArrowError::InvalidArgumentError(
+            "binary operation requires at least one column".to_string(),
+        )
+        .into());
+    }
+    let execution_stream = left.execution_stream();
+    ensure_same_stream(
+        &execution_stream,
+        &right.execution_stream(),
+        "binary operation operands",
+    )?;
+    let stream = unsafe { execution_stream.view()? };
     let mr = ffi::get_current_device_resource_ref();
     let stream_view = stream_ref(&stream)?;
     let mr_ref = resource_ref(&mr)?;
@@ -135,12 +153,10 @@ pub fn cudf_binary_op(
                 mr_ref,
             )
         }
-        (CuDFColumnViewOrScalar::Scalar(_), CuDFColumnViewOrScalar::Scalar(_)) => {
-            return Err(ArrowError::InvalidArgumentError("".to_string()))?
-        }
+        (CuDFColumnViewOrScalar::Scalar(_), CuDFColumnViewOrScalar::Scalar(_)) => unreachable!(),
     }?;
     Ok(CuDFColumnViewOrScalar::ColumnView(
-        CuDFColumn::try_from_inner(result)?.into_view(),
+        CuDFColumn::try_from_inner_on_stream(result, execution_stream)?.into_view(),
     ))
 }
 
